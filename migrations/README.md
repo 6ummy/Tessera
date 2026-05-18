@@ -1,0 +1,29 @@
+# Tessera migrations
+
+Plain SQL files. Tool-agnostic — work with `psql`, drizzle-kit raw mode, or
+any client. Numbered in apply order.
+
+## Apply
+
+```bash
+# Local (running Postgres + Timescale + pgvector locally)
+psql "$DATABASE_URL" -f migrations/001_init.sql
+
+# Neon (free tier already has Timescale + pgvector available)
+psql "postgresql://USER:PASS@HOST.neon.tech/tessera?sslmode=require" \
+     -f migrations/001_init.sql
+```
+
+## Conventions
+
+- File name: `NNN_short_description.sql`, three-digit zero-padded.
+- Idempotent: every `CREATE TABLE` uses `IF NOT EXISTS`; `create_hypertable`
+  uses `if_not_exists => TRUE`.
+- One concept per migration. Don't bundle unrelated changes.
+- Never edit a migration after it's applied to any environment. Add a new one.
+
+## Current files
+
+| # | What it adds |
+|---|---|
+| 001 | Initial schema: market data (ohlcv, fundamentals, filings, macro, news), pre-computed features, analyst reports + memory, paper ledger, user layer, llm_call_log |

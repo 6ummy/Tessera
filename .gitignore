@@ -1,14 +1,50 @@
-node_modules
-.next
-out
-.env*.local
-.DS_Store
+# ─── Node ───
+node_modules/
+.next/
+out/
 *.log
+
+# ─── Python ───
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+.eggs/
+*.egg-info/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.hypothesis/
+
+# ─── Secrets / env ───
+.env
+.env.*.local
+.env.*
+!.env.example
+
+# ─── IDE / OS ───
+.DS_Store
+.vscode/
+.idea/
+.claude/
+
+# ─── Build / deploy ───
 .vercel
 next-env.d.ts
+dist/
+build/
 
-# Root-level original persona photos (canonical copies live in public/personas/)
+# ─── Generated deck artifacts (kept out of repo) ───
+tessera-deck.pdf
+slide-*.jpg
+
+# ─── Original-format root persona photos (canonical copies live in apps/web/public/personas/) ───
 /Warren.*
 /Cathie.*
 /Ray.*
 /Peter.*
+
+# ─── Compliance memos (gitignored — sensitive legal content) ───
+compliance/*.md
+!compliance/README.md
