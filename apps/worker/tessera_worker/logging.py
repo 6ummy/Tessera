@@ -18,6 +18,11 @@ def configure_logging() -> None:
         stream=sys.stdout,
         level=getattr(logging, s.log_level.upper(), logging.INFO),
     )
+    # Silence third-party request loggers so API keys in URLs never leak to
+    # stdout/Sentry. httpx by default logs every request at INFO including the
+    # full query string. urllib3 and openai/anthropic have similar habits.
+    for noisy in ("httpx", "httpcore", "urllib3", "openai", "anthropic"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
     structlog.configure(
         processors=[
             structlog.contextvars.merge_contextvars,
