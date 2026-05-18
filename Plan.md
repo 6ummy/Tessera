@@ -9,26 +9,43 @@
 
 ## 0. Where we are today (baseline)
 
-**Built and shipped (in repo, deployed-able to Vercel):**
-- Next.js 14 frontend with 4 routes (`/`, `/proposals`, `/dashboard`, `/how-it-works`)
-- Claude-design system (cream + coral + ink palette, Fraunces serif, JetBrains Mono)
+**Phase A is complete.** ✅ Updated 2026-05-18.
+
+**Built and shipped:**
+- Next.js 14 frontend with 4 routes (`/`, `/proposals`, `/dashboard`, `/how-it-works`) + Vercel-Cron-ready
+- Claude-design system (cream + coral + ink palette, Fraunces serif, JetBrains Mono) + inline mosaic SVG mark
 - 4 persona personas (Warren, Cathie, Ray, Peter) with photos, bios, and `personalities.md` system prompts
 - Slide-over persona detail with Thesis ↔ Chat toggle
-- Mock chat engine (keyword-matched response banks per persona)
-- Mock performance series (seeded random walks)
-- Mock proposals + reports (hand-curated)
+- Mock chat engine (keyword-matched response banks per persona) — frontend still reads this
+- Mock performance series, proposals, reports — frontend still reads this
+- **Python worker** (apps/worker) — FastAPI skeleton, SQLAlchemy + psycopg3, structlog
+- **Neon Postgres** live with TimescaleDB + pgvector, 14 tables, 001_init.sql applied
+- **5 production ingestors**: Alpaca EOD, Coinbase EOD, FRED macro, FMP fundamentals, NewsAPI
+- **51-ticker universe** spanning sectors each persona cares about
+- **Deterministic feature builder** — ret_*, vol_30d, rsi_14, sma_{20,50}, volume_z. 13/13 hypothesis tests pass.
+- **Daily orchestrator** (`ingest_daily.py`) — 6 sequential steps, idempotent, CLI flags
+- **Vercel Cron endpoint** (`/api/cron/daily`) — edge runtime, Bearer-auth via `CRON_SECRET`, schedule `30 21 * * 1-5`
+- **Connection smoke test** + **SPY canary** (0.49 bps vs Yahoo)
 
-**Not built:**
-- No backend
-- No data ingestion
-- No LLM calls (chat is mocked)
-- No auth (assumes `jshin`)
-- No broker integration
-- No real persona thesis generation
+**Production Neon state:**
+| Table | Rows |
+|---|---|
+| `ohlcv_1d` | ~14,000 |
+| `ticker_features` | 13,983 |
+| `macro_series` | 566 |
+| `fundamentals` | 255 |
+| `news` | 555 |
+
+**Still missing (Phase B onwards):**
+- No LLM calls yet (chat + theses both mocked)
+- No real auth (assumes `jshin`)
+- No broker integration (Alpaca only used for market data, no trading client)
 - No paper-trading engine
 - No risk gateway
+- Cloud Run worker not yet deployed (laptop runs the orchestrator; Vercel Cron returns noop)
+- Frontend still reads mock data (deferred — Phase B will inject real theses first)
 
-This plan takes the project from **demo** to **operational pilot**.
+This plan takes the project from **demo → Phase A done → operational pilot**.
 
 ---
 
@@ -62,20 +79,22 @@ and "implementation" weeks — they ship together).
 
 ---
 
-## 3. Phase A — Data backbone (Week 1)
+## 3. Phase A — Data backbone (Week 1) — ✅ DONE 2026-05-18
 
 **Goal**: Real market data, fundamentals, macro, and news flowing into Neon. Frontend reads from API routes instead of mock files.
 
-### Infrastructure (Mon–Tue)
-- [ ] Create Neon project (free tier), install TimescaleDB + pgvector extensions
-- [ ] Create GCP project; enable Cloud Run + Cloud Tasks + Secret Manager
-- [ ] Restructure repo into monorepo:
+**Actual result**: All ingestors + feature builder + daily orchestrator + Vercel Cron endpoint shipped. Frontend swap deferred to Phase B (user choice). Cloud Run deployment deferred — orchestrator runs from laptop for now and Vercel Cron returns `noop` until `WORKER_WEBHOOK_URL` is set.
+
+### Infrastructure (Mon–Tue) — ✅
+- [x] Create Neon project (free tier), install TimescaleDB + pgvector extensions
+- [ ] Create GCP project; enable Cloud Run + Cloud Tasks + Secret Manager *(deferred — not blocking; orchestrator runs locally)*
+- [x] Restructure repo into monorepo:
   ```
   apps/web/        # existing Next.js
   apps/worker/     # new Python (FastAPI for HTTP-triggered jobs)
   packages/shared/ # Pydantic schemas, Alpaca adapter, persona loader
   ```
-- [ ] Schema migration v1 (drizzle or alembic):
+- [x] Schema migration v1 (chose plain SQL via psql):
   ```
   ohlcv_1d          (ticker, date, ohlcv, vwap, source)
   fundamentals      (ticker, period, income_stmt, balance_sheet, cash_flow as jsonb)
@@ -88,24 +107,36 @@ and "implementation" weeks — they ship together).
   persona_trades    (id, persona_id, ts, ticker, side, qty, price, report_id)
   persona_performance(persona_id, date, pnl_day, pnl_cum, return_cum, sharpe_30d, mdd_30d)
   ```
-- [ ] Sentry on web + worker
+- [ ] Sentry on web + worker *(deferred — scaffolded in config but DSN not set)*
 
-### Ingestors + feature builder (Wed–Fri)
-- [ ] **Alpaca EOD ingestor** (US equities + ETFs, ~500 ticker universe)
-- [ ] **Coinbase EOD ingestor** (BTC, ETH, SOL, AVAX, LINK only)
-- [ ] **FMP fundamentals ingestor** (quarterly, 5 years back-fill)
-- [ ] **SEC EDGAR filings ingestor** (10-K, 10-Q, 8-K headers; full text to GCS)
-- [ ] **FRED macro ingestor** (~20 series: 2Y/10Y, CPI, unemployment, breakevens)
-- [ ] **NewsAPI + Reddit ingestor** with embedding (`bge-small-en` self-hosted or Anthropic)
-- [ ] **Feature builder** (`compute_features.py`): pandas + numpy, deterministic
-- [ ] **Property-based tests** on feature builder (hypothesis) — see risk: *feature builder bug propagates as LLM-blessed thesis*
-- [ ] **Canary asserts**: SPY 1y return must match external source (Yahoo, FRED) within 10 bps
-- [ ] Vercel Cron: trigger Cloud Run job daily at 16:30 ET
-- [ ] Frontend swap: `lib/mock/performance.ts` → `/api/performance` route querying Neon
+### Ingestors + feature builder — ✅
+- [x] **Alpaca EOD ingestor** — 51 tickers (US equities + ETFs); chunked, idempotent ON CONFLICT
+- [x] **Coinbase EOD ingestor** — BTC, ETH (300-candle paginated windows, public API)
+- [x] **FMP fundamentals ingestor** — `/stable/*` endpoints (legacy `/api/v3` returns 403); 30-day cache check in orchestrator
+- [ ] **SEC EDGAR filings ingestor** *(deferred to Phase B — `filings` table schema exists; not yet populated)*
+- [x] **FRED macro ingestor** — 20 series (yields, breakevens, CPI/PCE, unemployment, M2, Fed bs, VIX, USD)
+- [x] **NewsAPI ingestor** — 49 equities, "TICKER OR Company Name" query, in-process dedup. Embeddings deferred to Phase B (need Anthropic/Voyage or self-hosted bge-small).
+- [x] **Feature builder** (`features/compute.py`): deterministic pandas/numpy; ret_{1d,5d,30d,90d,1y}, vol_30d, rsi_14, sma_{20,50}, volume_z
+- [x] **Property-based tests** on feature builder — 13 hypothesis tests pass
+- [x] **Canary asserts**: SPY 1y return vs Yahoo → **0.49 bps diff** (threshold 100 bps)
+- [x] **Vercel Cron**: declared in `apps/web/vercel.json` (`30 21 * * 1-5`), endpoint at `/api/cron/daily` (edge runtime, Bearer auth via `CRON_SECRET`); pending `WORKER_WEBHOOK_URL` once Cloud Run is deployed
+- [ ] Frontend swap: `lib/mock/performance.ts` → `/api/performance` route *(deferred per user — Phase B will inject real theses first)*
 
-**Compression note**: previously two weeks (infra + ingestors). Doing both in one
-week assumes ingestors are written against the schema as it's being created —
-no separate "stabilize the schema, then build" pass.
+**End-to-end production results** (one full daily orchestrator run on Neon):
+| Step | Rows | Time |
+|---|---|---|
+| ohlcv_equity | 1,020 (delta upsert; cumulative ~14,000) | 2.4s |
+| ohlcv_crypto | 62 | 0.8s |
+| macro | 566 | 16s |
+| fundamentals | 255 | 7.7m (first run; 30-day cache after) |
+| news | 555 | 14s |
+| features | 13,983 | 8.4s |
+
+**Lessons from Phase A**:
+- FMP legacy `/api/v3/*` returns 403; must use `/stable/*` with `?symbol=` param. Doc'd in `check_connections.py`.
+- httpx default logger prints full URL incl. `?apikey=` — leaked NewsAPI + FMP keys before fix. Now silenced to WARNING in `logging.py`. Two keys had to be rotated.
+- SQLAlchemy + Neon connection string needs `postgresql+psycopg://` prefix; raw `postgresql://` defaults to psycopg2 driver which we don't install. Handled in `db._normalize_url`.
+- `unnest(:tickers::text[])` collides with psycopg param marker — moved freshness filter from SQL to Python in `_step_fundamentals`.
 
 ### Acceptance criteria
 - ✅ All 4 persona cards show metrics computed from real data, not seeded random
@@ -387,3 +418,4 @@ Each of these could be a future phase. Keeping them out of pilot scope is the di
 | 0.1 | 2026-05-18 | Initial plan covering A → F phases, 12-week timeline, F&F pilot scope |
 | 0.2 | 2026-05-18 | Timeline scaled by ½: 12 weeks → 6 weeks core (Phases A–D), F at wk 7+. Per-phase "Compression notes" added explaining what gets cut. |
 | 0.3 | 2026-05-18 | Added 3 risks from AI study group review: (1) feature builder bug propagating as LLM-blessed thesis, (2) Haiku screen false negatives, (3) mode collapse — LLM anchoring weight at cap. Added 2 open decisions (weight authority schema, screen funnel width). Wired specific tasks into Phase A (property tests + canary asserts), Phase B (hybrid selection + audit + promotion-rate dashboard), Phase C (weight-distribution telemetry). |
+| 0.4 | 2026-05-18 | **Phase A complete.** Marked tasks done in Section 3 with actual production metrics (1,020 ohlcv_equity rows, 13,983 features, SPY canary 0.49 bps, etc.). Updated baseline (Section 0) to reflect new monorepo + worker + 5 ingestors. Added "Lessons from Phase A" subsection capturing 4 real footguns hit (FMP legacy endpoint deprecation, httpx URL logging leak, SQLAlchemy psycopg2 default, `unnest(:tickers::text[])` SQL collision). Phase A took 1 working session, well under the 1-week budget. |

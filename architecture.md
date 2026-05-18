@@ -112,16 +112,32 @@ system prompts when wiring real LLM calls.
 The codebase right now is a **frontend-only demo** with mock data — no backend,
 no broker, no LLM. It exists to validate UX before backend investment.
 
-### What works
-- **Marketplace** (`/`) — landing page = persona grid; click any card opens a slide-over detail sheet.
+### Frontend MVP (shipped, 4 routes on Vercel)
+- **Marketplace** (`/`) — landing page = persona grid; click any card opens a slide-over detail sheet. Header logo is an inline SVG mosaic mark (coral / ink / sage tiles).
 - **Persona detail sheet** — biography, signature signals, full 1-year performance chart vs S&P 500, recent reports (accordion), latest portfolio, and a Chat toggle.
-- **Chat with analyst** — UI complete; mock response engine in `lib/mock/chat.ts` uses keyword matching against persona-specific response banks. Streams character-by-character to feel real. No LLM calls.
+- **Chat with analyst** — UI complete; mock response engine in `lib/mock/chat.ts` uses keyword matching against persona-specific response banks. Streams character-by-character to feel real. No LLM calls *yet* (Phase B will swap to Anthropic).
 - **Proposals** (`/proposals`) — two tabs: "By analyst" (4 portfolios side-by-side) and "Consensus" (cross-analyst agreement table).
 - **Dashboard** (`/dashboard`) — user account view with tabs: My portfolio, Leaderboard, Social feed. URL-synced (`?tab=…`).
 - **How it works** (`/how-it-works`) — customer-facing explanation of pipeline, safety, and compliance posture.
-- **Header user menu** — dropdown to Dashboard / Leaderboard / Social.
+- **Vercel Cron endpoint** (`/api/cron/daily`) — edge runtime, Bearer-auth via `CRON_SECRET`, scheduled `30 21 * * 1-5` in `vercel.json`. Returns `{status: "noop"}` until `WORKER_WEBHOOK_URL` is wired.
 
-### What is mocked
+### Phase A backend (shipped, runs against production Neon)
+- **Neon Postgres** provisioned (us-east-1, free tier), `001_init.sql` applied. 14 tables + 3 extensions (TimescaleDB, pgvector, uuid-ossp).
+- **Python worker** (apps/worker) with FastAPI skeleton, structured JSON logging, SQLAlchemy + psycopg3 session pool.
+- **5 ingestors operational**: Alpaca EOD (equities + ETFs), Coinbase EOD (BTC, ETH), FMP fundamentals (`/stable/` endpoints), FRED macro (20 series), NewsAPI (ticker-tagged headlines). All idempotent via `ON CONFLICT DO UPDATE`.
+- **Universe**: 51 tickers (49 equities + 2 crypto pairs) spanning the sectors each persona cares about.
+- **Feature builder** (`compute.py`): deterministic pandas/numpy module. Reads `ohlcv_1d`, writes `ticker_features`. Computes ret_{1d,5d,30d,90d,1y}, vol_30d, rsi_14, sma_{20,50}, volume_z. **This is the only path numerical features reach the LLM** (Phase B). 13 property-based tests on the math.
+- **Daily orchestrator** (`jobs/ingest_daily.py`): 6 sequential steps (ohlcv_equity → ohlcv_crypto → macro → fundamentals → news → features). CLI flags `--only`/`--skip`. Exit code 0/1 maps to Cloud Run Job success/failure.
+- **Connection smoke test** (`scripts/check_connections.py`): verifies all 6 external services + redacts secrets from any error output.
+- **Production state right now**:
+  - `ohlcv_1d`: ~14,000 rows (51 tickers × ~270 trading days)
+  - `ticker_features`: 13,983 rows
+  - `macro_series`: 566 rows from 20 FRED series
+  - `fundamentals`: 255 rows from 42 tickers (income + balance + cash flow as jsonb)
+  - `news`: 555 rows tagged to 42 tickers
+- **Canary**: SPY 1y return vs Yahoo Finance reference — diff **0.49 bps** (well inside 100 bps threshold).
+
+### Still mocked (Frontend reads these — Phase B/C swap)
 - All return series (seeded random walks in `lib/mock/performance.ts`).
 - All proposals (hand-curated in `lib/mock/proposals.ts`).
 - All reports (hand-written in `lib/mock/reports.ts`).
@@ -130,49 +146,106 @@ no broker, no LLM. It exists to validate UX before backend investment.
 
 ### File map
 ```
-app/
-  layout.tsx               # fonts, metadata
-  page.tsx                 # landing / marketplace
-  proposals/page.tsx       # by-analyst + consensus
-  dashboard/page.tsx       # my portfolio + leaderboard + social
-  how-it-works/page.tsx    # customer-facing explanation
-  globals.css              # Claude-design tokens
+apps/
+  web/                              # Next.js 14 frontend (deployable to Vercel)
+    app/
+      layout.tsx                    # fonts, metadata
+      page.tsx                      # landing / marketplace
+      proposals/page.tsx            # by-analyst + consensus
+      dashboard/page.tsx            # my portfolio + leaderboard + social
+      how-it-works/page.tsx         # customer-facing explanation
+      api/cron/daily/route.ts       # Vercel Cron entry (edge, Bearer-auth)
+      api/cron/README.md            # cron env vars + manual test
+      globals.css                   # Claude-design tokens
+    components/                     # persona-card, persona-detail-sheet,
+                                    # analyst-chat, report-list, header (with
+                                    # inline mosaic mark), ui/*
+    lib/mock/                       # personas, performance, proposals,
+                                    # reports, chat (Phase B replaces)
+    public/personas/                # warren.jpg, cathie.jpg, ray.jpg, peter.jpg
+    vercel.json                     # cron schedule "30 21 * * 1-5"
 
-components/
-  header.tsx               # sticky nav + user menu
-  persona-card.tsx         # marketplace card
-  persona-avatar.tsx       # photo with letter-fallback
-  persona-detail-sheet.tsx # slide-over with Thesis/Chat toggle
-  analyst-chat.tsx         # streaming chat UI
-  report-list.tsx          # accordion of analyst reports
-  cumulative-chart.tsx     # Recharts wrapper
-  sparkline.tsx
-  ui/ { button, badge, sheet, tabs }
+  worker/                           # Python batch worker (Cloud Run-ready)
+    pyproject.toml                  # pinned deps incl. anthropic, alpaca-py,
+                                    # pandas, sqlalchemy, psycopg, pgvector
+    tessera_worker/
+      config.py                     # Pydantic Settings, env-var single source
+      db.py                         # SQLAlchemy + psycopg3, session_scope()
+      logging.py                    # structlog JSON; silences httpx/anthropic
+                                    # loggers so API keys never leak
+      main.py                       # FastAPI: /health, /jobs/* triggers
+      universe.py                   # 51-ticker pilot universe with metadata
+      ingestors/
+        alpaca_eod.py               # equities + ETFs EOD bars
+        coinbase_eod.py             # BTC/ETH daily candles (public API)
+        fred_macro.py               # 20 macro series (yields, CPI, etc.)
+        fmp_fundamentals.py         # income/balance/cashflow as jsonb
+        newsapi_news.py             # ticker-tagged headlines + bodies
+      features/
+        compute.py                  # deterministic feature builder
+      agents/                       # (Phase B — empty)
+      risk/                         # (Phase C — empty)
+      jobs/
+        ingest_daily.py             # 6-step orchestrator (what cron triggers)
+    scripts/
+      check_connections.py          # smoke test all 6 services
+      ingest_spy_canary.py          # acceptance test (0.49 bps vs Yahoo)
+      run_universe_ingest_and_features.py  # end-to-end debug runner
+    tests/
+      test_features.py              # 13 hypothesis property tests
 
-lib/
-  utils.ts                 # cn, fmt, signClass
-  mock/
-    personas.ts            # 4 personas with age, photo, metrics
-    performance.ts         # seeded random-walk return series
-    proposals.ts           # current holdings per persona + consensus
-    reports.ts             # 2 written reports per persona
-    chat.ts                # keyword-matched response engine
+packages/
+  shared/
+    tessera_shared/schemas.py       # Pydantic contracts: AnalystReport,
+                                    # Proposal, RegimeProbabilities, Portfolio,
+                                    # Position, PersonaPerformance,
+                                    # RiskCheckResult, ChatMessage, Persona
 
-public/personas/           # warren.jpg, cathie.jpg, ray.jpg, peter.jpg
+migrations/
+  001_init.sql                      # v1 schema (Timescale + pgvector + 14 tables)
+
+docs/                               # phase retros (Phase B-onwards)
+build-deck.js                       # generates tessera-deck.pptx
 ```
 
 ---
 
 ## 7. Roadmap from here
 
-| Phase | Scope | Key adds |
+| Phase | Scope | Status |
 |---|---|---|
-| **A. Live data wiring** (now → 4 wks) | Replace mock data with real EOD + computed features | Neon schema, Alpaca/FMP/FRED ingestors, Python feature builder, Cloud Run scheduler |
-| **B. Real LLM theses** (wks 4–6) | Wire `respond()` and report generation to Claude | Anthropic SDK calls, prompt caching, Pydantic validators, citation verification |
-| **C. Paper execution** (wks 6–10) | Persona positions executed in paper; daily P&L attribution | Paper engine, ledger schema, mark-to-market, persona_performance computation |
-| **D. User auth + own portfolio** (wks 10–12) | Real user accounts following a persona on paper | Firebase Auth, Firestore portfolio_selections, push alerts on rebalance |
-| **E. Compliance review** (before live trading) | Securities-lawyer consult before any non-self user runs live | RIA exemption clarity, custody review, marketing disclaimer audit |
-| **F. Live trading (optional)** | Feature-flag flip; OAuth to user's Alpaca | No code rewrite — just enabling the live adapter |
+| **A. Live data wiring** | 5 ingestors + feature builder + universe + Vercel Cron + daily orchestrator | **✅ Done** — see Phase A retro below |
+| **B. Real LLM theses** (wk 2–3) | Wire `respond()` and report generation to Claude | ⏳ Next — data plane ready |
+| **C. Paper execution** (wk 4–5) | Persona positions executed in paper; daily P&L attribution | ⏳ Planned |
+| **D. User auth + own portfolio** (wk 6) | Real user accounts following a persona on paper | ⏳ Planned |
+| **E. Compliance review** (wk 6, parallel) | Securities-lawyer consult before any non-self user runs live | ⏳ Planned |
+| **F. Live trading (optional)** (wk 7+) | Feature-flag flip; OAuth to user's Alpaca | ⏳ Optional |
+
+### Phase A retro (what shipped)
+
+Built (real, in production against Neon):
+- **Monorepo restructure** — apps/web + apps/worker + packages/shared + migrations
+- **Neon Postgres** with TimescaleDB + pgvector — `001_init.sql` applied
+- **Universe** — 51 tickers across sectors (49 equities + 2 crypto)
+- **5 ingestors** — Alpaca EOD, Coinbase EOD, FRED macro, FMP fundamentals, NewsAPI
+- **Feature builder** — ret_*, vol_30d, rsi_14, sma_{20,50}, volume_z; 13 property-based tests
+- **Daily orchestrator** — `ingest_daily.py`, 6 steps, idempotent, CLI flags
+- **Vercel Cron** — `30 21 * * 1-5`, Bearer-auth endpoint, returns `noop` until worker is deployed
+
+Verified:
+- Connection check passes for all 6 external services
+- SPY 1y return canary: **0.49 bps** vs Yahoo (threshold 100 bps)
+- Full daily orchestrator: 6/6 steps green, ~8 min total (fundamentals dominates; 30-day cache afterwards)
+- All 13 property tests pass
+
+Deferred to Phase B/C:
+- Cloud Run worker deployment (currently runs from laptop; Vercel Cron returns noop)
+- Frontend swap from `lib/mock/*` to `/api/*` (per user request — Phase B will inject LLM-generated theses first, then frontend swap)
+
+### Open questions to resolve before Phase B
+- Decide if Cathie's universe should formally include crypto spot (BTC/ETH) or only equity proxies (COIN, MSTR).
+- Whether to ship Manager-curated portfolios (Cons/Bal/Aggr) as a separate `/proposals` tab, or keep the current 4-portfolio side-by-side as the only view.
+- Whether chat ("Chat with Warren") uses the same Sonnet calls as report generation (cheaper, slightly worse voice) or a fine-tuned Haiku per persona (more expensive to set up, much cheaper per call, stronger voice).
 
 ### Open questions to resolve before Phase B
 - Decide if Cathie's universe should formally include crypto spot (BTC/ETH) or only equity proxies (COIN, MSTR).
@@ -215,3 +288,4 @@ One-time: securities-lawyer consult (~$300) before Phase E.
 |---|---|---|
 | 0.1 | 2026-05-17 | Initial architecture: Vercel + Firebase + Cloud Run + Neon + Alpaca. PennyMaker brand. |
 | 0.2 | 2026-05-18 | Renamed PennyMaker → Tessera. Reflects current frontend-MVP state (4 personas with photos and ages, chat feature, dedicated how-it-works route, paper-only scope). Roadmap split into 6 phases. |
+| 0.3 | 2026-05-18 | Phase A complete. Monorepo (apps/web + apps/worker + packages/shared + migrations). Neon + Timescale + pgvector live. 5 ingestors (Alpaca, Coinbase, FRED, FMP, NewsAPI) + feature builder + daily orchestrator + Vercel Cron endpoint. 51-ticker universe. 13/13 property tests; SPY canary 0.49 bps vs Yahoo. File map and Phase A retro added; roadmap updated with status indicators. |
