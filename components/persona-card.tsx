@@ -1,0 +1,79 @@
+"use client";
+import { ArrowUpRight } from "lucide-react";
+import type { Persona } from "@/lib/mock/personas";
+import { ACCENT_CLASS } from "@/lib/mock/personas";
+import { SPARKLINES } from "@/lib/mock/performance";
+import { Sparkline } from "./sparkline";
+import { Badge } from "./ui/badge";
+import { PersonaAvatar } from "./persona-avatar";
+import { fmt, signClass, cn } from "@/lib/utils";
+
+const ACCENT_HEX: Record<Persona["accent"], string> = {
+  coral: "#D97757",
+  sage: "#6B8E6B",
+  plum: "#8B6B8E",
+  ink: "#1F1E1B",
+};
+
+export function PersonaCard({ persona, onOpen }: { persona: Persona; onOpen: (id: string) => void }) {
+  const a = ACCENT_CLASS[persona.accent];
+  const m = persona.metrics;
+
+  return (
+    <button
+      onClick={() => onOpen(persona.id)}
+      className="group relative flex h-full flex-col overflow-hidden rounded-3xl border border-ink-900/[0.06] bg-cream-50 p-6 text-left transition-all hover:-translate-y-0.5 hover:border-ink-900/[0.12] hover:shadow-[0_24px_60px_-20px_rgba(31,30,27,0.18)] ring-focus"
+    >
+      {/* corner accent */}
+      <div
+        className={cn("absolute -right-16 -top-16 h-40 w-40 rounded-full opacity-0 blur-3xl transition-opacity group-hover:opacity-40", a.dot.replace("bg-", "bg-"))}
+      />
+
+      <div className="flex items-start justify-between gap-3">
+        <PersonaAvatar persona={persona} size="lg" ring />
+        <Badge tone={persona.accent === "ink" ? "default" : persona.accent}>{persona.riskLabel}</Badge>
+      </div>
+
+      <div className="mt-4 flex items-center gap-2">
+        <div className={cn("h-1.5 w-1.5 rounded-full", a.dot)} />
+        <span className="text-xs font-medium uppercase tracking-[0.14em] text-ink-500">
+          {persona.archetype} · Age {persona.age}
+        </span>
+      </div>
+      <h3 className="display-serif mt-1 text-3xl text-ink-900">{persona.name}</h3>
+
+      <p className="mt-2 text-[15px] leading-relaxed text-ink-700">{persona.tagline}</p>
+
+      <div className="mt-6 grid grid-cols-3 gap-3">
+        <Metric label="1y" value={fmt.pct(m.return1y)} sign={m.return1y} />
+        <Metric label="Sharpe" value={fmt.num(m.sharpe)} />
+        <Metric label="MDD" value={fmt.pct(m.mdd)} sign={m.mdd} />
+      </div>
+
+      <div className="mt-5 h-12">
+        <Sparkline data={SPARKLINES[persona.id]} color={ACCENT_HEX[persona.accent]} height={48} />
+      </div>
+
+      <div className="mt-5 flex items-center justify-between border-t border-ink-900/[0.06] pt-4 text-xs">
+        <span className="text-ink-500">
+          Horizon · <span className="text-ink-700">{persona.horizon}</span>
+        </span>
+        <span className={cn("inline-flex items-center gap-1 font-medium text-ink-700 transition-transform group-hover:translate-x-0.5", a.text)}>
+          View thesis
+          <ArrowUpRight className="h-3.5 w-3.5" />
+        </span>
+      </div>
+    </button>
+  );
+}
+
+function Metric({ label, value, sign }: { label: string; value: string; sign?: number }) {
+  return (
+    <div>
+      <div className="text-[10px] uppercase tracking-[0.16em] text-ink-500">{label}</div>
+      <div className={cn("num mt-1 text-base font-medium", sign !== undefined ? signClass(sign) : "text-ink-900")}>
+        {value}
+      </div>
+    </div>
+  );
+}

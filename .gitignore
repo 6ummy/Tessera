@@ -1,0 +1,14 @@
+node_modules
+.next
+out
+.env*.local
+.DS_Store
+*.log
+.vercel
+next-env.d.ts
+
+# Root-level original persona photos (canonical copies live in public/personas/)
+/Warren.*
+/Cathie.*
+/Ray.*
+/Peter.*

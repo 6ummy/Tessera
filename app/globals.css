@@ -1,0 +1,57 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-serif: "Fraunces", Georgia, serif;
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+}
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    @apply bg-cream-100 text-ink-900 font-sans;
+    background-image:
+      radial-gradient(circle at 15% -10%, rgba(217, 119, 87, 0.06), transparent 40%),
+      radial-gradient(circle at 95% 110%, rgba(139, 107, 142, 0.05), transparent 45%);
+    background-attachment: fixed;
+  }
+  ::selection {
+    @apply bg-coral-500/20 text-ink-900;
+  }
+}
+
+@layer components {
+  .display-serif {
+    @apply font-serif tracking-tightest;
+    font-feature-settings: "ss01", "ss02";
+    font-variation-settings: "SOFT" 30, "WONK" 0;
+  }
+  .num {
+    @apply font-mono tabular-nums tracking-tight;
+    font-feature-settings: "tnum", "zero";
+  }
+  .surface {
+    @apply bg-cream-50 border border-ink-900/[0.06];
+  }
+  .surface-raised {
+    @apply bg-cream-50 border border-ink-900/[0.06] shadow-[0_1px_0_rgba(31,30,27,0.04),0_8px_28px_-12px_rgba(31,30,27,0.12)];
+  }
+  .ring-focus {
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-coral-500/40 focus-visible:ring-offset-2 focus-visible:ring-offset-cream-100;
+  }
+}
+
+/* Recharts polish */
+.recharts-cartesian-axis-tick text {
+  fill: #7C7870;
+  font-size: 11px;
+  font-family: var(--font-mono);
+}
+.recharts-tooltip-wrapper {
+  outline: none !important;
+}
