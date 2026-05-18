@@ -1,8 +1,27 @@
 "use client";
 import Link from "next/link";
 import { useState } from "react";
-import { ChevronDown, LayoutDashboard, Trophy, Users, LogOut, Sparkles } from "lucide-react";
+import { ChevronDown, LayoutDashboard, Trophy, Users, LogOut } from "lucide-react";
 import { cn } from "@/lib/utils";
+
+/** Tessera mark — 3×3 mosaic, 6 visible tiles (coral, ink, sage + 3 cream).
+ *  Matches the motif used on deck slides 1 and 17. */
+function TesseraMark({ className }: { className?: string }) {
+  // size each tile so the mark reads cleanly even at 24px
+  return (
+    <svg viewBox="0 0 36 36" className={className} xmlns="http://www.w3.org/2000/svg" aria-label="Tessera">
+      {/* row 0 */}
+      <rect x="1"  y="1"  width="10" height="10" fill="#D97757" />
+      <rect x="13" y="1"  width="10" height="10" fill="#EDEBE0" />
+      {/* row 1 */}
+      <rect x="13" y="13" width="10" height="10" fill="#1F1E1B" />
+      <rect x="25" y="13" width="10" height="10" fill="#EDEBE0" />
+      {/* row 2 */}
+      <rect x="13" y="25" width="10" height="10" fill="#EDEBE0" />
+      <rect x="25" y="25" width="10" height="10" fill="#6B8E6B" />
+    </svg>
+  );
+}
 
 export function Header({ variant = "transparent" }: { variant?: "transparent" | "solid" }) {
   const [open, setOpen] = useState(false);
@@ -17,10 +36,8 @@ export function Header({ variant = "transparent" }: { variant?: "transparent" | 
       )}
     >
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6">
-        <Link href="/" className="group flex items-center gap-2.5 ring-focus rounded-full">
-          <div className="grid h-7 w-7 place-items-center rounded-full bg-ink-900 text-cream-50">
-            <Sparkles className="h-3.5 w-3.5" />
-          </div>
+        <Link href="/" className="group flex items-center gap-2.5 ring-focus rounded-md">
+          <TesseraMark className="h-7 w-7" />
           <span className="display-serif text-lg font-medium tracking-tightest">Tessera</span>
         </Link>
 
