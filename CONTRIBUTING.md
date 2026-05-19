@@ -6,6 +6,17 @@ PR을 어떻게 보내고 머지하는지 적은 운영 매뉴얼입니다.
 처음 합류하시면: `README.md` → `architecture.md` → `Plan.md` →
 `personalities.md` 순서로 한 번 훑어보시고 이 문서로 돌아오세요.
 
+> Tessera는 **public open-source pilot**입니다. 코드는 공개돼 있고, GitHub
+> branch protection이 활성화돼 있어 모든 변경은 PR을 통해서만 main에 들어
+> 갑니다 (직접 push 금지). 외부 contributor의 issue/PR도 환영입니다.
+
+> **🆕 Git/GitHub 처음이신 분**: 너무 걱정 마세요. 아래 순서로 보시면 됩니다.
+> 1. **§0.5 한 줄 용어 사전** — branch, commit, PR이 뭔지 1분 안에
+> 2. **§2.0 첫 PR 5분 튜토리얼** — 복사·붙여넣기로 따라하기
+> 3. **§2.4 흔한 에러 + 해결법** — 막힐 때마다 여기
+>
+> 첫 PR 한 번만 해보면 그 다음부터는 같은 흐름 반복입니다.
+
 ---
 
 ## 0. 팀 & 트랙
@@ -16,6 +27,28 @@ PR을 어떻게 보내고 머지하는지 적은 운영 매뉴얼입니다.
 | **Quant** | 예슬 | Feature engineering, fundamentals 활용, backtest harness, risk gateway, performance attribution |
 | **Infra** | 윤채 | Cloud Run 배포, GCP IAM/Secret, GitHub Actions CI, Sentry/Grafana, cost alerts |
 | **All** | 정우 | 전체 코디네이션, 페르소나 voice 게이트키퍼, compliance 준비, 모든 PR 참여 |
+
+---
+
+## 0.5 Git/GitHub 용어 한 줄 사전
+
+처음 보시면 의미만 머리에 넣고, 막힐 때 다시 돌아오세요.
+
+| 용어 | 한 줄 |
+|---|---|
+| **repo (repository)** | 프로젝트 저장소. `https://github.com/6ummy/Tessera`가 우리 repo. |
+| **clone** | repo를 내 컴퓨터에 복사해 오는 것. 한 번만 함. |
+| **commit** | 변경사항 묶음 + 메시지를 history에 기록하는 단위. "저장 + 라벨". |
+| **branch** | 작업 분기. `main`은 안정판, `feature/...`는 내 작업방. |
+| **push** | 내 컴퓨터의 commit들을 GitHub에 올림. |
+| **pull** | GitHub의 최신 변경을 내 컴퓨터로 가져옴. |
+| **PR (Pull Request)** | "내 branch를 main에 합쳐 달라"는 요청. GitHub 페이지에서 만듦. |
+| **merge** | PR이 승인되어 main에 합쳐지는 것. |
+| **squash merge** | 여러 commit을 1개로 합쳐서 머지. 우리는 이거만 씀. |
+| **rebase** | 내 branch를 main 최신 위로 옮기는 것. conflict 해결할 때. |
+| **conflict** | 같은 줄을 두 사람이 다르게 고쳐서 git이 자동으로 못 합칠 때. |
+| **CODEOWNERS** | "이 파일은 누가 리뷰하나"를 미리 정해둔 파일. PR 만들면 자동으로 그 사람한테 알림. |
+| **CI (Continuous Integration)** | PR 만들 때 자동으로 돌아가는 검사 (lint, build, test). green ✅이면 통과. |
 
 ---
 
@@ -116,7 +149,61 @@ Why:  Plan.md Phase B Week 2 deliverable...
 
 ## 2. PR 흐름
 
-### 흐름
+### 2.0 처음 PR 한 번 해보기 — 5분 튜토리얼
+
+워밍업으로 docs 변경 1줄짜리 PR을 만들어 봅시다. 흐름을 익히는 게 목적.
+
+**Step 1. 작업 시작 전 main 최신으로 맞춤**
+```bash
+cd Tessera          # repo 폴더로 이동
+git checkout main   # main 브랜치로 전환
+git pull            # GitHub의 최신 main 가져옴
+```
+
+**Step 2. 새 branch 만들기**
+```bash
+git checkout -b docs/<본인이름>-onboarding
+# 예시: git checkout -b docs/hansol-onboarding
+```
+
+**Step 3. 아무 1줄 고침**
+- `CONTRIBUTING.md` 열어서 typo 하나 찾아 고침, 또는 본인 이름 옆에 작은 코멘트 추가.
+
+**Step 4. 변경사항 commit**
+```bash
+git status                                # 뭐가 바뀌었는지 확인
+git add CONTRIBUTING.md                   # 바뀐 파일을 staging
+git commit -m "docs: fix typo in §X"      # commit 메시지
+```
+
+**Step 5. GitHub에 push**
+```bash
+git push -u origin docs/<본인이름>-onboarding
+```
+
+성공하면 출력 끝에 이런 URL이 나옵니다:
+```
+remote: Create a pull request for 'docs/...' on GitHub by visiting:
+remote:      https://github.com/6ummy/Tessera/pull/new/docs/...
+```
+
+**Step 6. URL 클릭 → PR 생성**
+- GitHub PR 페이지가 열림.
+- description에 `.github/PULL_REQUEST_TEMPLATE.md` 내용이 **자동으로 채워져 있음**.
+- "What / Why / How" 짧게 채움 (typo fix면 "fix a small typo" 정도면 충분).
+- 우측 패널 보면 **Reviewers**에 자동으로 사람들이 잡혀 있음 (CODEOWNERS가 해줌).
+- 페이지 맨 아래 **"Create pull request"** 클릭.
+
+**Step 7. Reviewer가 ✓ 누르면 Squash merge**
+- 정우가 알림 받고 review → ✓ Approve.
+- PR 페이지 맨 아래 **"Squash and merge"** 초록색 버튼이 활성화됨 → 클릭 → Confirm.
+- 머지되면 본인 branch는 자동 삭제. main이 업데이트되고 Vercel이 재배포.
+
+축하합니다, 첫 PR 끝. 이게 모든 작업의 기본 흐름입니다.
+
+---
+
+### 표준 흐름
 1. **Issue 먼저** (가능하면) — 무엇을 왜 하는지 적고 라벨 (track + type).
 2. **Branch 생성** — 위 네이밍 규칙대로.
 3. **작업 + 로컬 테스트** — 본인 트랙의 acceptance 체크 (3절).
@@ -137,6 +224,70 @@ Why:  Plan.md Phase B Week 2 deliverable...
 - `personalities.md` → **정우만** 변경 권한 (CODEOWNERS로 강제. Personalities add 할때 추가 파일 애드후 정우가 merge). 페르소나 voice는 디자인 결정, 분산되면 일관성 깨짐.
 - `migrations/NNN_*.sql` → 번호 race condition. PR 보내기 직전 main의 latest 번호 확인하고 다음 번호 사용.
 - `packages/shared/tessera_shared/schemas.py` → LLM/Frontend/Quant 셋 다 의존. 변경 시 **3 트랙 review 모두** 필요.
+
+### 2.4 흔한 에러 + 해결법
+
+#### 🔴 `error: failed to push some refs ... Updates were rejected`
+누가 먼저 main에 머지했다는 뜻. 내 branch를 최신 main 위로 올려야 함.
+```bash
+git fetch origin
+git rebase origin/main
+# conflict 나면 파일 수정 후
+git add <충돌난 파일>
+git rebase --continue
+# 이후 다시
+git push --force-with-lease
+```
+
+#### 🔴 `remote: error: GH006: Protected branch update failed`
+main에 직접 push하려고 한 경우. branch를 만들어서 PR로 가야 함.
+```bash
+git checkout -b feature/<track>/<desc>
+git push -u origin feature/<track>/<desc>
+# 그 다음 GitHub UI에서 PR 생성
+```
+
+#### 🟡 Merge conflict (PR 페이지에 빨간 "This branch has conflicts" 뜸)
+GitHub 웹에서 풀리는 단순 conflict면 거기서 처리. 복잡하면 로컬에서:
+```bash
+git checkout feature/<my-branch>
+git fetch origin
+git rebase origin/main
+# 충돌 파일을 에디터로 열어 <<<<<<<, =======, >>>>>>> 사이를 정리
+git add <파일>
+git rebase --continue
+git push --force-with-lease
+```
+
+#### 🔴 CI 빨갛게 ❌ (status check failed)
+PR 페이지에서 "Details" 클릭 → 어느 단계가 깨졌는지 확인 → 로컬에서 같은 명령:
+- Frontend: `npm run build` / `npm run lint` (apps/web 안에서)
+- Worker: `pytest tests/` (apps/worker 안에서)
+- 고친 다음 `git commit` + `git push` → CI 자동 재실행.
+
+#### 🟡 실수로 main에 commit해버렸을 때 (아직 push 안 함)
+```bash
+# 마지막 commit을 새 branch로 옮기기
+git branch feature/<track>/<desc>     # 현재 위치에 새 branch 라벨
+git reset --hard origin/main          # main을 원격 상태로 되돌림
+git checkout feature/<track>/<desc>   # 새 branch로 이동
+git push -u origin feature/<track>/<desc>
+```
+
+#### 🔴 `.env` 실수로 commit하려 할 때
+`.gitignore`에 이미 있지만 한 번 더 확인:
+```bash
+git status              # .env가 보이면 큰일
+git restore --staged .env   # staging에서 빼기
+```
+
+#### 🟡 PR 만들었는데 reviewer가 자동 지정 안 됨
+- `.github/CODEOWNERS`에 본인 GitHub 핸들이 정확히 있는지 확인.
+- 해당 reviewer가 repo collaborator로 추가돼 있는지 정우(@6ummy)에게 확인 요청.
+
+#### 🟡 "I don't have permission to push" 비슷한 에러
+- 정우(@6ummy)가 본인을 collaborator로 추가했는지 확인 (Settings → Collaborators).
+- 안 됐으면 정우에게 GitHub 핸들 보내고 invite 요청.
 
 ---
 
@@ -266,8 +417,9 @@ ADR 한 장 = 무엇을 결정했고, 왜 그렇게 했고, 다른 옵션은 무
 
 ## 9. 도움 요청 / 막힐 때
 
-- **막힘**: GitHub issue로 olar `help-wanted` 라벨, 또는 Slack의 `#tessera` 채널 (TODO: 셋업)
-- **긴급**: 정우(@6ummy) 직접 DM
+- **PR/git 흐름이 막힘**: 먼저 §2.4 "흔한 에러 + 해결법"에 답이 있는지 확인.
+- **그 외 막힘**: GitHub issue로 `help-wanted` 라벨, 또는 Slack `#tessera` 채널 (TODO: 셋업).
+- **긴급**: 정우(@6ummy) 직접 DM.
 - **외부 API down**: 본인 외 다른 사람이 이미 처리 중일 수 있음. 먼저 issue 검색.
 
 ---
@@ -281,6 +433,7 @@ ADR 한 장 = 무엇을 결정했고, 왜 그렇게 했고, 다른 옵션은 무
 - [ ] CODEOWNERS에 본인 핸들 들어있는지 확인 (`.github/CODEOWNERS`)
 - [ ] PR template 한 번 읽기 (`.github/PULL_REQUEST_TEMPLATE.md`)
 - [ ] 본인용 dev API 키 받음 (Anthropic, Alpaca paper)
+- [ ] **§2.0 "처음 PR 5분 튜토리얼" 따라서 실제로 PR 1개 만들어봄** ← 가장 중요
 
 ---
 
