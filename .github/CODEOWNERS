@@ -4,43 +4,48 @@
 # Last matching pattern wins (most specific patterns last).
 # Reference: https://docs.github.com/en/repositories/managing-your-repositories-settings-and-security/customizing-your-repository/about-code-owners
 #
-# TODO before activating: replace placeholder handles with each member's
-# actual GitHub username, then enable "Require review from Code Owners"
-# in Settings → Branches → Branch protection rule for `main`.
+# Team handles (filled 2026-05-18):
+#   @6ummy           — 정우  (PM / all-tracks)
+#   @limserenahansol — 한솔  (Frontend + LLM)
+#   @yunchai-build   — 윤채  (LLM + Infra)
+#   @genius-chang    — 예슬  (Quant)
+#
+# Activation: enable "Require review from Code Owners" in
+# Settings → Branches → Branch protection rule for `main`.
 
 # ─── Defaults: 정우 sees every PR (PM / all-tracks role) ───────────────
 *                                       @6ummy
 
 # ─── Frontend track (한솔) ────────────────────────────────────────────
-apps/web/**                             @hansol-github-handle  @6ummy
+apps/web/**                             @limserenahansol  @6ummy
 
 # ─── LLM Pipeline (윤채, 한솔) ────────────────────────────────────────
-apps/worker/tessera_worker/agents/**    @yunchae-github-handle @hansol-github-handle @6ummy
-apps/worker/tessera_worker/main.py      @yunchae-github-handle @hansol-github-handle @6ummy
+apps/worker/tessera_worker/agents/**    @yunchai-build @limserenahansol @6ummy
+apps/worker/tessera_worker/main.py      @yunchai-build @limserenahansol @6ummy
 
 # Chat backend route lives on the web side but is functionally LLM territory
-apps/web/app/api/chat/**                @yunchae-github-handle @hansol-github-handle @6ummy
+apps/web/app/api/chat/**                @yunchai-build @limserenahansol @6ummy
 
 # ─── Quant (예슬) ─────────────────────────────────────────────────────
-apps/worker/tessera_worker/features/**  @yeseul-github-handle  @6ummy
-apps/worker/tessera_worker/risk/**      @yeseul-github-handle  @6ummy
-apps/worker/tessera_worker/ingestors/** @yeseul-github-handle  @6ummy
-apps/worker/tessera_worker/universe.py  @yeseul-github-handle  @6ummy
-apps/worker/tests/test_features.py      @yeseul-github-handle  @6ummy
+apps/worker/tessera_worker/features/**  @genius-chang  @6ummy
+apps/worker/tessera_worker/risk/**      @genius-chang  @6ummy
+apps/worker/tessera_worker/ingestors/** @genius-chang  @6ummy
+apps/worker/tessera_worker/universe.py  @genius-chang  @6ummy
+apps/worker/tests/test_features.py      @genius-chang  @6ummy
 
 # ─── Infra (윤채) ─────────────────────────────────────────────────────
-apps/worker/Dockerfile                  @yunchae-github-handle @6ummy
-apps/worker/pyproject.toml              @yunchae-github-handle @6ummy
-apps/worker/scripts/deploy_**           @yunchae-github-handle @6ummy
-apps/worker/tessera_worker/jobs/**      @yunchae-github-handle @6ummy
-apps/web/vercel.json                    @yunchae-github-handle @6ummy
-apps/web/app/api/cron/**                @yunchae-github-handle @6ummy
-.github/workflows/**                    @yunchae-github-handle @6ummy
+apps/worker/Dockerfile                  @yunchai-build @6ummy
+apps/worker/pyproject.toml              @yunchai-build @6ummy
+apps/worker/scripts/deploy_**           @yunchai-build @6ummy
+apps/worker/tessera_worker/jobs/**      @yunchai-build @6ummy
+apps/web/vercel.json                    @yunchai-build @6ummy
+apps/web/app/api/cron/**                @yunchai-build @6ummy
+.github/workflows/**                    @yunchai-build @6ummy
 
 # ─── Shared schemas — every track depends on this ────────────────────
 # Multiple owners means EVERY listed person must review before merge
 # (when "Require review from Code Owners" is enabled).
-packages/shared/**                      @yunchae-github-handle @hansol-github-handle @yeseul-github-handle @6ummy
+packages/shared/**                      @yunchai-build @limserenahansol @genius-chang @6ummy
 
 # ─── Persona voice — 정우 is the sole gatekeeper ─────────────────────
 # Voice consistency requires a single decision-maker; everyone else
@@ -50,12 +55,12 @@ personalities.md                        @6ummy
 # ─── Migrations — shared schema responsibility ───────────────────────
 # Both Quant (designs schema for features) and Infra (handles deploys)
 # review. Last reviewer should also run `psql -f` against staging Neon.
-migrations/**                           @yeseul-github-handle  @yunchae-github-handle @6ummy
+migrations/**                           @genius-chang  @yunchai-build @6ummy
 
 # ─── Docs that change product direction ──────────────────────────────
 # Treat plan/architecture changes as decisions worth all-tracks review.
-architecture.md                         @yunchae-github-handle @hansol-github-handle @yeseul-github-handle @6ummy
-Plan.md                                 @yunchae-github-handle @hansol-github-handle @yeseul-github-handle @6ummy
+architecture.md                         @yunchai-build @limserenahansol @genius-chang @6ummy
+Plan.md                                 @yunchai-build @limserenahansol @genius-chang @6ummy
 personalities.md                        @6ummy
 
 # Build/dev tooling docs — anyone can review
@@ -63,6 +68,6 @@ CONTRIBUTING.md                         @6ummy
 README.md                               @6ummy
 
 # ─── Lock files: anyone with the relevant track ──────────────────────
-apps/web/package.json                   @hansol-github-handle  @6ummy
-apps/web/package-lock.json              @hansol-github-handle  @6ummy
-apps/worker/pyproject.toml              @yunchae-github-handle @6ummy
+apps/web/package.json                   @limserenahansol  @6ummy
+apps/web/package-lock.json              @limserenahansol  @6ummy
+apps/worker/pyproject.toml              @yunchai-build @6ummy
