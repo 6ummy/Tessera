@@ -1,8 +1,18 @@
 <!--
+  Welcome.
+
+  - Team members:    see CONTRIBUTING.md §0 for your track.
+  - First-time contributor:  thanks for the interest. Quick context →
+      README.md (project overview)
+      CONTRIBUTING.md §2 (PR flow + acceptance checks)
+      .github/CODEOWNERS (who reviews what)
+    A CODEOWNERS-listed maintainer will be auto-requested as reviewer
+    based on the paths you changed.
+
   PR title format:  <track>: <short imperative>
-  e.g. "llm: add Warren persona runner with prompt caching"
-       "frontend: fix mobile nav overflow on /dashboard"
-       "quant: add FCF yield + PEG features from FMP fundamentals"
+    "llm: add Warren persona runner with prompt caching"
+    "frontend: fix mobile nav overflow on /dashboard"
+    "quant: add FCF yield + PEG features from FMP fundamentals"
 -->
 
 ## What
@@ -61,6 +71,7 @@
 - [ ] New env var → added to `.env.example`
 - [ ] New dep → version pinned in `pyproject.toml` / `package.json`
 - [ ] Branch is up to date with `main` (rebased)
+- [ ] CODEOWNERS-suggested reviewer is correct for changed paths (auto-routed; confirm in the right sidebar)
 
 ## Cost estimate (if LLM-related)
 

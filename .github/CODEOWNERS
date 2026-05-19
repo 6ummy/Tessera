@@ -5,13 +5,17 @@
 # Reference: https://docs.github.com/en/repositories/managing-your-repositories-settings-and-security/customizing-your-repository/about-code-owners
 #
 # Team handles (filled 2026-05-18):
-#   @6ummy           — 정우  (PM / all-tracks)
+#   @6ummy           — 정우  (PM / all-tracks, persona voice gatekeeper)
 #   @limserenahansol — 한솔  (Frontend + LLM)
 #   @yunchai-build   — 윤채  (LLM + Infra)
 #   @genius-chang    — 예슬  (Quant)
 #
-# Activation: enable "Require review from Code Owners" in
-# Settings → Branches → Branch protection rule for `main`.
+# Status: ACTIVE — repo is public, branch protection on `main` requires
+# CODEOWNERS approval. Anyone (including external contributors via fork)
+# must get an approval from the listed owner(s) before merge.
+#
+# Outside contributors: open a PR from your fork. The owner for the changed
+# paths will be auto-requested as reviewer. See CONTRIBUTING.md §2.
 
 # ─── Defaults: 정우 sees every PR (PM / all-tracks role) ───────────────
 *                                       @6ummy
