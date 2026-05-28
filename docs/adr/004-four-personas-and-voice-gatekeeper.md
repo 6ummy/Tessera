@@ -2,12 +2,12 @@
 
 | | |
 |---|---|
-| **Status** | Accepted |
+| **Status** | Partially superseded by [ADR-008](008-personalities-team-owned.md) (2026-05-19) — 4-persona 구성은 유효, 단독 voice gatekeeper 부분만 변경됨 |
 | **Date** | 2026-05-18 |
 | **Authors** | @6ummy |
 | **Tracks affected** | Persona Voice (primary), LLM Pipeline, Frontend |
 | **Supersedes** | — |
-| **Related** | `personalities.md`, `.github/CODEOWNERS` (`personalities.md @6ummy`), `architecture.md` §5 |
+| **Related** | `personalities.md`, `.github/CODEOWNERS`, `architecture.md` §5, [ADR-008](008-personalities-team-owned.md) |
 
 ---
 
