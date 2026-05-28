@@ -26,7 +26,11 @@ PR을 어떻게 보내고 머지하는지 적은 운영 매뉴얼입니다.
 | **LLM Pipeline** | 윤채, 한솔 | Anthropic SDK 연결, prompt assembly, Pydantic validation, citation check, chat backend |
 | **Quant** | 예슬 | Feature engineering, fundamentals 활용, backtest harness, risk gateway, performance attribution |
 | **Infra** | 윤채 | Cloud Run 배포, GCP IAM/Secret, GitHub Actions CI, Sentry/Grafana, cost alerts |
-| **All** | 정우 | 전체 코디네이션, 페르소나 voice 게이트키퍼, compliance 준비, 모든 PR 참여 |
+| **All** | 정우 | 전체 코디네이션, compliance 준비, 모든 PR 참여 |
+
+> **Persona voice는 팀 공동 책임** (ADR-008로 변경됨). `personalities.md`를
+> 누구나 PR로 변경 + approve 가능. 큰 변경 (페르소나 추가, hard rules 수정)
+> 시 카톡에서 가볍게 합의 후 PR.
 
 ---
 
@@ -221,7 +225,7 @@ remote:      https://github.com/6ummy/Tessera/pull/new/docs/...
 
 ### Conflict zones — 특히 조심
 
-- `personalities.md` → **정우만** 변경 권한 (CODEOWNERS로 강제. Personalities add 할때 추가 파일 애드후 정우가 merge). 페르소나 voice는 디자인 결정, 분산되면 일관성 깨짐.
+- `personalities.md` → **팀 전체 owner** (ADR-008). 누구나 PR + approve 가능. 다만 voice 일관성 유지 위해 페르소나 추가/삭제, hard rules 큰 변경은 카톡에서 사전 합의 권장.
 - `migrations/NNN_*.sql` → 번호 race condition. PR 보내기 직전 main의 latest 번호 확인하고 다음 번호 사용.
 - `packages/shared/tessera_shared/schemas.py` → LLM/Frontend/Quant 셋 다 의존. 변경 시 **3 트랙 review 모두** 필요.
 

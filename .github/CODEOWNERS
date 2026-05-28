@@ -5,7 +5,7 @@
 # Reference: https://docs.github.com/en/repositories/managing-your-repositories-settings-and-security/customizing-your-repository/about-code-owners
 #
 # Team handles (filled 2026-05-18):
-#   @6ummy           — 정우  (PM / all-tracks, persona voice gatekeeper)
+#   @6ummy           — 정우  (PM / all-tracks)
 #   @limserenahansol — 한솔  (Frontend + LLM)
 #   @yunchai-build   — 윤채  (LLM + Infra)
 #   @genius-chang    — 예슬  (Quant)
@@ -51,10 +51,11 @@ apps/web/app/api/cron/**                @yunchai-build @6ummy
 # (when "Require review from Code Owners" is enabled).
 packages/shared/**                      @yunchai-build @limserenahansol @genius-chang @6ummy
 
-# ─── Persona voice — 정우 is the sole gatekeeper ─────────────────────
-# Voice consistency requires a single decision-maker; everyone else
-# proposes via PR but only 정우 can approve `personalities.md` changes.
-personalities.md                        @6ummy
+# ─── Persona voice — open to whole team (ADR-008 supersedes ADR-004) ──
+# 누구나 personalities.md를 변경/approve 가능. 페르소나 voice가 분산
+# 책임으로 전환되어, 합류자들이 본인 관점에서 voice를 다듬을 수 있게 함.
+# 큰 변경 (페르소나 추가/삭제, hard rules 변경) 시 카톡에서 합의 후 PR.
+personalities.md                        @6ummy @limserenahansol @yunchai-build @genius-chang
 
 # ─── Migrations — shared schema responsibility ───────────────────────
 # Both Quant (designs schema for features) and Infra (handles deploys)
@@ -65,7 +66,7 @@ migrations/**                           @genius-chang  @yunchai-build @6ummy
 # Treat plan/architecture changes as decisions worth all-tracks review.
 architecture.md                         @yunchai-build @limserenahansol @genius-chang @6ummy
 Plan.md                                 @yunchai-build @limserenahansol @genius-chang @6ummy
-personalities.md                        @6ummy
+# (personalities.md ownership declared above with team-wide owners)
 
 # Build/dev tooling docs — anyone can review
 CONTRIBUTING.md                         @6ummy
