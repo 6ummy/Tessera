@@ -38,8 +38,8 @@
 
 - [ ] Frontend (한솔)
 - [ ] LLM Pipeline (윤채/한솔)
-- [ ] Quant (예슬)
-- [ ] Infra (윤채)
+- [ ] Quant (예슬/준원)
+- [ ] Infra (윤채/준원)
 - [ ] Docs / Persona voice (정우)
 - [ ] Cross-track  → 어느 트랙들: ____________
 

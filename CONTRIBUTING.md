@@ -21,12 +21,13 @@ PR을 어떻게 보내고 머지하는지 적은 운영 매뉴얼입니다.
 
 ## 0. 팀 & 트랙
 
-| 트랙 | 담당 | 핵심 책임 영역 |
-| **Frontend** | 한솔 | Next.js UI, UX 폴리시, 모바일 반응형, 시각화, real-data swap |
-| **LLM Pipeline** | 윤채, 한솔 | Anthropic SDK 연결, prompt assembly, Pydantic validation, citation check, chat backend |
-| **Quant** | 예슬 | Feature engineering, fundamentals 활용, backtest harness, risk gateway, performance attribution |
-| **Infra** | 윤채 | Cloud Run 배포, GCP IAM/Secret, GitHub Actions CI, Sentry/Grafana, cost alerts |
-| **All** | 정우 | 전체 코디네이션, 페르소나 voice 게이트키퍼, compliance 준비, 모든 PR 참여 |
+| 트랙 | 담당 | GitHub | 핵심 책임 영역 |
+|---|---|---|---|
+| **Frontend** | 한솔 | @limserenahansol | Next.js UI, UX 폴리시, 모바일 반응형, 시각화, real-data swap |
+| **LLM Pipeline** | 윤채, 한솔 | @yunchai-build, @limserenahansol | Anthropic SDK 연결, prompt assembly, Pydantic validation, citation check, chat backend |
+| **Quant** | 예슬, 준원 | @genius-chang, @jlee0810 | Feature engineering, fundamentals 활용, backtest harness, risk gateway, performance attribution |
+| **Infra** | 윤채, 준원 | @yunchai-build, @jlee0810 | Cloud Run 배포, GCP IAM/Secret, GitHub Actions CI, Sentry/Grafana, cost alerts |
+| **All** | 정우 | @6ummy | 전체 코디네이션, 페르소나 voice 게이트키퍼, compliance 준비, 모든 PR 참여 |
 
 ---
 
