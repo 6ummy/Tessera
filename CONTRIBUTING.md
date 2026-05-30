@@ -20,7 +20,7 @@ PR을 어떻게 보내고 머지하는지 적은 운영 매뉴얼입니다.
 ---
 
 ## 0. 팀 & 트랙
-
+|---|---|---|
 | 트랙 | 담당 | 핵심 책임 영역 |
 | **Frontend** | 한솔 | Next.js UI, UX 폴리시, 모바일 반응형, 시각화, real-data swap |
 | **LLM Pipeline** | 윤채, 한솔 | Anthropic SDK 연결, prompt assembly, Pydantic validation, citation check, chat backend |
