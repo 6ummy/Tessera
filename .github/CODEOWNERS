@@ -4,12 +4,12 @@
 # Last matching pattern wins (most specific patterns last).
 # Reference: https://docs.github.com/en/repositories/managing-your-repositories-settings-and-security/customizing-your-repository/about-code-owners
 #
-# Team handles (filled 2026-05-18):
-#   @6ummy           — 정우  (PM / all-tracks)
-#   @limserenahansol — 한솔  (Frontend + LLM)
-#   @yunchai-build   — 윤채  (LLM + Infra)
-#   @genius-chang    — 예슬  (Quant)
-#   @jlee0810        - 준원  (Quant + Infra)
+# Team handles:
+#   @6ummy           — 정우   (PM / all-tracks)
+#   @limserenahansol — 한솔   (Frontend + LLM)
+#   @yunchai-build   — 윤채   (LLM + Infra)
+#   @genius-chang    — 예슬   (Quant)
+#   @jlee0810        — 준원   (Infra + Quant)  ← joined 2026-05-19
 #
 # Status: ACTIVE — repo is public, branch protection on `main` requires
 # CODEOWNERS approval. Anyone (including external contributors via fork)
@@ -31,26 +31,26 @@ apps/worker/tessera_worker/main.py      @yunchai-build @limserenahansol @6ummy
 # Chat backend route lives on the web side but is functionally LLM territory
 apps/web/app/api/chat/**                @yunchai-build @limserenahansol @6ummy
 
-# ─── Quant (예슬) ─────────────────────────────────────────────────────
-apps/worker/tessera_worker/features/**  @genius-chang  @6ummy
-apps/worker/tessera_worker/risk/**      @genius-chang  @6ummy
-apps/worker/tessera_worker/ingestors/** @genius-chang  @6ummy
-apps/worker/tessera_worker/universe.py  @genius-chang  @6ummy
-apps/worker/tests/test_features.py      @genius-chang  @6ummy
+# ─── Quant (예슬, 준원) ───────────────────────────────────────────────
+apps/worker/tessera_worker/features/**  @genius-chang  @jlee0810 @6ummy
+apps/worker/tessera_worker/risk/**      @genius-chang  @jlee0810 @6ummy
+apps/worker/tessera_worker/ingestors/** @genius-chang  @jlee0810 @6ummy
+apps/worker/tessera_worker/universe.py  @genius-chang  @jlee0810 @6ummy
+apps/worker/tests/test_features.py      @genius-chang  @jlee0810 @6ummy
 
-# ─── Infra (윤채) ─────────────────────────────────────────────────────
-apps/worker/Dockerfile                  @yunchai-build @6ummy
-apps/worker/pyproject.toml              @yunchai-build @6ummy
-apps/worker/scripts/deploy_**           @yunchai-build @6ummy
-apps/worker/tessera_worker/jobs/**      @yunchai-build @6ummy
-apps/web/vercel.json                    @yunchai-build @6ummy
-apps/web/app/api/cron/**                @yunchai-build @6ummy
-.github/workflows/**                    @yunchai-build @6ummy
+# ─── Infra (윤채, 준원) ───────────────────────────────────────────────
+apps/worker/Dockerfile                  @yunchai-build @jlee0810 @6ummy
+apps/worker/pyproject.toml              @yunchai-build @jlee0810 @6ummy
+apps/worker/scripts/deploy_**           @yunchai-build @jlee0810 @6ummy
+apps/worker/tessera_worker/jobs/**      @yunchai-build @jlee0810 @6ummy
+apps/web/vercel.json                    @yunchai-build @jlee0810 @6ummy
+apps/web/app/api/cron/**                @yunchai-build @jlee0810 @6ummy
+.github/workflows/**                    @yunchai-build @jlee0810 @6ummy
 
 # ─── Shared schemas — every track depends on this ────────────────────
 # Multiple owners means EVERY listed person must review before merge
 # (when "Require review from Code Owners" is enabled).
-packages/shared/**                      @yunchai-build @limserenahansol @genius-chang @6ummy
+packages/shared/**                      @yunchai-build @limserenahansol @genius-chang @jlee0810 @6ummy
 
 # ─── Persona voice — open to whole team (ADR-008 supersedes ADR-004) ──
 # 누구나 personalities.md를 변경/approve 가능. 페르소나 voice가 분산
@@ -61,13 +61,13 @@ personalities.md                        @6ummy @limserenahansol @yunchai-build @
 # ─── Migrations — shared schema responsibility ───────────────────────
 # Both Quant (designs schema for features) and Infra (handles deploys)
 # review. Last reviewer should also run `psql -f` against staging Neon.
-migrations/**                           @genius-chang  @yunchai-build @6ummy
+migrations/**                           @genius-chang  @yunchai-build @jlee0810 @6ummy
 
 # ─── Docs that change product direction ──────────────────────────────
 # Treat plan/architecture changes as decisions worth all-tracks review.
-architecture.md                         @yunchai-build @limserenahansol @genius-chang @6ummy
-Plan.md                                 @yunchai-build @limserenahansol @genius-chang @6ummy
-# (personalities.md ownership declared above with team-wide owners)
+architecture.md                         @yunchai-build @limserenahansol @genius-chang @jlee0810 @6ummy
+Plan.md                                 @yunchai-build @limserenahansol @genius-chang @jlee0810 @6ummy
+# (personalities.md ownership declared above with team-wide owners — ADR-008)
 
 # Build/dev tooling docs — anyone can review
 CONTRIBUTING.md                         @6ummy
@@ -76,4 +76,4 @@ README.md                               @6ummy
 # ─── Lock files: anyone with the relevant track ──────────────────────
 apps/web/package.json                   @limserenahansol  @6ummy
 apps/web/package-lock.json              @limserenahansol  @6ummy
-apps/worker/pyproject.toml              @yunchai-build @6ummy
+apps/worker/pyproject.toml              @yunchai-build @jlee0810 @6ummy
