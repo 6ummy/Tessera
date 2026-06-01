@@ -64,17 +64,18 @@ Proposed → Accepted → (시간 흐름) → Deprecated
 | [001](001-monorepo-structure.md) | Monorepo (apps/web + apps/worker + packages/shared + migrations) | Accepted | 2026-05-18 |
 | [002](002-postgres-timescale-pgvector.md) | One Postgres (Timescale + pgvector) instead of separate stores | Accepted | 2026-05-18 |
 | [003](003-anthropic-claude-only.md) | Anthropic Claude only (no OpenAI / Gemini / multi-provider) | Accepted | 2026-05-18 |
-| [004](004-four-personas-and-voice-gatekeeper.md) | Four personas + single voice gatekeeper (정우) | Accepted | 2026-05-18 |
+| [004](004-four-personas-and-voice-gatekeeper.md) | Four personas + single voice gatekeeper (정우) | Partially superseded by 008 | 2026-05-18 |
 | [005](005-hallucination-defense-numbers-in-code.md) | Hallucination defense — LLM writes narrative, Python computes numbers | Accepted | 2026-05-18 |
 | [006](006-vercel-cloud-run-split.md) | Frontend on Vercel, Worker on Cloud Run (split, not unified) | Accepted | 2026-05-18 |
 | [007](007-public-open-source-repo.md) | Make repo public instead of paying for GitHub Pro / Team | Accepted | 2026-05-18 |
+| [008](008-personalities-team-owned.md) | Open `personalities.md` ownership to whole team (supersedes 004 단독 gatekeeper part) | Accepted | 2026-05-19 |
 
 ## 백로그 (앞으로 작성할 ADR)
 
-- **ADR-008** (예정, Phase C 결정 후): `conviction`-only schema 전환 — mode collapse 텔레메트리 결과 보고 (Risk Register #13)
-- **ADR-009** (예정): Cathie의 spot crypto exposure (Coinbase OAuth) 추가 여부
-- **ADR-010** (예정, 사용자 수 > 20): Manager 페르소나 (Mara) 도입 — 4개 portfolio를 Cons/Bal/Aggr 3개로 curate
-- **ADR-011** (예정, 외부 contributor 받기 전): LICENSE 선택 (MIT / Apache 2.0 / BUSL)
-- **ADR-012** (예정, Phase D+): Real-time intraday data feed 도입 여부
+- **ADR-009** (예정, Phase C 결정 후): `conviction`-only schema 전환 — mode collapse 텔레메트리 결과 보고 (Risk Register #13)
+- **ADR-010** (예정): Cathie의 spot crypto exposure (Coinbase OAuth) 추가 여부
+- **ADR-011** (예정, 사용자 수 > 20): Manager 페르소나 (Mara) 도입 — 4개 portfolio를 Cons/Bal/Aggr 3개로 curate
+- **ADR-012** (예정, 외부 contributor 받기 전): LICENSE 선택 (MIT / Apache 2.0 / BUSL)
+- **ADR-013** (예정, Phase D+): Real-time intraday data feed 도입 여부
 
 새 결정 내릴 때 백로그에서 가까운 게 있으면 함께 빈 ADR로 추가하면 좋습니다.
