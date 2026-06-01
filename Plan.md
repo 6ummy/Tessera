@@ -217,6 +217,8 @@ to 5 per persona; defer voice tuning to post-launch iteration.
 - [ ] **Push notification on rebalance**: FCM → browser
 - [ ] **Sentry alert**: paper engine error → page within 5 min
 - [ ] **Skeleton/error states**: all frontend reads have loading + error UIs
+- [ ] **Quant data integrity gates**: point-in-time guard, stale-data check, adjusted-price policy, and invalid-feature handling before leaderboard/backtest metrics are written
+- [ ] **Leakage tests for backtest mode**: ensure feature_date never overlaps with target_return_window and no post-rebalance data is used
 
 **Compression note**: previously three weeks. The biggest sacrifice is the
 length of real-life paper track record collected by end of Phase C — only
