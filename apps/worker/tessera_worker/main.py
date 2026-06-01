@@ -7,22 +7,17 @@ For long-running batch (>60s), prefer Cloud Run Jobs invoked directly:
 
 from __future__ import annotations
 
-import sentry_sdk
 from fastapi import FastAPI
 
 from tessera_worker.config import get_settings
 from tessera_worker.logging import configure_logging, get_logger
+from tessera_worker.observability import init_sentry
 
 configure_logging()
 log = get_logger(__name__)
 
 _settings = get_settings()
-if _settings.sentry_dsn:
-    sentry_sdk.init(
-        dsn=_settings.sentry_dsn,
-        environment=_settings.env,
-        traces_sample_rate=0.1,
-    )
+init_sentry()
 
 app = FastAPI(title="Tessera Worker", version="0.1.0")
 

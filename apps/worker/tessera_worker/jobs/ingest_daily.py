@@ -170,6 +170,10 @@ def run(only: list[str] | None = None, skip: list[str] | None = None) -> list[St
 
 
 def main(argv: list[str] | None = None) -> int:
+    # CLI entry — init Sentry here too (FastAPI path inits in main.py).
+    from tessera_worker.observability import init_sentry
+    init_sentry()
+
     parser = argparse.ArgumentParser(description="Tessera daily ingest")
     parser.add_argument("--only", nargs="+", choices=list(STEPS),
                         help="Run only these steps (default: all)")
@@ -179,13 +183,14 @@ def main(argv: list[str] | None = None) -> int:
 
     results = run(only=args.only, skip=args.skip)
 
-    # Console summary (always — Cloud Run captures stdout for logs)
+    # Console summary (always — Cloud Run captures stdout for logs).
+    # Use ASCII only — Windows cp1252 consoles can't encode box-drawing chars.
     print()
-    print("─── ingest_daily summary ───")
+    print("--- ingest_daily summary ---")
     for r in results:
-        flag = "✓" if r.ok else "✗"
+        flag = "OK " if r.ok else "ERR"
         det = " ".join(f"{k}={v}" for k, v in r.details.items()) if r.ok else r.error
-        print(f"  {flag} {r.name:14}  {r.duration_ms:>6} ms  {det}")
+        print(f"  [{flag}] {r.name:14}  {r.duration_ms:>6} ms  {det}")
     return 0 if all(r.ok for r in results) else 1
 
 
