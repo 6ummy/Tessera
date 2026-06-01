@@ -57,7 +57,8 @@ class Settings(BaseSettings):
     feature_live_trading: bool = Field(False, description="Never enable without explicit user OAuth + compliance review")
 
     # ── Observability ──
-    sentry_dsn: str = Field("")
+    sentry_dsn: str = Field("", description="Sentry DSN for the tessera-worker project. Blank → Sentry disabled.")
+    sentry_environment: str = Field("local", description="Tag attached to events (local / staging / production)")
 
 
 @lru_cache
