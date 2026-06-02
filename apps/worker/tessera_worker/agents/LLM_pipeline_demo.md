@@ -6,8 +6,19 @@ runner in Phase B. Pairs with `demo_warren_aapl.py` in this directory.
 ```bash
 cd apps/worker
 .\.venv\Scripts\Activate.ps1            # mac/linux: source .venv/bin/activate
+
+# (a) See what data Warren can actually pull from (universe + history depth)
+python -m tessera_worker.features.demo_data_explorer
+
+# (b) Assemble a real prompt for Warren on AAPL
 python -m tessera_worker.agents.demo_warren_aapl
 ```
+
+> **Data depth note (2026-06-02)**: fundamentals now cover 39/42 equity
+> tickers (was 20/42) thanks to the SEC XBRL companyfacts ingestor. Equity
+> price history backfilled to ~6 yrs, macro to series inception (some go
+> back to 1948). So when the persona prompt cites "Apple's 5y FCF trend",
+> the underlying numbers are real — not synthetic.
 
 The script connects to the shared Neon DB, gathers all six inputs Warren's
 prompt would need to write a real thesis on AAPL, then **renders a fully
