@@ -20,10 +20,10 @@
 - Mock performance series, proposals, reports — frontend still reads this
 - **Python worker** (apps/worker) — FastAPI skeleton, SQLAlchemy + psycopg3, structlog
 - **Neon Postgres** live with TimescaleDB + pgvector, 14 tables, 001_init.sql applied
-- **5 production ingestors**: Alpaca EOD, Coinbase EOD, FRED macro, FMP fundamentals, NewsAPI
+- **6 production ingestors**: Alpaca EOD, Coinbase EOD, FRED macro, FMP fundamentals, NewsAPI, SEC EDGAR (10-K + 10-Q with GCS raw HTML)
 - **51-ticker universe** spanning sectors each persona cares about
 - **Deterministic feature builder** — ret_*, vol_30d, rsi_14, sma_{20,50}, volume_z. 13/13 hypothesis tests pass.
-- **Daily orchestrator** (`ingest_daily.py`) — 6 sequential steps, idempotent, CLI flags
+- **Daily orchestrator** (`ingest_daily.py`) — 7 sequential steps, idempotent, CLI flags
 - **Vercel Cron endpoint** (`/api/cron/daily`) — edge runtime, Bearer-auth via `CRON_SECRET`, schedule `30 21 * * 1-5`
 - **Connection smoke test** + **SPY canary** (0.49 bps vs Yahoo)
 

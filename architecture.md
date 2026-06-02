@@ -124,10 +124,10 @@ no broker, no LLM. It exists to validate UX before backend investment.
 ### Phase A backend (shipped, runs against production Neon)
 - **Neon Postgres** provisioned (us-east-1, free tier), `001_init.sql` applied. 14 tables + 3 extensions (TimescaleDB, pgvector, uuid-ossp).
 - **Python worker** (apps/worker) with FastAPI skeleton, structured JSON logging, SQLAlchemy + psycopg3 session pool.
-- **5 ingestors operational**: Alpaca EOD (equities + ETFs), Coinbase EOD (BTC, ETH), FMP fundamentals (`/stable/` endpoints), FRED macro (20 series), NewsAPI (ticker-tagged headlines). All idempotent via `ON CONFLICT DO UPDATE`.
+- **6 ingestors operational**: Alpaca EOD (equities + ETFs), Coinbase EOD (BTC, ETH), FMP fundamentals (`/stable/` endpoints), FRED macro (20 series), NewsAPI (ticker-tagged headlines), SEC EDGAR (10-K + 10-Q with GCS raw HTML — added 2026-06-01 in Phase B). All idempotent via `ON CONFLICT DO UPDATE`.
 - **Universe**: 51 tickers (49 equities + 2 crypto pairs) spanning the sectors each persona cares about.
 - **Feature builder** (`compute.py`): deterministic pandas/numpy module. Reads `ohlcv_1d`, writes `ticker_features`. Computes ret_{1d,5d,30d,90d,1y}, vol_30d, rsi_14, sma_{20,50}, volume_z. **This is the only path numerical features reach the LLM** (Phase B). 13 property-based tests on the math.
-- **Daily orchestrator** (`jobs/ingest_daily.py`): 6 sequential steps (ohlcv_equity → ohlcv_crypto → macro → fundamentals → news → features). CLI flags `--only`/`--skip`. Exit code 0/1 maps to Cloud Run Job success/failure.
+- **Daily orchestrator** (`jobs/ingest_daily.py`): 7 sequential steps (ohlcv_equity → ohlcv_crypto → macro → fundamentals → news → filings → features). CLI flags `--only`/`--skip`. Exit code 0/1 maps to Cloud Run Job success/failure.
 - **Connection smoke test** (`scripts/check_connections.py`): verifies all 6 external services + redacts secrets from any error output.
 - **Production state right now** (snapshot 2026-06-01, after first Cloud Run-driven run + EDGAR step shipped):
   - `ohlcv_1d`: ~14,600 rows (53 tickers × ~270 trading days)
@@ -383,12 +383,13 @@ apps/
         fred_macro.py               # 20 macro series (yields, CPI, etc.)
         fmp_fundamentals.py         # income/balance/cashflow as jsonb
         newsapi_news.py             # ticker-tagged headlines + bodies
+        sec_edgar.py                # 10-K + 10-Q filings → Neon + GCS
       features/
         compute.py                  # deterministic feature builder
       agents/                       # (Phase B — empty)
       risk/                         # (Phase C — empty)
       jobs/
-        ingest_daily.py             # 6-step orchestrator (what cron triggers)
+        ingest_daily.py             # 7-step orchestrator (what cron triggers)
     scripts/
       check_connections.py          # smoke test all 6 services
       ingest_spy_canary.py          # acceptance test (0.49 bps vs Yahoo)
