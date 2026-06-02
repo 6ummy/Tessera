@@ -562,6 +562,7 @@ to 5 per persona; defer voice tuning to post-launch iteration.
 - [ ] **Skeleton/error states**: all frontend reads have loading + error UIs
 - [ ] **Quant data integrity gates**: point-in-time guard, stale-data check, adjusted-price policy, and invalid-feature handling before leaderboard/backtest metrics are written
 - [ ] **Leakage tests for backtest mode**: ensure feature_date never overlaps with target_return_window and no post-rebalance data is used
+- [ ] **SEC EDGAR XBRL fundamentals parser** (Quant) — replace FMP for fundamentals coverage, or at least cover the ~29 tickers FMP free tier blocks. SEC's XBRL filings are the source of truth for FMP / Tiingo / Yahoo numbers; parsing them ourselves removes the per-symbol gating problem permanently and is unmetered. Implementation: use `python-xbrl` or `arelle` to parse the 10-K/10-Q HTML already in `gs://tessera-raw/edgar/` into structured income/balance/cashflow rows; upsert into the existing `fundamentals` table with `source='edgar'` (we'd add a column). Trade-off vs FMP Starter ($14/mo): one-time ~1-2 week implementation but zero ongoing cost + complete US-listed coverage forever. Decide based on Phase B Week 3 review (if FMP $14/mo still leaves gaps or if data quality differs, prioritize XBRL).
 
 **Compression note**: previously three weeks. The biggest sacrifice is the
 length of real-life paper track record collected by end of Phase C — only
