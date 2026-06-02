@@ -108,7 +108,20 @@ The `macro_series` table has 37 FRED series (yields, FX, energy, credit
 spreads, etc.). Each persona/ticker pair should pull only the ~3–8 that
 actually move that thesis — feeding all 37 every call wastes tokens.
 
-Starter mappings, refine as you go:
+**The demo file already implements this pattern** — `MACRO_BY_PERSONA` and
+`TICKER_MACRO_OVERLAY` dicts at the top of `demo_warren_aapl.py`, composed
+by the `macros_for(persona, ticker)` helper. The query in `fetch_inputs()`
+calls that helper instead of using a hardcoded list. Ray's persona is
+declared as `"ALL"` and the query special-cases that to pull every series.
+
+**The overlay is data-driven, not guessed**: run
+`python -m tessera_worker.features.demo_macro_sensitivity` to compute
+60-day rolling correlations between each ticker's daily return and every
+macro series's daily delta, ranked by absolute correlation. The script
+prints a copy-pasteable `TICKER_MACRO_OVERLAY = {...}` dict you can drop
+into `demo_warren_aapl.py`. Re-run weekly to keep aligned with regime.
+
+Real values from the 2026-06-02 audit (top-3 macro per ticker):
 
 ```python
 MACRO_BY_PERSONA = {
