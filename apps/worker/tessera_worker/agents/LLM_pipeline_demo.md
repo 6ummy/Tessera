@@ -15,10 +15,24 @@ python -m tessera_worker.agents.demo_warren_aapl
 ```
 
 > **Data depth note (2026-06-02)**: fundamentals now cover 39/42 equity
-> tickers (was 20/42) thanks to the SEC XBRL companyfacts ingestor. Equity
-> price history backfilled to ~6 yrs, macro to series inception (some go
-> back to 1948). So when the persona prompt cites "Apple's 5y FCF trend",
-> the underlying numbers are real — not synthetic.
+> tickers (was 20/42) thanks to the SEC XBRL companyfacts ingestor.
+> Equity price history backfilled to ~20 yrs per US-listed name via
+> yfinance one-off pull (Alpaca's 6 yrs lives alongside under
+> `source='alpaca'`). Macro back to series inception (some go to 1948).
+>
+> The demo now uses two new prompt blocks that exercise this depth:
+>   `<price_history>` — 20-yr ASCII sparkline + total return + worst
+>     drawdown in window. Warren sees Apple survived '08 −56% and '20
+>     COVID; Cathie sees TSLA's 2x post-2019 trajectory.
+>   `<financials_trend>` — 5 most-recent annual filings as a table
+>     (revenue / op income / net income / FCF / LT debt) + auto-computed
+>     revenue CAGR. AAPL's "+3.3%/yr CAGR" line is the literal data
+>     point that triggers Warren's slowdown thesis.
+>
+> When you fork this for other personas: keep the data-gathering identical,
+> change only the render order + which blocks to include. Ray would drop
+> `<price_history>` and `<filing>` and add 30 more macro series; Cathie
+> would expand `<news>` and shrink `<financials_trend>` to 3 years.
 
 The script connects to the shared Neon DB, gathers all six inputs Warren's
 prompt would need to write a real thesis on AAPL, then **renders a fully
