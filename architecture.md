@@ -127,7 +127,7 @@ no broker, no LLM. It exists to validate UX before backend investment.
 - **6 ingestors operational**: Alpaca EOD (equities + ETFs), Coinbase EOD (BTC, ETH), FMP fundamentals (`/stable/` endpoints), FRED macro (37 series — yields, inflation, labor, growth, money, FX, energy, commodities, credit spreads, VIX), NewsAPI (ticker-tagged headlines), SEC EDGAR (10-K + 10-Q with GCS raw HTML — added 2026-06-01 in Phase B). All idempotent via `ON CONFLICT DO UPDATE`.
 - **Universe**: 51 tickers (49 equities + 2 crypto pairs) spanning the sectors each persona cares about.
 - **Feature builder** (`compute.py`): deterministic pandas/numpy module. Reads `ohlcv_1d`, writes `ticker_features`. Computes ret_{1d,5d,30d,90d,1y}, vol_30d, rsi_14, sma_{20,50}, volume_z. **This is the only path numerical features reach the LLM** (Phase B). 13 property-based tests on the math.
-- **Daily orchestrator** (`jobs/ingest_daily.py`): 7 sequential steps (ohlcv_equity → ohlcv_crypto → macro → fundamentals → news → filings → features). CLI flags `--only`/`--skip`. Exit code 0/1 maps to Cloud Run Job success/failure.
+- **Daily orchestrator** (`jobs/ingest_daily.py`): 8 sequential steps (ohlcv_equity → ohlcv_crypto → macro → fundamentals → edgar_facts → news → filings → features). CLI flags `--only`/`--skip`. Exit code 0/1 maps to Cloud Run Job success/failure.
 - **Connection smoke test** (`scripts/check_connections.py`): verifies all 6 external services + redacts secrets from any error output.
 - **Production state right now** (snapshot 2026-06-01, after first Cloud Run-driven run + EDGAR step shipped):
   - `ohlcv_1d`: ~14,600 rows (53 tickers × ~270 trading days)
@@ -154,7 +154,7 @@ no broker, no LLM. It exists to validate UX before backend investment.
 │        ↓ FastAPI BackgroundTask returns 202 immediately     │
 │        ↓ (heavy work continues async; cron not blocked)     │
 │  tessera_worker.jobs.ingest_daily.run()                     │
-│        ↓ 7 sequential steps, each idempotent                │
+│        ↓ 8 sequential steps, each idempotent                │
 │        1. Alpaca EOD       → ohlcv_1d (equities, 42)        │
 │        2. Coinbase EOD     → ohlcv_1d (crypto, BTC + ETH)   │
 │        3. FRED macro       → macro_series (37 series)       │
@@ -169,11 +169,14 @@ no broker, no LLM. It exists to validate UX before backend investment.
 │           ├── metals/ag:  copper, wheat (monthly)           │
 │           ├── credit:     HY OAS, IG OAS                    │
 │           └── risk:       VIX                               │
-│        4. FMP fundamentals → fundamentals (30-day cache)    │
-│        5. NewsAPI          → news                           │
-│        6. SEC EDGAR        → filings + raw HTML to GCS      │
+│        4. FMP fundamentals → fundamentals (30-day cache,    │
+│                              free tier: ~20/42 tickers)     │
+│        5. SEC XBRL facts   → fundamentals (JSONB merge,     │
+│                              fills FMP gap, ~39/42 tickers) │
+│        6. NewsAPI          → news                           │
+│        7. SEC EDGAR        → filings + raw HTML to GCS      │
 │                              (10-K + 10-Q, skip-if-have)    │
-│        7. Feature builder  → ticker_features                │
+│        8. Feature builder  → ticker_features                │
 │        ↓ UPSERT (ON CONFLICT DO UPDATE)                     │
 │  Neon Postgres   (single source of truth for all data)      │
 │  GCS gs://tessera-raw/edgar/    (raw SEC filing HTML)       │
@@ -425,12 +428,14 @@ apps/
         fmp_fundamentals.py         # income/balance/cashflow as jsonb
         newsapi_news.py             # ticker-tagged headlines + bodies
         sec_edgar.py                # 10-K + 10-Q filings → Neon + GCS
+        sec_edgar_facts.py          # XBRL companyfacts → fundamentals (FMP gap)
       features/
         compute.py                  # deterministic feature builder
       agents/                       # (Phase B — empty)
       risk/                         # (Phase C — empty)
       jobs/
-        ingest_daily.py             # 7-step orchestrator (what cron triggers)
+        ingest_daily.py             # 8-step orchestrator (what cron triggers)
+        backfill_history.py         # Phase C one-time deep-history pull
     scripts/
       check_connections.py          # smoke test all 6 services
       ingest_spy_canary.py          # acceptance test (0.49 bps vs Yahoo)

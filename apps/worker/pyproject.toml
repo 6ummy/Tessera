@@ -52,6 +52,13 @@ dev = [
     "mypy>=1.13.0",
     "types-requests",
 ]
+# Phase C one-time historical backfill only. DO NOT add to production cron —
+# yfinance is an unofficial Yahoo Finance scraper with no SLA. Install via
+#   pip install -e ".[backfill]"
+# then run `python -m tessera_worker.jobs.backfill_history --source yahoo`.
+backfill = [
+    "yfinance>=0.2.40",
+]
 
 [build-system]
 requires = ["hatchling"]

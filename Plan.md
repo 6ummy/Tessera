@@ -20,10 +20,11 @@
 - Mock performance series, proposals, reports — frontend still reads this
 - **Python worker** (apps/worker) — FastAPI skeleton, SQLAlchemy + psycopg3, structlog
 - **Neon Postgres** live with TimescaleDB + pgvector, 14 tables, 001_init.sql applied
-- **6 production ingestors**: Alpaca EOD, Coinbase EOD, FRED macro, FMP fundamentals, NewsAPI, SEC EDGAR (10-K + 10-Q with GCS raw HTML)
+- **7 production ingestors**: Alpaca EOD, Coinbase EOD, FRED macro (37 series), FMP fundamentals, NewsAPI, SEC EDGAR (10-K + 10-Q with GCS raw HTML), SEC XBRL companyfacts (structured fundamentals, fills FMP gap)
 - **51-ticker universe** spanning sectors each persona cares about
 - **Deterministic feature builder** — ret_*, vol_30d, rsi_14, sma_{20,50}, volume_z. 13/13 hypothesis tests pass.
-- **Daily orchestrator** (`ingest_daily.py`) — 7 sequential steps, idempotent, CLI flags
+- **Daily orchestrator** (`ingest_daily.py`) — 8 sequential steps, idempotent, CLI flags
+- **Phase C historical backfill** (`backfill_history.py`) — pre-shipped 2026-06-02: 6yr Alpaca + 11yr Coinbase + full FRED depth (~325K rows total) so backtest harness has multi-year input from day one
 - **Vercel Cron endpoint** (`/api/cron/daily`) — edge runtime, Bearer-auth via `CRON_SECRET`, schedule `30 21 * * 1-5`
 - **Connection smoke test** + **SPY canary** (0.49 bps vs Yahoo)
 
@@ -562,18 +563,18 @@ to 5 per persona; defer voice tuning to post-launch iteration.
 - [ ] **Skeleton/error states**: all frontend reads have loading + error UIs
 - [ ] **Quant data integrity gates**: point-in-time guard, stale-data check, adjusted-price policy, and invalid-feature handling before leaderboard/backtest metrics are written
 - [ ] **Leakage tests for backtest mode**: ensure feature_date never overlaps with target_return_window and no post-rebalance data is used
-- [ ] **SEC EDGAR XBRL fundamentals parser** (Quant) — replace FMP for fundamentals coverage, or at least cover the ~29 tickers FMP free tier blocks. SEC's XBRL filings are the source of truth for FMP / Tiingo / Yahoo numbers; parsing them ourselves removes the per-symbol gating problem permanently and is unmetered. Implementation: use `python-xbrl` or `arelle` to parse the 10-K/10-Q HTML already in `gs://tessera-raw/edgar/` into structured income/balance/cashflow rows; upsert into the existing `fundamentals` table with `source='edgar'` (we'd add a column). Trade-off vs FMP Starter ($14/mo): one-time ~1-2 week implementation but zero ongoing cost + complete US-listed coverage forever. Decide based on Phase B Week 3 review (if FMP $14/mo still leaves gaps or if data quality differs, prioritize XBRL).
-- [ ] **Maximum-history backfill across all sources** (Quant + Infra) — one-time job to push every series we ingest back to the **earliest available date**, not just what daily cron's rolling windows have accumulated. Critical for the 90-day backtest harness (Week 5 same week) to actually have a multi-year baseline. Coverage per source:
-  - **Alpaca OHLCV (equities)**: ~7 years free tier → backfill `~2018-01 → today` for the full 42-ticker universe. ~70K rows expected. Script: `python -m tessera_worker.jobs.ingest_daily --only ohlcv_equity` with the `_step_ohlcv_equity()` window parameter widened (or new `--since YYYY-MM-DD` flag).
-  - **yfinance** (optional supplement, one-time only — DO NOT add to daily cron): if the backtest harness needs >7 yr equity history (Alpaca's free-tier ceiling), `pip install yfinance` and run a one-off script to pull 15–20 yr history for select tickers. yfinance is an **unofficial Yahoo Finance scraper** with no SLA, no API key, ~25 yr depth per US ticker. **Reliability risks** that disqualify it for production cron: (1) Yahoo silently throttles → empty data instead of 429; (2) frontend changes break yfinance 2–3× per year for multi-day outages; (3) Yahoo ToS technically forbids automated scraping and they have sent C&Ds to commercial aggregators. Acceptable use here = academic-style one-time pull, results land in `ohlcv_1d` with `source='yahoo'` so we can distinguish from Alpaca rows later. Also useful as a sanity-check cross-validator for FMP fundamentals before we trust them in the LLM prompt.
-  - **Coinbase BTC/ETH**: 10+ years available (public API, no limit) → `2014-01 → today`.
-  - **FRED (37 series)**: each series back to its individual earliest date (some go to 1947 like UNRATE; some only post-2010 like T10YIE). The existing `_fetch_series(start=None)` already pulls full history when invoked without a `start` filter — just need a one-time script.
-  - **FMP fundamentals**: 5 years annual (free tier); 30+ years on paid Premier ($79/mo). Phase C scope = 5y free unless we're already on Starter+.
-  - **NewsAPI**: ❌ **NOT possible on free tier** (1-month history only on Developer plan, 30-day rolling on free). Need paid Everything tier ($449/mo) for years of history — defer to Phase D+ if needed.
-  - **SEC EDGAR**: already backfilled 2025-06-02 (220 filings, 39/42 tickers covered, ~1.5 yrs depth per ticker). Extending to 5y is one parameter change: `DEFAULT_PER_FORM_LIMIT = {"10-K": 5, "10-Q": 20}` then re-run filings step. ~700 additional filings, ~3 GB GCS.
-  - **Operational cost**: ~$0 (storage well within GCS free 5 GB after the EDGAR depth extension; Neon free tier 0.5 GB DB should absorb +70K OHLCV rows easily since Timescale compresses well).
-  - **Wall-clock**: ~30 min equity backfill + ~5 min crypto + ~15 min FRED + ~20 min EDGAR depth = ~70 min total, one-off.
-  - **Acceptance**: backtest harness in same week (Phase C Week 5) shows ≥3 years of price history per equity, ≥5 years of macro, ≥5 years of fundamentals (free tier max).
+- [x] **SEC EDGAR XBRL fundamentals parser** (Quant) — **shipped 2026-06-02 (pre-Phase B)**. Took the simpler path via SEC's pre-parsed XBRL JSON (`data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json`) instead of parsing XML with arelle. New `ingestors/sec_edgar_facts.py` wired as step 5 of the orchestrator. Coverage jumped from FMP free's 20/42 tickers to **39/42** (HON, LLY, MA, NEE, LIN, etc. now reachable). 3 still missing for reasons unrelated to gating: BRK.B (SEC uses dash not dot in ticker map), ASML + TSM (foreign filers — submit 20-F, no us-gaap facts JSON). JSONB-merge upsert preserves any FMP-only fields, so the two sources coexist. FMP Starter $14/mo decision becomes moot for the 39 covered names; only useful if the 3 foreign filers become critical.
+- [x] **Maximum-history backfill across all sources** (Quant + Infra) — **shipped 2026-06-02 (pre-Phase B)** via new `jobs/backfill_history.py` with `--source {alpaca|coinbase|fred|yahoo|all}` flags. Results from the one-shot run:
+  - **Alpaca OHLCV (equities)**: 73,486 rows, 51 tickers, 2020-07-27 → 2026-06-01 (~6 yrs, Alpaca IEX feed start). 23 sec.
+  - **Coinbase BTC/ETH**: 7,664 rows, 2015-07-20 → today (~11 yrs). 18 sec.
+  - **FRED (37 series)**: 237,404 rows, each series back to its earliest available date (UNRATE 1948→, T10YIE 2003→, etc.). 101 sec.
+  - **SEC XBRL companyfacts**: 7,178 rows, 39/42 tickers, ~9 yrs per ticker. Done as part of the XBRL parser task above (one ingestor serves both daily + backfill).
+  - **yfinance**: optional, one-time only — DO NOT add to daily cron. Install via `pip install -e ".[backfill]"` then `python -m tessera_worker.jobs.backfill_history --source yahoo --years 20`. Unofficial Yahoo scraper, rows tagged `source='yahoo'`. Use to push beyond Alpaca's 2020 floor if the backtest harness needs deeper history. Same risk profile recorded earlier (silent throttling, no SLA, ToS gray area).
+  - **FMP fundamentals**: 5 yrs annual on free tier (already accumulated via daily cron). 30y available on $79/mo Premier — not pursued; XBRL covers what we need free.
+  - **NewsAPI**: ❌ not backfillable on free tier (30-day rolling cap). Defer indefinitely.
+  - **SEC EDGAR filings**: shipped 2026-06-01 separately (220 filings, ~1.5 yrs per ticker). Extending to 5y is `DEFAULT_PER_FORM_LIMIT = {"10-K": 5, "10-Q": 20}` then re-run — operator decision when LLM personas need more management-prose context.
+  - **Total**: ~325K new rows across all sources, ~3 min wall-clock. Storage well within Neon free 0.5 GB.
+  - **Acceptance**: backtest harness in Phase C Week 5 has 6 yrs equity history, 11 yrs crypto, multi-decade macro, and 9 yrs of SEC-source fundamentals — meets the "≥3 yrs price / ≥5 yrs macro / ≥5 yrs fundamentals" bar.
 
 **Compression note**: previously three weeks. The biggest sacrifice is the
 length of real-life paper track record collected by end of Phase C — only
