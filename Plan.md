@@ -160,6 +160,24 @@ and "implementation" weeks — they ship together).
 
 Phase A wired the entire data plane. **Quant (예슬, 준원) and LLM Pipeline (윤채, 한솔) work on top of what's already there** — nobody needs to wait on infra.
 
+#### ✅ Already done by 정우 — DO NOT redo
+
+You'll see this stack referenced everywhere. It's all live. Coworkers don't sign up, deploy, or configure any of it.
+
+| Component | State | Why it matters to you |
+|---|---|---|
+| **Neon Postgres** (`tessera-498200` region us-east-1, 14 tables) | ✅ live, applied `001_init.sql` | Connect with `DATABASE_URL` from KakaoTalk pin — just read |
+| **Vercel deploy** (`tessera-ruby.vercel.app`) | ✅ live | Frontend you'll wire in Week 3 |
+| **Vercel Cron** (`30 21 * * 1-5`, weekday 21:30 UTC) | ✅ scheduled | Triggers the daily 7-step ingest automatically — you don't run it |
+| **Cloud Run worker** (`tessera-worker`, us-east1, autoscale 0–2) | ✅ deployed | Where the cron fires; runs the ingest job; you don't touch its config |
+| **GCP project** (`tessera-498200`) + Artifact Registry + Service Account + 10 Secret Manager secrets | ✅ set up | Production credentials live here; you'll never need to log in to GCP for normal Week 2 work |
+| **6 ingestors** (Alpaca, Coinbase, FRED, FMP, NewsAPI, SEC EDGAR) | ✅ shipped to Cloud Run | They run daily; data lands in Neon overnight |
+| **Sentry** (web + worker projects, errors-only) | ✅ wired | Unhandled exceptions show up automatically; no DSN paste needed |
+| **GCS bucket** `gs://tessera-raw/edgar/` (raw 10-K/10-Q HTML) | ✅ created | Only matters if you work on the EDGAR parser — most don't need access |
+| **API keys** (Anthropic, Alpaca, FMP, FRED, NewsAPI) | ✅ in 1) Secret Manager (prod) 2) KakaoTalk pin (local dev) | Copy to your `.env`, do not generate new keys |
+
+**The one thing 정우 cannot do for you**: `gcloud auth application-default login` (only the EDGAR parser owner needs this, and they use their own Google account — never share credentials).
+
 #### TL;DR — what's automatic
 
 - **Neon refreshes every weekday at 21:30 UTC** (≈ 06:30 KST next morning). Vercel Cron → Cloud Run worker → 7-step ingest. You'll see fresh OHLCV, news, features in the morning without doing anything.
@@ -335,6 +353,14 @@ Two end-to-end demos live next to the production code, with one-page markdown ex
 
 ##### 🧠 If you're on **LLM Pipeline (윤채 + 한솔)** — start here
 
+**Already done for you by 정우** (zero setup on your side):
+- ✅ Anthropic API key is in Secret Manager (prod) and in the KakaoTalk pin (local). Don't generate a new one.
+- ✅ Sentry is wired — your `raise`/`except` inside any agent module shows up in the `tessera-worker` Sentry project automatically.
+- ✅ `personalities.md` is the canonical persona spec. CODEOWNERS lets all four team owners (정우, 윤채, 한솔, 예슬) approve changes — but big voice changes get a 카톡 heads-up first.
+- ✅ `news`, `filings.text_summary`, `ticker_features`, `fundamentals`, `macro_series` tables are all populated overnight — you can read them right now.
+
+**Your scope** (Week 2): build the `agents/` package that turns persona spec + Neon data → validated `analyst_reports` rows. Five new files, each small. Frontend wiring is Week 3.
+
 **Your folder**: `apps/worker/tessera_worker/agents/`
 
 ```
@@ -374,6 +400,14 @@ You should see:
 ---
 
 ##### 📊 If you're on **Quant (예슬 + 준원)** — start here
+
+**Already done for you by 정우** (zero setup on your side):
+- ✅ All raw data is in Neon. `ohlcv_1d` (prices), `fundamentals` (FMP — three rows per period_end per ticker, one each for income / balance / cash_flow), `news`, `macro_series`, `filings` all populated overnight.
+- ✅ `ticker_features` is the existing feature table, already populated daily with `ret_*, vol_30d, rsi_14, sma_{20,50}, volume_z`. Your new features add columns / rows to this same table — no parallel store.
+- ✅ Property-test scaffolding exists in `tests/test_features.py` with 13 passing tests — copy the pattern when you add a new feature.
+- ✅ Cron job auto-runs your new features once they're plugged into `compute.py`'s `build()` — no extra deployment step.
+
+**Your scope** (Week 2): extend `features/compute.py` with Phase B features that the personas need (FCF yield, PEG, EPS CAGR, debt/equity, gross margin trend). Each feature is a small pandas function + a property test + a column migration. Risk gateway code lives in `risk/` and is Phase C — you can sketch it now but don't ship until Week 4.
 
 **Your folder**: `apps/worker/tessera_worker/features/`
 
