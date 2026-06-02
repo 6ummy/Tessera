@@ -85,7 +85,17 @@ Tessera는 두 가지 runtime이 필요합니다:
 - ✅ Vercel deployment `https://tessera-ruby.vercel.app/` 200 OK, latency < 200ms (Korea 측정)
 - ✅ Cloud Run Jobs schema test (Phase A): worker 잡 1회 ~8분 무사 완료
 - ✅ Vercel Cron `/api/cron/daily` Bearer auth + noop 응답 정상
-- 미래 (Phase A 완료 시): worker가 Cloud Run에 배포되고 Vercel Cron의 `WORKER_WEBHOOK_URL` 지정되면 end-to-end 검증
+- ✅ **End-to-end shipped (2026-06-01)**: Vercel cron → Cloud Run `/jobs/ingest-daily` → 6/6 steps green, Neon row counts incremented. See `architecture.md` §6 "Daily data flow" for the deployed diagram.
+
+## Implementation notes (added 2026-06-01)
+
+These choices were made during the actual deploy and are sticky enough to record here:
+
+- **Service auth: `--allow-unauthenticated` + shared bearer in app code**, not IAM. Trade-off chosen vs Cloud Run IAM (which would require Vercel to mint short-lived ID tokens via service account impersonation, adding token-plumbing complexity for a 2-service system). Single shared secret in Secret Manager + Vercel env is enough for Phase B; revisit if a third caller (Cloud Tasks, external partner) ever needs to invoke `/jobs/*`.
+- **`BackgroundTasks` for long jobs.** Vercel edge fetch has a short timeout (8s wired in code). Cloud Run accepts the request, returns 202 immediately, then runs the ~7-minute ingest in FastAPI's background task. Means `/api/cron/daily` only ever sees a fast 200; failure visibility moves to Cloud Run logs + Sentry.
+- **Non-root container** (`USER tessera` in Dockerfile). Hardening for the public-internet-exposed (--allow-unauthenticated) service.
+- **`min-instances=0, max-instances=2`.** Cost over latency: cold start adds ~3s to the first cron of the day, which is fine because the cron is async. Max 2 caps the blast radius if a runaway loop somewhere fires repeatedly.
+- **Secret hygiene gotcha (Windows-specific)**: PowerShell 5.1's pipeline output encoding wraps stdin-piped strings with UTF-8 BOM. The initial `gcloud secrets versions add SENTRY_DSN --data-file=-` injected `﻿` at the start of the DSN, which made `sentry_sdk` parse the scheme as empty and crash the container on startup. Fix: write the value to a temp file with `[System.Text.UTF8Encoding]::new($false)` (no BOM), then `--data-file=$tmp`. The `deploy_cloud_run.ps1` flow does not hit this — it's only a concern when loading secrets from PowerShell.
 
 ## Notes / Open Questions
 
