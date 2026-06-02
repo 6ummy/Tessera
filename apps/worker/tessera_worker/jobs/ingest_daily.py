@@ -36,6 +36,7 @@ from tessera_worker.ingestors import (
     fmp_fundamentals,
     fred_macro,
     newsapi_news,
+    sec_edgar,
 )
 from tessera_worker.logging import configure_logging, get_logger
 from tessera_worker.universe import TICKERS, by_asset_class
@@ -112,6 +113,23 @@ def _step_news() -> dict[str, object]:
     return {"rows": r.rows_upserted, "tickers": r.tickers_queried, "ms": r.duration_ms}
 
 
+def _step_filings() -> dict[str, object]:
+    """Pull recent 10-K/10-Q filings for the equity universe.
+
+    Filings are quarterly cadence at most; the ingestor skips any accession we
+    already have a non-empty text_summary for, so daily runs are mostly no-ops
+    once steady-state. First populated run will be heavier (~50 filings).
+    """
+    tickers = [t.ticker for t in by_asset_class("equity")]
+    r = sec_edgar.ingest(tickers)
+    return {
+        "filings": r.filings_upserted,
+        "bytes_uploaded": r.bytes_uploaded,
+        "missing_cik": len(r.tickers_missing_cik),
+        "ms": r.duration_ms,
+    }
+
+
 def _step_features() -> dict[str, object]:
     """Recompute features for everything that has OHLCV. Idempotent."""
     with session_scope() as session:
@@ -128,6 +146,7 @@ STEPS: dict[str, StepFn] = {
     "macro":         _step_macro,
     "fundamentals":  _step_fundamentals,
     "news":          _step_news,
+    "filings":       _step_filings,
     "features":      _step_features,
 }
 

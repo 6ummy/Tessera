@@ -66,6 +66,11 @@ class Settings(BaseSettings):
     # request without it. Blank = auth disabled (local dev only).
     worker_webhook_secret: str = Field("", description="Bearer secret for /jobs/* endpoints")
 
+    # ── SEC EDGAR ──
+    # SEC requires a contact-bearing User-Agent on every request; non-conformant
+    # requests get 403. Format: "Tessera Pilot you@example.com".
+    sec_user_agent: str = Field("", description="User-Agent header for SEC EDGAR")
+
 
 @lru_cache
 def get_settings() -> Settings:
