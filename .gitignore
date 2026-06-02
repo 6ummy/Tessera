@@ -38,6 +38,9 @@ build/
 # ─── Generated deck artifacts (kept out of repo) ───
 tessera-deck.pdf
 slide-*.jpg
+*.pptx
+# Local deploy log
+.deploy.log
 
 # ─── Original-format root persona photos (canonical copies live in apps/web/public/personas/) ───
 /Warren.*
