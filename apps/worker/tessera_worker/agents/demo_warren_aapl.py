@@ -40,7 +40,14 @@ NEWS_LOOKBACK_DAYS = 7
 # Warren cares about real rates + breakevens + HY credit spread + VIX
 # for "what regime am I operating in" framing. Other personas would pick
 # different series; see LLM_pipeline_demo.md "Swap personas" section.
-WARREN_MACRO_SERIES = ("DGS10", "T10YIE", "BAMLH0A0HYM2", "VIXCLS")
+WARREN_MACRO_SERIES = (
+    "DGS10",         # 10Y real rate proxy
+    "T10YIE",        # 10Y breakeven inflation
+    "BAMLH0A0HYM2",  # HY OAS — credit cycle
+    "VIXCLS",        # vol regime
+    "DEXCHUS",       # USD/CNY — AAPL Greater China revenue exposure (~20%)
+    "DCOILWTICO",    # WTI — input cost signal (small for AAPL, big for XOM)
+)
 
 
 def fetch_inputs() -> dict:
@@ -75,11 +82,14 @@ def fetch_inputs() -> dict:
             funds[ft] = dict(row) if row else None
         out["fundamentals"] = funds
 
-        # 4. Macro context
+        # 4. Macro context — latest value per series (each FRED series has
+        #    its own update cadence: yields/FX/oil daily, CPI/M2 monthly).
+        #    DISTINCT ON guarantees one row per series_id even when dates differ.
         macros = session.execute(text("""
-            SELECT series_id, value FROM macro_series
+            SELECT DISTINCT ON (series_id) series_id, value, ts
+            FROM macro_series
             WHERE series_id = ANY(:ids)
-              AND ts = (SELECT MAX(ts) FROM macro_series WHERE series_id = 'DGS10')
+            ORDER BY series_id, ts DESC
         """), {"ids": list(WARREN_MACRO_SERIES)}).all()
         out["macros"] = {r.series_id: float(r.value) for r in macros}
 
@@ -165,9 +175,11 @@ def render_macros(m: dict) -> str:
     parts = []
     if "DGS10" in m:        parts.append(f"10Y yield: {m['DGS10']:.2f}%")
     if "T10YIE" in m:       parts.append(f"10Y breakeven: {m['T10YIE']:.2f}%")
-    if "BAMLH0A0HYM2" in m: parts.append(f"HY spread: {m['BAMLH0A0HYM2']:.0f} bps")
+    if "BAMLH0A0HYM2" in m: parts.append(f"HY spread: {m['BAMLH0A0HYM2']:.2f}%")
     if "VIXCLS" in m:       parts.append(f"VIX: {m['VIXCLS']:.1f}")
-    return "<context>\n  " + "   ".join(parts) + "\n</context>"
+    if "DEXCHUS" in m:      parts.append(f"USD/CNY: {m['DEXCHUS']:.2f} (AAPL Greater China lever)")
+    if "DCOILWTICO" in m:   parts.append(f"WTI: ${m['DCOILWTICO']:.1f}/bbl")
+    return "<context>\n  " + "\n  ".join(parts) + "\n</context>"
 
 
 def render_news(items: list[dict]) -> str:

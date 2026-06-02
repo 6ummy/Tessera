@@ -78,6 +78,47 @@ RENDER_RULES = {
 
 This is the per-persona cut table from `Plan.md` §4 made executable.
 
+### Pick the right macro series per (persona, ticker)
+The `macro_series` table has 37 FRED series (yields, FX, energy, credit
+spreads, etc.). Each persona/ticker pair should pull only the ~3–8 that
+actually move that thesis — feeding all 37 every call wastes tokens.
+
+Starter mappings, refine as you go:
+
+```python
+MACRO_BY_PERSONA = {
+    "warren": ["DGS10", "T10YIE", "BAMLH0A0HYM2", "VIXCLS"],     # base
+    "cathie": ["DGS10", "VIXCLS", "BAMLC0A0CM"],                  # rate-sensitive growth + IG spread
+    "ray":    "ALL",                                              # regime model wants everything
+    "peter":  ["DGS10", "T10YIE", "BAMLH0A0HYM2", "UNRATE"],     # rate + employment cycle
+}
+
+# Per-ticker overlays — add these on top of the persona base:
+TICKER_MACRO_OVERLAY = {
+    "AAPL":  ["DEXCHUS"],                       # Greater China lever (~20% revenue)
+    "MSFT":  ["DEXUSEU"],                       # EMEA exposure
+    "GOOGL": ["DEXUSEU", "DEXJPUS"],            # broad international
+    "XOM":   ["DCOILWTICO", "DCOILBRENTEU"],    # oil price = revenue
+    "CVX":   ["DCOILWTICO", "DCOILBRENTEU"],
+    "NEE":   ["DHHNGSP"],                       # nat gas fuel cost
+    "ASML":  ["DEXUSEU", "DEXKOUS"],            # Dutch HQ + Korean fab customers
+    "TSM":   ["DEXJPUS", "DEXCHUS"],            # Taiwan/Asian export channel
+    "BKNG":  ["DEXUSEU", "DEXJPUS"],            # travel FX exposure
+    "WMT":   ["DEXMXUS"],                       # Mexico ops
+    # ... fill the rest as theses are written
+}
+
+def macro_for(persona: str, ticker: str) -> list[str]:
+    base = MACRO_BY_PERSONA[persona]
+    if base == "ALL":
+        return ALL_37_SERIES_IDS
+    return base + TICKER_MACRO_OVERLAY.get(ticker, [])
+```
+
+The demo's `WARREN_MACRO_SERIES` constant already shows this pattern with
+DEXCHUS + WTI added to Warren's AAPL-specific cut. Extend to the other
+(persona, ticker) combos as the universe screen produces shortlists.
+
 ### Loop the universe
 The demo runs one (persona, ticker). Real persona runner does:
 

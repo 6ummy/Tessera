@@ -121,6 +121,28 @@ In priority order (Warren + Peter > Cathie > Ray):
 
 Each follows the same 5-step recipe (migration → compute.py → test → apply → PR).
 
+## New macro signals (2026-06-02 expansion) — opportunities
+
+`macro_series` grew from 20 → 37 series. The new ones unlock features
+that weren't computable before:
+
+| New series | Feature idea | Owner persona |
+|---|---|---|
+| DCOILWTICO, DCOILBRENTEU | `oil_beta_30d` — rolling regression of ticker return vs WTI return. Useful for energy names (XOM, CVX) and airlines/transports. | Warren, Ray |
+| DHHNGSP | `gas_beta_30d` — same idea for utilities (NEE). | Warren |
+| DEXCHUS, DEXJPUS, DEXKOUS | `fx_beta_<pair>_30d` — ticker return vs currency move. Detects ADR / international-exposure stocks (TSM, BABA, ASML). | Cathie, Ray |
+| BAMLH0A0HYM2 | `hy_spread_change_30d` — credit cycle proxy. When HY spread widens > 50 bps in 30d → cycle stress. Use as risk-gate input in Phase C. | Ray, Peter |
+| BAMLH0A0HYM2 - DGS10 | `credit_risk_premium` — HY spread minus 10Y as a single "risk-off" scalar. | Ray |
+
+Pattern: same `features/compute.py` style as `fcf_yield` — small pandas
+function reading `macro_series` + `ohlcv_1d`, writing back to
+`ticker_features`. These are mostly **per-ticker × per-day** features so
+they fit the existing schema without column-explosion.
+
+Heads-up: copper and wheat are monthly cadence; resample to daily with
+forward-fill before computing rolling betas, or skip them for daily
+features and use only for slow-moving signals.
+
 ## Read more
 
 - `architecture.md` §6 "How to read the data we've stored" — the longer
