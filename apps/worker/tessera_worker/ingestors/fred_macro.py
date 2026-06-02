@@ -54,6 +54,30 @@ DEFAULT_SERIES: tuple[tuple[str, str], ...] = (
     ("DTWEXBGS",   "Trade-weighted USD index (broad goods+services)"),
     # ── Risk ──
     ("VIXCLS",     "CBOE VIX close"),
+    # ── FX pairs (added 2026-06-02 for Ray's regime model + ADR exposure) ──
+    ("DEXUSEU",    "U.S. / Euro foreign exchange rate (USD per EUR)"),
+    ("DEXJPUS",    "Japan / U.S. foreign exchange rate (JPY per USD)"),
+    ("DEXKOUS",    "South Korea / U.S. foreign exchange rate (KRW per USD)"),
+    ("DEXCAUS",    "Canada / U.S. foreign exchange rate (CAD per USD)"),
+    ("DEXSZUS",    "Switzerland / U.S. foreign exchange rate (CHF per USD)"),
+    ("DEXCHUS",    "China / U.S. foreign exchange rate (CNY per USD)"),
+    ("DEXUSUK",    "U.S. / U.K. foreign exchange rate (USD per GBP)"),
+    ("DEXMXUS",    "Mexico / U.S. foreign exchange rate (MXN per USD)"),
+    ("DEXINUS",    "India / U.S. foreign exchange rate (INR per USD)"),
+    # ── Energy commodities (Warren XOM/CVX, Ray macro) ──
+    ("DCOILWTICO",     "WTI crude oil spot, Cushing OK ($/barrel)"),
+    ("DCOILBRENTEU",   "Brent crude oil spot, Europe ($/barrel)"),
+    ("DHHNGSP",        "Henry Hub natural gas spot ($/MMBtu)"),
+    ("DJFUELUSGULF",   "Jet fuel kerosene-type, US Gulf Coast ($/gal)"),
+    # ── Metals & ag commodities (Ray risk-off signal; series monthly) ──
+    # NOTE: daily spot gold (GOLDAMGBD228NLBM / GOLDPMGBD228NLBM) was discontinued
+    # on FRED after the LBMA data contract change. For spot gold add a non-FRED
+    # source (World Gold Council API or Yahoo GLD ETF proxy) in Phase C.
+    ("PCOPPUSDM",         "Global copper price ($/MT, monthly)"),
+    ("PWHEAMTUSDM",       "Global wheat price ($/MT, monthly)"),
+    # ── Credit spreads (Warren+Ray: recession / risk-off signal) ──
+    ("BAMLH0A0HYM2",   "ICE BofA US HY corporate option-adjusted spread (bps)"),
+    ("BAMLC0A0CM",     "ICE BofA US IG corporate option-adjusted spread (bps)"),
 )
 
 

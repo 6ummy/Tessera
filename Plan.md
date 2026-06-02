@@ -116,7 +116,7 @@ and "implementation" weeks — they ship together).
 - [x] **Coinbase EOD ingestor** — BTC, ETH (300-candle paginated windows, public API)
 - [x] **FMP fundamentals ingestor** — `/stable/*` endpoints (legacy `/api/v3` returns 403); 30-day cache check in orchestrator
 - [→] **SEC EDGAR filings ingestor** — **moved to Phase B Week 2** (`filings` table schema exists; not yet populated. Phase A had enough signal from OHLCV + fundamentals + news to validate the pipeline)
-- [x] **FRED macro ingestor** — 20 series (yields, breakevens, CPI/PCE, unemployment, M2, Fed bs, VIX, USD)
+- [x] **FRED macro ingestor** — 37 series (yields, breakevens, CPI/PCE, unemployment, M2, Fed bs, VIX, broad USD; **expanded 2026-06-02**: 9 FX pairs, WTI + Brent + nat gas + jet fuel, copper + wheat, HY + IG credit spreads)
 - [x] **NewsAPI ingestor** — 49 equities, "TICKER OR Company Name" query, in-process dedup. Embeddings deferred to Phase B (need Anthropic/Voyage or self-hosted bge-small).
 - [x] **Feature builder** (`features/compute.py`): deterministic pandas/numpy; ret_{1d,5d,30d,90d,1y}, vol_30d, rsi_14, sma_{20,50}, volume_z
 - [x] **Property-based tests** on feature builder — 13 hypothesis tests pass
@@ -563,6 +563,16 @@ to 5 per persona; defer voice tuning to post-launch iteration.
 - [ ] **Quant data integrity gates**: point-in-time guard, stale-data check, adjusted-price policy, and invalid-feature handling before leaderboard/backtest metrics are written
 - [ ] **Leakage tests for backtest mode**: ensure feature_date never overlaps with target_return_window and no post-rebalance data is used
 - [ ] **SEC EDGAR XBRL fundamentals parser** (Quant) — replace FMP for fundamentals coverage, or at least cover the ~29 tickers FMP free tier blocks. SEC's XBRL filings are the source of truth for FMP / Tiingo / Yahoo numbers; parsing them ourselves removes the per-symbol gating problem permanently and is unmetered. Implementation: use `python-xbrl` or `arelle` to parse the 10-K/10-Q HTML already in `gs://tessera-raw/edgar/` into structured income/balance/cashflow rows; upsert into the existing `fundamentals` table with `source='edgar'` (we'd add a column). Trade-off vs FMP Starter ($14/mo): one-time ~1-2 week implementation but zero ongoing cost + complete US-listed coverage forever. Decide based on Phase B Week 3 review (if FMP $14/mo still leaves gaps or if data quality differs, prioritize XBRL).
+- [ ] **Maximum-history backfill across all sources** (Quant + Infra) — one-time job to push every series we ingest back to the **earliest available date**, not just what daily cron's rolling windows have accumulated. Critical for the 90-day backtest harness (Week 5 same week) to actually have a multi-year baseline. Coverage per source:
+  - **Alpaca OHLCV (equities)**: ~7 years free tier → backfill `~2018-01 → today` for the full 42-ticker universe. ~70K rows expected. Script: `python -m tessera_worker.jobs.ingest_daily --only ohlcv_equity` with the `_step_ohlcv_equity()` window parameter widened (or new `--since YYYY-MM-DD` flag).
+  - **Coinbase BTC/ETH**: 10+ years available (public API, no limit) → `2014-01 → today`.
+  - **FRED (37 series)**: each series back to its individual earliest date (some go to 1947 like UNRATE; some only post-2010 like T10YIE). The existing `_fetch_series(start=None)` already pulls full history when invoked without a `start` filter — just need a one-time script.
+  - **FMP fundamentals**: 5 years annual (free tier); 30+ years on paid Premier ($79/mo). Phase C scope = 5y free unless we're already on Starter+.
+  - **NewsAPI**: ❌ **NOT possible on free tier** (1-month history only on Developer plan, 30-day rolling on free). Need paid Everything tier ($449/mo) for years of history — defer to Phase D+ if needed.
+  - **SEC EDGAR**: already backfilled 2025-06-02 (220 filings, 39/42 tickers covered, ~1.5 yrs depth per ticker). Extending to 5y is one parameter change: `DEFAULT_PER_FORM_LIMIT = {"10-K": 5, "10-Q": 20}` then re-run filings step. ~700 additional filings, ~3 GB GCS.
+  - **Operational cost**: ~$0 (storage well within GCS free 5 GB after the EDGAR depth extension; Neon free tier 0.5 GB DB should absorb +70K OHLCV rows easily since Timescale compresses well).
+  - **Wall-clock**: ~30 min equity backfill + ~5 min crypto + ~15 min FRED + ~20 min EDGAR depth = ~70 min total, one-off.
+  - **Acceptance**: backtest harness in same week (Phase C Week 5) shows ≥3 years of price history per equity, ≥5 years of macro, ≥5 years of fundamentals (free tier max).
 
 **Compression note**: previously three weeks. The biggest sacrifice is the
 length of real-life paper track record collected by end of Phase C — only

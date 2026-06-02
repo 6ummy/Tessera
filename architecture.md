@@ -124,7 +124,7 @@ no broker, no LLM. It exists to validate UX before backend investment.
 ### Phase A backend (shipped, runs against production Neon)
 - **Neon Postgres** provisioned (us-east-1, free tier), `001_init.sql` applied. 14 tables + 3 extensions (TimescaleDB, pgvector, uuid-ossp).
 - **Python worker** (apps/worker) with FastAPI skeleton, structured JSON logging, SQLAlchemy + psycopg3 session pool.
-- **6 ingestors operational**: Alpaca EOD (equities + ETFs), Coinbase EOD (BTC, ETH), FMP fundamentals (`/stable/` endpoints), FRED macro (20 series), NewsAPI (ticker-tagged headlines), SEC EDGAR (10-K + 10-Q with GCS raw HTML — added 2026-06-01 in Phase B). All idempotent via `ON CONFLICT DO UPDATE`.
+- **6 ingestors operational**: Alpaca EOD (equities + ETFs), Coinbase EOD (BTC, ETH), FMP fundamentals (`/stable/` endpoints), FRED macro (37 series — yields, inflation, labor, growth, money, FX, energy, commodities, credit spreads, VIX), NewsAPI (ticker-tagged headlines), SEC EDGAR (10-K + 10-Q with GCS raw HTML — added 2026-06-01 in Phase B). All idempotent via `ON CONFLICT DO UPDATE`.
 - **Universe**: 51 tickers (49 equities + 2 crypto pairs) spanning the sectors each persona cares about.
 - **Feature builder** (`compute.py`): deterministic pandas/numpy module. Reads `ohlcv_1d`, writes `ticker_features`. Computes ret_{1d,5d,30d,90d,1y}, vol_30d, rsi_14, sma_{20,50}, volume_z. **This is the only path numerical features reach the LLM** (Phase B). 13 property-based tests on the math.
 - **Daily orchestrator** (`jobs/ingest_daily.py`): 7 sequential steps (ohlcv_equity → ohlcv_crypto → macro → fundamentals → news → filings → features). CLI flags `--only`/`--skip`. Exit code 0/1 maps to Cloud Run Job success/failure.
@@ -155,9 +155,20 @@ no broker, no LLM. It exists to validate UX before backend investment.
 │        ↓ (heavy work continues async; cron not blocked)     │
 │  tessera_worker.jobs.ingest_daily.run()                     │
 │        ↓ 7 sequential steps, each idempotent                │
-│        1. Alpaca EOD       → ohlcv_1d (equities)            │
-│        2. Coinbase EOD     → ohlcv_1d (crypto)              │
-│        3. FRED macro       → macro_series                   │
+│        1. Alpaca EOD       → ohlcv_1d (equities, 42)        │
+│        2. Coinbase EOD     → ohlcv_1d (crypto, BTC + ETH)   │
+│        3. FRED macro       → macro_series (37 series)       │
+│           ├── yields:     DGS2/10/30, T10Y2Y, breakevens    │
+│           ├── inflation:  CPI, core CPI, PCE, core PCE      │
+│           ├── labor:      UNRATE, payrolls, jobless claims  │
+│           ├── growth:     INDPRO, retail sales              │
+│           ├── money:      M2, Fed BS, broad USD             │
+│           ├── FX (9):     USD/EUR, JPY, KRW, CAD, CHF,      │
+│           │              CNY, GBP, MXN, INR                 │
+│           ├── energy:     WTI, Brent, nat gas, jet fuel     │
+│           ├── metals/ag:  copper, wheat (monthly)           │
+│           ├── credit:     HY OAS, IG OAS                    │
+│           └── risk:       VIX                               │
 │        4. FMP fundamentals → fundamentals (30-day cache)    │
 │        5. NewsAPI          → news                           │
 │        6. SEC EDGAR        → filings + raw HTML to GCS      │
@@ -168,6 +179,32 @@ no broker, no LLM. It exists to validate UX before backend investment.
 │  GCS gs://tessera-raw/edgar/    (raw SEC filing HTML)       │
 │        ↓ stdout (structlog JSON)                            │
 │  GCP Logging  +  Sentry (errors only)                       │
+└────────────────────────────────────────────────────────────┘
+
+┌────────────────────────────────────────────────────────────┐
+│  HISTORICAL BACKFILL — one-time per source (Phase C)        │
+│  (not part of nightly cron; an operator runs these manually)│
+│                                                              │
+│  $ python -m tessera_worker.jobs.ingest_daily \              │
+│        --only ohlcv_equity --since 2018-01-01                │
+│                                                              │
+│  Same 7 ingestors, wider time window.                       │
+│  Upserts are idempotent → safe to re-run.                   │
+│                                                              │
+│  Source         depth available     why                      │
+│  ─────────────  ──────────────────  ────────────────────────│
+│  Alpaca         ~7 years            free tier maximum        │
+│  Coinbase       10+ years           public API, no limit     │
+│  FRED           per-series earliest UNRATE 1948→ etc.        │
+│  FMP            5 yrs annual        free tier (30y on paid)  │
+│  NewsAPI        ❌ 1 month only      free tier hard cap      │
+│  SEC EDGAR      extend depth        2K+4Q → 5K+20Q config    │
+│                                                              │
+│  Status today: only EDGAR backfilled (220 filings, 1.5 yrs   │
+│  per ticker). Others have just the rolling-window depth      │
+│  the daily cron has accumulated. Phase C Week 5 task         │
+│  "Maximum-history backfill across all sources" closes this   │
+│  gap so the backtest harness has multi-year input.           │
 └────────────────────────────────────────────────────────────┘
 
 ┌────────────────────────────────────────────────────────────┐
@@ -188,6 +225,8 @@ no broker, no LLM. It exists to validate UX before backend investment.
 └────────────────────────────────────────────────────────────┘
 ```
 
+**FRED update cadence per series** — daily cron pulls all 37 series, but each source updates at its own pace; FRED returns the latest value regardless. Most series (25/37) are truly daily — yields, FX, oil, nat gas, credit spreads, VIX. **Weekly**: jobless claims (ICSA), Fed balance sheet (WALCL). **Monthly**: all inflation indices (CPI, PCE), labor stats (UNRATE, payrolls), growth (INDPRO, retail sales), M2, wages, copper/wheat. So `macro_series` has new rows daily for the daily ones, and "no-op" daily inserts for the monthly ones (UPSERT just rewrites the same value). The personas can treat every macro lookup as "latest known" — the DB always has a row.
+
 **Data lives only in Neon.** Cloud Run is stateless — when a job finishes the worker memory is freed and the container may scale to zero. Local `.env` files hold API keys but no data. To onboard a new dev: `git clone` + `.env` filled from the shared KakaoTalk credential pin + `pip install -e .` is enough to run the same code against the same Neon DB.
 
 **Concurrent-run note (Phase C todo)**: there is no app-level lock today. If two trigger calls land within the same second (e.g., manual curl + scheduled cron), both ingests run in parallel. Steps are idempotent so the DB stays consistent, but rare `step_failed` events can show up in logs from row-level conflicts. Phase C will add an advisory lock (`pg_advisory_lock(hashtext('ingest_daily'))`) so the second trigger is a fast no-op.
@@ -203,7 +242,7 @@ no broker, no LLM. It exists to validate UX before backend investment.
 |---|---|---|---|---|---|
 | **Alpaca** | API key + secret | Free (IEX feed only) | EOD OHLCV for 49 US equities + ETFs | Daily, last 30d window | `ohlcv_1d` (source='alpaca') |
 | **Coinbase Exchange** | None — public API | Free, unmetered | BTC-USD, ETH-USD daily candles | Daily, last 30d | `ohlcv_1d` (source='coinbase') |
-| **FRED** (St. Louis Fed) | API key | Free, unmetered | 20 macro series (yields, CPI, unemployment, M2, VIX, USD …) | Daily, last 90d | `macro_series` |
+| **FRED** (St. Louis Fed) | API key | Free, unmetered | 37 macro series — yields, CPI/PCE, unemployment, M2, Fed BS, broad USD, VIX, **9 FX pairs** (USD/EUR, JPY/USD, KRW/USD, CAD/USD, CHF/USD, CNY/USD, USD/GBP, MXN/USD, INR/USD), **WTI + Brent + nat gas + jet fuel**, **copper + wheat** (monthly), **HY + IG credit spreads** | Daily, last 90d | `macro_series` |
 | **FMP** (Financial Modeling Prep) | API key | Free tier (some premium endpoints 402) | Annual income / balance / cashflow as JSON | 30-day cache per ticker | `fundamentals` |
 | **NewsAPI** | API key | Free tier (100 req/day) | Ticker-tagged headlines + body excerpts | Daily, last 24h | `news` |
 | **SEC EDGAR** | `User-Agent` header (name + contact email) | Free, unmetered | 10-K (annual) + 10-Q (quarterly) full filings | Weekly (skip if accession already stored) | `filings` (meta + 8KB excerpt) + GCS (raw HTML) |
@@ -382,7 +421,7 @@ apps/
       ingestors/
         alpaca_eod.py               # equities + ETFs EOD bars
         coinbase_eod.py             # BTC/ETH daily candles (public API)
-        fred_macro.py               # 20 macro series (yields, CPI, etc.)
+        fred_macro.py               # 37 macro series (yields, CPI, FX, oil, credit spreads, …)
         fmp_fundamentals.py         # income/balance/cashflow as jsonb
         newsapi_news.py             # ticker-tagged headlines + bodies
         sec_edgar.py                # 10-K + 10-Q filings → Neon + GCS
