@@ -345,7 +345,14 @@ The frontend swap (Phase B Week 3) reads from `analyst_reports` — so as soon a
 
 #### Worked examples — runnable demos in each track's folder
 
-Two end-to-end demos live next to the production code, with one-page markdown explainers. Both connect to Neon, run in ~5 seconds, print readable output, and are designed to be **forked** into your own feature/persona work. They live inside the package (not in `scripts/`) so `python -m tessera_worker.<...>.demo_*` works the moment `pip install -e .` is done — no extra setup.
+**⚡ Just want the paths? Here they are:**
+
+| Track | Folder | Doc to read | Demo to run |
+|---|---|---|---|
+| **LLM Pipeline** (윤채, 한솔) | `apps/worker/tessera_worker/agents/` | `LLM_pipeline_demo.md` | `python -m tessera_worker.agents.demo_warren_aapl` |
+| **Quant** (예슬, 준원) | `apps/worker/tessera_worker/features/` | `Quant_demo.md` | `python -m tessera_worker.features.demo_fcf_yield` |
+
+Both demos connect to Neon, run in ~5 seconds, print readable output, and are designed to be **forked** into your own feature/persona work. They live inside the package (not in `scripts/`) so `python -m tessera_worker.<...>.demo_*` works the moment `pip install -e .` is done — no extra setup.
 
 > **Read this section once, then jump straight to your track's demo and markdown.** Each track owns its own folder; you do not need to touch the other track's files to be productive.
 
