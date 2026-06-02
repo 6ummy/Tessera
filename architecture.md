@@ -188,6 +188,148 @@ no broker, no LLM. It exists to validate UX before backend investment.
 
 **Concurrent-run note (Phase C todo)**: there is no app-level lock today. If two trigger calls land within the same second (e.g., manual curl + scheduled cron), both ingests run in parallel. Steps are idempotent so the DB stays consistent, but rare `step_failed` events can show up in logs from row-level conflicts. Phase C will add an advisory lock (`pg_advisory_lock(hashtext('ingest_daily'))`) so the second trigger is a fast no-op.
 
+### External data sources (what we ingest, what it costs, why)
+
+| Source | Auth | Cost | What we pull | Cadence | Destination table |
+|---|---|---|---|---|---|
+| **Alpaca** | API key + secret | Free (IEX feed only) | EOD OHLCV for 49 US equities + ETFs | Daily, last 30d window | `ohlcv_1d` (source='alpaca') |
+| **Coinbase Exchange** | None — public API | Free, unmetered | BTC-USD, ETH-USD daily candles | Daily, last 30d | `ohlcv_1d` (source='coinbase') |
+| **FRED** (St. Louis Fed) | API key | Free, unmetered | 20 macro series (yields, CPI, unemployment, M2, VIX, USD …) | Daily, last 90d | `macro_series` |
+| **FMP** (Financial Modeling Prep) | API key | Free tier (some premium endpoints 402) | Annual income / balance / cashflow as JSON | 30-day cache per ticker | `fundamentals` |
+| **NewsAPI** | API key | Free tier (100 req/day) | Ticker-tagged headlines + body excerpts | Daily, last 24h | `news` |
+| **SEC EDGAR** | `User-Agent` header (name + contact email) | Free, unmetered | 10-K (annual) + 10-Q (quarterly) full filings | Weekly (skip if accession already stored) | `filings` (meta + 8KB excerpt) + GCS (raw HTML) |
+
+**Why some have keys and some don't**
+
+- Authenticated APIs (Alpaca, FRED, FMP, NewsAPI) use per-account keys for rate limiting + billing. Each Tessera contributor gets their own personal key when they're set up.
+- Coinbase splits its surface: trading-related endpoints need API key + secret + passphrase, but **public market data is open**. We don't trade through Coinbase (Alpaca handles execution), so we get away with no key.
+- SEC EDGAR is a US public-data mandate — anyone can pull SEC filings for free. There's no API key, but **the SEC requires a contact `User-Agent`** (e.g. `Tessera Pilot you@example.com`) so they can email the operator if a script misbehaves. Requests without one return 403.
+
+**Why FMP fundamentals AND SEC EDGAR — they look duplicate**
+
+- **FMP** gives us *numbers* (revenue, EBITDA, FCF) as clean JSON. Direct input to feature builder (FCF yield, PEG, debt ratio).
+- **SEC EDGAR** gives us *prose* (MD&A, risk factors, business segment narrative). Direct input to LLM personas. Warren reading "why services revenue decelerated" needs the management's own words, not just a number.
+
+→ FMP is *what*, EDGAR is *why*.
+
+**Alternatives we considered and rejected**
+
+| Alt | Why not |
+|---|---|
+| Binance (instead of Coinbase) | US regulatory restriction — Binance.com blocks US residents |
+| CoinGecko / CMC | Aggregators — prices are weighted averages across venues, not real trade prices |
+| Yahoo Finance scrape | No stable API, ToS-grey area, anti-bot defenses |
+| Polygon.io | Better data but paid ($30+/mo) — Alpaca free covers Phase A/B needs |
+| IEX Cloud | Sunsetting in 2024 |
+
+### How to read the data we've stored
+
+Six tables matter for downstream work (LLM, frontend, ad-hoc analysis):
+
+```
+ohlcv_1d           # prices (Timescale hypertable)
+macro_series       # FRED series
+fundamentals       # FMP, JSON blobs per period
+news               # NewsAPI, embedding column ready for pgvector
+filings            # SEC EDGAR (excerpt + GCS pointer)
+ticker_features    # derived: ret_*, vol_30d, rsi_14, sma_*, volume_z
+```
+
+**Three access patterns:**
+
+#### 1. Direct SQL — fastest for exploration
+Connect with the `DATABASE_URL` from 1Password (same DB everyone uses). From `psql`, DBeaver, Neon's web console, or any Postgres client:
+
+```sql
+-- Apple's last 5 trading days
+SELECT ts, close, volume FROM ohlcv_1d
+WHERE ticker = 'AAPL'
+ORDER BY ts DESC LIMIT 5;
+
+-- Latest features for the whole universe (one row per ticker)
+SELECT DISTINCT ON (ticker) ticker, ts, ret_30d, rsi_14, vol_30d
+FROM ticker_features
+ORDER BY ticker, ts DESC;
+
+-- Macro: today's yield curve shape
+SELECT series_id, ts, value FROM macro_series
+WHERE series_id IN ('DGS2','DGS10','DGS30')
+  AND ts = (SELECT MAX(ts) FROM macro_series WHERE series_id='DGS10');
+
+-- Recent news for one ticker
+SELECT ts, source, title FROM news
+WHERE 'NVDA' = ANY(tickers)
+ORDER BY ts DESC LIMIT 10;
+
+-- Apple's latest 10-K body excerpt (first 8KB)
+SELECT filing_date, period_end, length(text_summary) AS chars, raw_gcs_uri
+FROM filings
+WHERE ticker = 'AAPL' AND filing_type = '10-K'
+ORDER BY filing_date DESC LIMIT 1;
+```
+
+#### 2. Python from the worker — for new pipeline steps
+Inside any module under `apps/worker/tessera_worker/`, use the existing session helper. Already-typed connection pool, no need to thread `DATABASE_URL`:
+
+```python
+from sqlalchemy import text
+from tessera_worker.db import session_scope
+
+with session_scope() as session:
+    rows = session.execute(text("""
+        SELECT ticker, close
+        FROM ohlcv_1d
+        WHERE ticker = ANY(:tickers)
+          AND ts = (SELECT MAX(ts) FROM ohlcv_1d)
+    """), {"tickers": ["AAPL", "MSFT"]}).all()
+    for ticker, close in rows:
+        print(ticker, close)
+```
+
+For full SEC filing text (not just the 8KB excerpt), pull the raw HTML from GCS:
+
+```python
+from google.cloud import storage
+from urllib.parse import urlparse
+
+uri = "gs://tessera-raw/edgar/0000320193-26-000013.html"  # from filings.raw_gcs_uri
+parsed = urlparse(uri)
+blob = storage.Client().bucket(parsed.netloc).blob(parsed.path.lstrip("/"))
+html = blob.download_as_bytes()
+```
+
+#### 3. HTTP API from the frontend — Phase B onwards
+Right now the Next.js app reads `lib/mock/*` (seeded fakes). Phase B Week 3 swaps these for real `/api/*` routes that query Neon server-side. The frontend never touches Neon directly; everything goes through Vercel edge routes that hold the DB credential.
+
+Sketch of the route shape (not yet implemented):
+
+```
+GET /api/performance?personaId=warren&window=30d
+  → returns equity-curve points from persona_performance
+
+GET /api/reports?personaId=warren&limit=5
+  → returns analyst_reports rows for one persona
+
+GET /api/proposals?ticker=NVDA
+  → returns latest proposal per persona (1..4 rows)
+
+POST /api/chat/[personaId]
+  → SSE stream from Anthropic Sonnet, with persona spec +
+    book + recent reports + relevant features injected as
+    system prompt context
+```
+
+The web app's `lib/api.ts` will wrap these calls so components stay agnostic to mock-vs-real.
+
+**Connection cheatsheet** — credentials always come from secrets store, never code:
+
+| Caller | Where DATABASE_URL lives | How |
+|---|---|---|
+| Local Python (you running ingest) | `apps/worker/.env` | `python-dotenv` auto-loads on import |
+| Cloud Run worker | GCP Secret Manager | `gcloud run deploy --set-secrets` mounts as env var |
+| Local Next.js (npm run dev) | `apps/web/.env.local` | Next.js auto-loads `.env.local` |
+| Vercel production | Vercel project env vars | Set in dashboard → Settings → Environment Variables |
+
 ### Still mocked (Frontend reads these — Phase B/C swap)
 - All return series (seeded random walks in `lib/mock/performance.ts`).
 - All proposals (hand-curated in `lib/mock/proposals.ts`).
