@@ -14,6 +14,10 @@ python -m tessera_worker.features.demo_data_explorer
 
 # (b) Compute FCF yield + Warren screen
 python -m tessera_worker.features.demo_fcf_yield
+
+# (c) Discover which macros drive which tickers (auto-generates
+#     TICKER_MACRO_OVERLAY dict for LLM Pipeline + suggests new features)
+python -m tessera_worker.features.demo_macro_sensitivity
 ```
 
 The FCF demo connects to the shared Neon DB (using `DATABASE_URL` from
