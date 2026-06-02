@@ -242,7 +242,24 @@ blob = storage.Client().bucket(parsed.netloc).blob(parsed.path.lstrip("/"))
 full_html = blob.download_as_bytes()
 ```
 
-Local GCS access requires `gcloud auth application-default login` once.
+**Most of Phase B does NOT need this.** The 8KB `filings.text_summary` excerpt is enough for the standard persona prompt; only the EDGAR parser improvement task needs the full HTML. If you do need it:
+
+1. Ping 정우 with your Google account email (not 정우's — your own).
+2. 정우 grants you `roles/storage.objectViewer` on `gs://tessera-raw` from his terminal:
+   ```powershell
+   gcloud projects add-iam-policy-binding tessera-498200 `
+     --member="user:<your-email>" --role="roles/storage.objectViewer" `
+     --condition=None
+   ```
+3. On your own machine, run **once**:
+   ```bash
+   gcloud auth login                              # your own Google account
+   gcloud auth application-default login          # again, your own account
+   gcloud config set project tessera-498200
+   ```
+4. The `storage.Client()` snippet above works.
+
+**Never share or log in with another teammate's Google account** — auth is per-person so audit trails stay clean.
 
 #### Track-specific guidance
 

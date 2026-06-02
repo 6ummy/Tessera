@@ -307,6 +307,8 @@ blob = storage.Client().bucket(parsed.netloc).blob(parsed.path.lstrip("/"))
 html = blob.download_as_bytes()
 ```
 
+**GCS auth note**: this requires per-user IAM access to the `tessera-498200` GCP project, granted by the project owner (정우). Each developer authenticates with their *own* Google account via `gcloud auth application-default login` — never share or reuse another teammate's credentials. See `Plan.md` §4 access pattern (c) for the full 4-step setup. Most Phase B work doesn't need GCS access — the 8KB excerpt covers standard prompt-assembly needs.
+
 #### 3. HTTP API from the frontend — Phase B onwards
 Right now the Next.js app reads `lib/mock/*` (seeded fakes). Phase B Week 3 swaps these for real `/api/*` routes that query Neon server-side. The frontend never touches Neon directly; everything goes through Vercel edge routes that hold the DB credential.
 
