@@ -310,19 +310,122 @@ The frontend swap (Phase B Week 3) reads from `analyst_reports` — so as soon a
 
 #### Worked examples — runnable demos in each track's folder
 
-Two end-to-end demos live next to the production code, with one-page markdown explainers. Both connect to Neon, run in ~5 seconds, print readable output, and are designed to be **forked** into your own feature/persona work — that's why they're inside the package (not in `scripts/`).
+Two end-to-end demos live next to the production code, with one-page markdown explainers. Both connect to Neon, run in ~5 seconds, print readable output, and are designed to be **forked** into your own feature/persona work. They live inside the package (not in `scripts/`) so `python -m tessera_worker.<...>.demo_*` works the moment `pip install -e .` is done — no extra setup.
 
-| Track | Demo | What it shows | Doc |
-|---|---|---|---|
-| **LLM Pipeline** | `python -m tessera_worker.agents.demo_warren_aapl` | Pulls all 6 prompt inputs for Warren+AAPL (features, fundamentals, macro, news, 10-K), renders them as named blocks, prints the full assembled prompt you'd paste into Claude. | `apps/worker/tessera_worker/agents/LLM_pipeline_demo.md` |
-| **Quant** | `python -m tessera_worker.features.demo_fcf_yield` | Computes FCF yield for the equity universe (FCF / (close × shares)), prints an ASCII bar chart ranked best→worst, flags Warren's screen (yield ≥ 6%). | `apps/worker/tessera_worker/features/Quant_demo.md` |
+> **Read this section once, then jump straight to your track's demo and markdown.** Each track owns its own folder; you do not need to touch the other track's files to be productive.
 
-Each markdown file includes a **"Extend this"** section with 4 small follow-up moves (swap personas, loop the universe, real Anthropic call, citation validation — for LLM; sector overlay, historical trend, wire-into-`ticker_features`, property test — for Quant). Read the .md once, then fork the .py.
+---
 
-Real-data quirks the demos surface (good "first issue" material):
-- NewsAPI tags ~30% of AAPL stories with false positives (Disney World, NBA…) — Quant filter needed.
-- SEC 10-K primary doc is XBRL-tagged; current excerpt grabs the metadata header, not the MD&A prose — parser improvement needed.
-- TSM's FCF yield calc inflates due to ADR share-count units mismatch — handle ADRs explicitly.
+##### 🧠 If you're on **LLM Pipeline (윤채 + 한솔)** — start here
+
+**Your folder**: `apps/worker/tessera_worker/agents/`
+
+```
+agents/
+  LLM_pipeline_demo.md       ← read first (5 min)
+  demo_warren_aapl.py        ← run, then fork
+  (later you'll add: persona_loader.py, prompt_assembler.py,
+                     anthropic_runner.py, citation_validator.py, models.py)
+```
+
+**3-minute first run**:
+```bash
+cd apps/worker
+.\.venv\Scripts\Activate.ps1
+python -m tessera_worker.agents.demo_warren_aapl
+```
+
+You should see:
+- All 6 prompt inputs Warren needs for AAPL (features, fundamentals, macro, news, 10-K excerpt) rendered as named XML-ish blocks
+- The final assembled prompt at the bottom — **copy-paste into Anthropic console and you'll get Warren's first thesis**, no code needed
+
+**Then read `LLM_pipeline_demo.md`** — it has 4 "Extend this" recipes (~10 lines each):
+1. Swap personas (Warren → Cathie / Ray / Peter) without touching the data layer
+2. Loop the universe (call `screen()` first, then iterate the shortlist)
+3. Make a real Anthropic call (replace the print() with `client.messages.create(...)`)
+4. Citation validation (every `[n_xxxxx]` Warren cites must resolve to a real news row)
+
+**Your Week 2 task path** (recommended order):
+- Day 1: run the demo + read the .md
+- Day 2: fork `demo_warren_aapl.py` → `persona_loader.py` (parse `personalities.md` into a dict)
+- Day 3: `prompt_assembler.py` — generalize the per-persona cuts into per-persona logic
+- Day 4: `anthropic_runner.py` — real Anthropic call + Pydantic validation + cost log
+- Day 5: `citation_validator.py` + first sanity-check thesis on AAPL (Warren writes a real one, you read it together)
+
+**You will not need to touch**: `features/*`, `ingestors/*`, `risk/*`. Those are owned by Quant + Infra.
+
+---
+
+##### 📊 If you're on **Quant (예슬 + 준원)** — start here
+
+**Your folder**: `apps/worker/tessera_worker/features/`
+
+```
+features/
+  compute.py                 ← existing production feature builder
+  Quant_demo.md              ← read first (5 min)
+  demo_fcf_yield.py          ← run, then fork
+```
+
+**3-minute first run**:
+```bash
+cd apps/worker
+.\.venv\Scripts\Activate.ps1
+python -m tessera_worker.features.demo_fcf_yield
+```
+
+You should see:
+- ASCII bar chart of the equity universe ranked by FCF yield
+- Mean, median, and Warren's screen list (tickers with FCF yield ≥ 6%)
+- A `WRITE_BACK = False` flag at the bottom — that's the hook for when you wire this into `ticker_features` for real
+
+**Then read `Quant_demo.md`** — it has 4 "Extend this" recipes (~5 lines each):
+1. Sector overlay (group bars by GICS sector from `universe.py`)
+2. Historical trend (5 years of fundamentals, not just snapshot — is FCF yield stable or trending?)
+3. Wire into `ticker_features` for real (migration → `compute.py.build()` → property test → PR)
+4. Property test the math (a `hypothesis` test that FCF / (close × shares) is finite)
+
+**Your Week 2 task path** (recommended order — priority comes from Plan.md backlog):
+- Day 1: run the demo + read the .md
+- Day 2: ship `fcf_yield` as a real `ticker_features` column (migration + `build()` integration + test)
+- Day 3: `peg_ratio` (forward P/E ÷ EPS growth — needs FMP analyst estimates, else trailing proxy)
+- Day 4: `eps_cagr_3y` (3 consecutive annual income rows)
+- Day 5: `debt_to_equity` + start sketching the Phase C precursors (correlation matrix, sector exposure)
+
+**You will not need to touch**: `agents/*`, `ingestors/*` (mostly), `risk/*`. Those are owned by LLM Pipeline + Infra.
+
+---
+
+##### 🤝 Where the two tracks meet
+
+The two tracks share **one boundary**: `ticker_features`. Quant writes new columns into it; LLM Pipeline reads from it.
+
+```
+                                         writes
+  Quant (features/compute.py)  ──────────────────►  ticker_features
+                                                          │
+                                                          │ reads
+                                                          ▼
+  LLM Pipeline (agents/prompt_assembler.py)  ──►  Warren's <features> block
+```
+
+So when Quant ships `fcf_yield` into `ticker_features`, the next cron run automatically lights it up for every persona's prompt. **No coordination needed** beyond the column existing on Day 5 vs Day 3 — agree on column names in advance and you're done.
+
+The same is true for `filings.text_summary` (SEC EDGAR ingestor writes it, LLM Pipeline reads it for the `<filing>` block) and `news` (ditto for `<news>`).
+
+---
+
+##### Real-data quirks the demos surface (good "first issue" material)
+
+Both demos hit real production data and surface its imperfections — these are natural starting points for first PRs:
+
+| Quirk | Owner | Where it shows up |
+|---|---|---|
+| NewsAPI tags ~30% of AAPL stories with false positives (Disney World, NBA Finals, …) | Quant or LLM Pipeline | LLM demo's `<news>` block is dominated by noise |
+| SEC 10-K primary doc is XBRL-tagged; current 8KB excerpt is metadata header, not the MD&A prose Warren wants | LLM Pipeline | LLM demo's `<filing>` block shows XBRL goo instead of prose |
+| TSM FCF yield 48% — ADR share-count units mismatch | Quant | Quant demo's bar chart shows TSM as a wild outlier |
+
+Pick one as your first PR. They're all real, small, and improve the downstream signal quality for everyone.
 
 #### When something looks wrong
 
