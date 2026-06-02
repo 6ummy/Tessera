@@ -156,6 +156,164 @@ and "implementation" weeks — they ship together).
 
 **Goal**: Each persona writes a real Sonnet 4.6 thesis daily. Chat replaces mock engine with real Anthropic call.
 
+### Week 2 Quickstart — working with the data we already have
+
+Phase A wired the entire data plane. **Quant (예슬, 준원) and LLM Pipeline (윤채, 한솔) work on top of what's already there** — nobody needs to wait on infra.
+
+#### TL;DR — what's automatic
+
+- **Neon refreshes every weekday at 21:30 UTC** (≈ 06:30 KST next morning). Vercel Cron → Cloud Run worker → 7-step ingest. You'll see fresh OHLCV, news, features in the morning without doing anything.
+- **EDGAR runs in the same job** but is mostly a no-op day-to-day (filings update quarterly). The first full-universe run populates ~300 filings; after that, only new accessions get pulled.
+- **If you need data right now without waiting for cron**, you can trigger the same job manually with `curl -X POST https://tessera-ruby.vercel.app/api/cron/daily -H "Authorization: Bearer $CRON_SECRET"`. Takes ~7 min, runs in Cloud Run background. Don't do this more than a few times a day — every run hits the third-party APIs.
+
+#### Step 0 — dev env setup (10 min, once)
+
+```powershell
+# 1. Clone (if you haven't) + pick up the latest
+git pull
+
+# 2. Fill in .env (one-time)
+cp apps/worker/.env.example apps/worker/.env
+# → open apps/worker/.env, paste values from 1Password vault "Tessera"
+# → DATABASE_URL is the most important one — that's what reads Neon
+# → SEC_USER_AGENT: put your own contact email ("Tessera Pilot you@gmail.com")
+
+# 3. Install
+cd apps/worker
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1            # Mac/Linux: source .venv/bin/activate
+pip install -e .
+
+# 4. Smoke test — should print "All checks passed"
+python -m scripts.check_connections
+```
+
+#### Reading the data — 3 patterns (most → least common in Phase B)
+
+**(a) Python from inside the worker package** — what Quant + LLM Pipeline code will look like:
+
+```python
+from sqlalchemy import text
+from tessera_worker.db import session_scope
+
+with session_scope() as session:
+    # Latest features snapshot for one ticker
+    row = session.execute(text("""
+        SELECT ret_30d, ret_90d, vol_30d, rsi_14, sma_20, sma_50, volume_z
+        FROM ticker_features
+        WHERE ticker = :t
+        ORDER BY ts DESC LIMIT 1
+    """), {"t": "AAPL"}).first()
+    print(dict(row._mapping))
+
+    # Latest macro snapshot (yield curve + inflation expectations)
+    macros = session.execute(text("""
+        SELECT series_id, value FROM macro_series
+        WHERE series_id = ANY(:ids)
+          AND ts = (SELECT MAX(ts) FROM macro_series WHERE series_id='DGS10')
+    """), {"ids": ["DGS2", "DGS10", "T10Y2Y", "T10YIE", "VIXCLS"]}).all()
+
+    # Recent news for a ticker (last 7 days, title only)
+    news = session.execute(text("""
+        SELECT ts, source, title FROM news
+        WHERE :t = ANY(tickers) AND ts >= NOW() - INTERVAL '7 days'
+        ORDER BY ts DESC LIMIT 10
+    """), {"t": "AAPL"}).all()
+
+    # Latest 10-K excerpt for LLM context (first 8KB of management's prose)
+    filing = session.execute(text("""
+        SELECT filing_date, text_summary FROM filings
+        WHERE ticker = :t AND filing_type = '10-K'
+        ORDER BY filing_date DESC LIMIT 1
+    """), {"t": "AAPL"}).first()
+```
+
+**(b) Raw SQL exploration** — useful for ad-hoc "what does the data look like" while writing features. Use Neon's web console at https://console.neon.tech or any Postgres client with `DATABASE_URL`. See `architecture.md` §6 "How to read the data we've stored" for a longer SQL cheatsheet.
+
+**(c) Full filing text from GCS** — `filings.text_summary` is only the first 8KB. For the full document (e.g. to extract MD&A section), download from GCS:
+
+```python
+from google.cloud import storage
+from urllib.parse import urlparse
+
+uri = filing.raw_gcs_uri   # gs://tessera-raw/edgar/0000320193-26-000013.html
+parsed = urlparse(uri)
+blob = storage.Client().bucket(parsed.netloc).blob(parsed.path.lstrip("/"))
+full_html = blob.download_as_bytes()
+```
+
+Local GCS access requires `gcloud auth application-default login` once.
+
+#### Track-specific guidance
+
+**Quant track (예슬, 준원) — build models on top of `ticker_features` + raw data**
+
+What's in `ticker_features` today (already populated daily):
+- Returns: `ret_1d`, `ret_5d`, `ret_30d`, `ret_90d`, `ret_1y`
+- Volatility: `vol_30d`
+- Momentum: `rsi_14`
+- Trend: `sma_20`, `sma_50`
+- Liquidity: `volume_z`
+
+What's missing for Phase B that needs to be added to `features/compute.py` (Quant owns this):
+- **FCF yield** — needs `ohlcv_1d.close * shares_outstanding` and `fundamentals.cash_flow.free_cash_flow`
+- **PEG ratio** — `forward P/E ÷ EPS growth 3yr`
+- **Debt-to-equity** — from `fundamentals.balance_sheet`
+- **EPS CAGR 3y / 5y** — derived from `fundamentals.income_stmt` over consecutive periods
+
+Pattern to follow: each new feature is a pure pandas function inside `features/compute.py`, with a property-based test in `tests/test_features.py`. Goes through the same `ticker_features` upsert path — no schema change needed (jsonb column or extend the table; ADR if extending).
+
+For **risk gateway prep** (Phase C precursor): compute per-ticker volatility and correlation matrices using existing `ohlcv_1d`. Don't store yet — Phase C is when persona positions exist and we need to gate them.
+
+**LLM Pipeline track (윤채, 한솔) — assemble persona prompts**
+
+Each persona's daily thesis needs 4 inputs from Neon (already populated):
+1. **Feature snapshot** for the shortlisted tickers (~30 per persona) — `ticker_features` latest row per ticker
+2. **Macro context** — last 30 days of relevant FRED series (Ray cares most; others get a summary)
+3. **News** — last 24-48h headlines tagged to each ticker (`news` table, `:ticker = ANY(tickers)`)
+4. **Filings excerpt** — `filings.text_summary` for the most recent 10-K/10-Q per ticker (Warren + Peter especially care about MD&A)
+
+**Pattern to follow** (this is the `apps/worker/tessera_worker/agents/` directory you'll create):
+
+```
+agents/
+  persona_loader.py      # parse personalities.md → in-memory dict
+  prompt_assembler.py    # given (persona, ticker) → 6-part system prompt
+  anthropic_runner.py    # typed call, Pydantic validation, retry on schema fail
+  citation_validator.py  # verify cited_news_ids actually exist in news table
+  models.py              # AnalystReport, Proposal Pydantic schemas
+```
+
+The **output** goes into the existing `analyst_reports` table:
+
+```python
+session.execute(text("""
+    INSERT INTO analyst_reports
+        (persona_id, ts, inputs_hash, parsed, raw_response, cost_usd)
+    VALUES (:p, NOW(), :h, :parsed, :raw, :cost)
+"""), {
+    "p": "warren",
+    "h": inputs_hash,           # SHA256 of the feature snapshot — for caching
+    "parsed": parsed_json,       # validated AnalystReport.model_dump()
+    "raw": raw_text,             # full Anthropic response for audit
+    "cost": cost_usd,            # from anthropic SDK usage.input_tokens/output_tokens × pricing
+})
+```
+
+The frontend swap (Phase B Week 3) reads from `analyst_reports` — so as soon as you start writing rows, the UI can pick them up.
+
+**Cost guardrails (apply to both tracks)**
+
+- Set `LLM_MAX_DAILY_COST_USD=5` in `.env` — the wrapper will refuse to call Anthropic if today's accumulated cost exceeds it.
+- Use Haiku 4.5 for the universe screen step (cheap, fast); Sonnet 4.6 only for the deep thesis on shortlisted names.
+- Cache the persona spec via `cache_control: ephemeral` on the system block — saves ~2K tokens × 4 personas × ~5 calls = 40K tokens/day repeated.
+
+#### When something looks wrong
+
+- **Cloud Run cron run failed?** Check `gcloud logging read "resource.type=cloud_run_revision AND resource.labels.service_name=tessera-worker AND severity>=ERROR" --freshness=1d`. Anything user-visible should also surface in Sentry → `tessera-worker` project.
+- **DB has stale data?** Check the latest `fetched_at` on the suspected table (`SELECT MAX(fetched_at) FROM news`). If older than 24h, the cron skipped or failed.
+- **API rate-limited mid-run?** All ingestors are idempotent — just trigger again. `ON CONFLICT DO UPDATE` handles duplicates.
+
 ### Week 2 — Persona runner + full desk
 - [ ] **Persona loader**: parse `personalities.md` sections per persona, cache in memory
 - [ ] **Prompt assembler**: persona spec + feature snapshot + memory recall → prompt
