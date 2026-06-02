@@ -71,10 +71,12 @@ def render_coverage() -> None:
     tickers = [t.ticker for t in by_asset_class("equity")]
 
     with session_scope() as s:
+        # DISTINCT calendar days (yahoo + alpaca may both have rows for
+        # the same date at different times-of-day — count once per date).
         ohlcv = {
             r.ticker: r for r in s.execute(text("""
                 SELECT ticker,
-                       COUNT(*) AS n,
+                       COUNT(DISTINCT ts::date) AS n,
                        MIN(ts) AS first_day,
                        MAX(ts) AS last_day
                 FROM ohlcv_1d
@@ -135,21 +137,31 @@ def render_price_sparklines(tickers: list[str] | None = None) -> None:
     print()
     with session_scope() as s:
         for tk in tickers:
+            # Take the deepest history available — prefer Yahoo if present
+            # (20 yrs), fall back to Alpaca (6 yrs). DISTINCT ON ensures
+            # one close per calendar day even when both sources stored a row.
             rows = s.execute(text("""
-                SELECT ts, close FROM ohlcv_1d
-                WHERE ticker = :t AND source = 'alpaca'
-                ORDER BY ts
+                SELECT DISTINCT ON (ts::date) ts, close, source
+                FROM ohlcv_1d
+                WHERE ticker = :t
+                ORDER BY ts::date,
+                         CASE source WHEN 'yahoo' THEN 1
+                                     WHEN 'alpaca' THEN 2
+                                     WHEN 'coinbase' THEN 3
+                                     ELSE 9 END
             """), {"t": tk}).all()
             if not rows:
-                print(f"  {tk:<8}  (no Alpaca data)")
+                print(f"  {tk:<8}  (no data)")
                 continue
             closes = [float(r.close) for r in rows]
             first_dt = rows[0].ts.date() if hasattr(rows[0].ts, 'date') else rows[0].ts
             last_dt = rows[-1].ts.date() if hasattr(rows[-1].ts, 'date') else rows[-1].ts
             spark = sparkline(closes, width=50)
             ret = (closes[-1] / closes[0] - 1) * 100
-            print(f"  {tk:<8}  {spark}  {first_dt}→{last_dt}  "
-                  f"${closes[0]:,.0f}→${closes[-1]:,.0f}  ({ret:+.0f}%)")
+            # Show which source dominated (the head of the rows, oldest data)
+            src = rows[0].source
+            print(f"  {tk:<8}  {spark}  {first_dt}->{last_dt}  "
+                  f"${closes[0]:,.0f}->${closes[-1]:,.0f}  ({ret:+.0f}%)  [{src}]")
 
 
 # ─────────────────────────────────────────────────────────────────────────
