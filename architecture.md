@@ -129,12 +129,13 @@ no broker, no LLM. It exists to validate UX before backend investment.
 - **Feature builder** (`compute.py`): deterministic pandas/numpy module. Reads `ohlcv_1d`, writes `ticker_features`. Computes ret_{1d,5d,30d,90d,1y}, vol_30d, rsi_14, sma_{20,50}, volume_z. **This is the only path numerical features reach the LLM** (Phase B). 13 property-based tests on the math.
 - **Daily orchestrator** (`jobs/ingest_daily.py`): 6 sequential steps (ohlcv_equity → ohlcv_crypto → macro → fundamentals → news → features). CLI flags `--only`/`--skip`. Exit code 0/1 maps to Cloud Run Job success/failure.
 - **Connection smoke test** (`scripts/check_connections.py`): verifies all 6 external services + redacts secrets from any error output.
-- **Production state right now** (snapshot 2026-06-01, after first Cloud Run-driven run):
+- **Production state right now** (snapshot 2026-06-01, after first Cloud Run-driven run + EDGAR step shipped):
   - `ohlcv_1d`: ~14,600 rows (53 tickers × ~270 trading days)
   - `ticker_features`: ~14,500 rows
   - `macro_series`: ~650 rows from 20 FRED series
   - `fundamentals`: ~300 rows (FMP free tier blocks some premium endpoints; `fmp.fetch_skip` logs are expected)
   - `news`: ~1,650 rows tagged to 42 tickers
+  - `filings`: 12 rows so far (AAPL + MSFT smoke-test set); first full universe run pending. Raw HTML in `gs://tessera-raw/edgar/`.
 - **Canary**: SPY 1y return vs Yahoo Finance reference — diff **0.49 bps** (well inside 100 bps threshold).
 - **Cloud Run worker deployed** (2026-06-01): `tessera-worker` service at `https://tessera-worker-ffr7g3a76a-ue.a.run.app` (us-east1, `--allow-unauthenticated` + shared bearer in app code, non-root container, 1 vCPU / 1 GiB / max 2 instances). Vercel Cron now calls `WORKER_WEBHOOK_URL` and gets `{status:"queued", workerStatus:200}` back.
 
@@ -153,15 +154,18 @@ no broker, no LLM. It exists to validate UX before backend investment.
 │        ↓ FastAPI BackgroundTask returns 202 immediately     │
 │        ↓ (heavy work continues async; cron not blocked)     │
 │  tessera_worker.jobs.ingest_daily.run()                     │
-│        ↓ 6 sequential steps, each idempotent                │
-│        1. Alpaca EOD     → ohlcv_1d (equities)              │
-│        2. Coinbase EOD   → ohlcv_1d (crypto)                │
-│        3. FRED macro     → macro_series                     │
-│        4. FMP fundamentals (30-day cache) → fundamentals    │
-│        5. NewsAPI        → news                             │
-│        6. Feature builder → ticker_features                 │
+│        ↓ 7 sequential steps, each idempotent                │
+│        1. Alpaca EOD       → ohlcv_1d (equities)            │
+│        2. Coinbase EOD     → ohlcv_1d (crypto)              │
+│        3. FRED macro       → macro_series                   │
+│        4. FMP fundamentals → fundamentals (30-day cache)    │
+│        5. NewsAPI          → news                           │
+│        6. SEC EDGAR        → filings + raw HTML to GCS      │
+│                              (10-K + 10-Q, skip-if-have)    │
+│        7. Feature builder  → ticker_features                │
 │        ↓ UPSERT (ON CONFLICT DO UPDATE)                     │
 │  Neon Postgres   (single source of truth for all data)      │
+│  GCS gs://tessera-raw/edgar/    (raw SEC filing HTML)       │
 │        ↓ stdout (structlog JSON)                            │
 │  GCP Logging  +  Sentry (errors only)                       │
 └────────────────────────────────────────────────────────────┘
@@ -187,6 +191,11 @@ no broker, no LLM. It exists to validate UX before backend investment.
 **Data lives only in Neon.** Cloud Run is stateless — when a job finishes the worker memory is freed and the container may scale to zero. Local `.env` files hold API keys but no data. To onboard a new dev: `git clone` + `.env` from 1Password + `pip install -e .` is enough to run the same code against the same Neon DB.
 
 **Concurrent-run note (Phase C todo)**: there is no app-level lock today. If two trigger calls land within the same second (e.g., manual curl + scheduled cron), both ingests run in parallel. Steps are idempotent so the DB stays consistent, but rare `step_failed` events can show up in logs from row-level conflicts. Phase C will add an advisory lock (`pg_advisory_lock(hashtext('ingest_daily'))`) so the second trigger is a fast no-op.
+
+**Long-job survival note (Phase C todo)**: Cloud Run **Services** allocate CPU only while handling a request by default. FastAPI's `BackgroundTask` runs *after* the response is sent — so if the instance scales to zero before the task finishes, the task is killed mid-way. We observed this on the first deploy: FMP fundamentals can take 15+ minutes (many 402s with backoff), and the instance idled out. Two fixes when full-run reliability matters:
+- **(a)** Set `--cpu-throttling=false` on the Service so CPU stays allocated. Costs slightly more (charged per CPU-second always, not just during requests).
+- **(b)** Switch the ingest from Cloud Run **Service** to Cloud Run **Job**. Jobs are designed for batch and run to completion regardless of timeout.
+- Phase B daily runs are usually fine (steady-state, ~5 min total because FMP skips fresh tickers). Phase C will pick (a) or (b) before the first persona depends on ingest reliability.
 
 ### External data sources (what we ingest, what it costs, why)
 
@@ -420,12 +429,13 @@ Built (real, in production against Neon):
 - **Monorepo restructure** — apps/web + apps/worker + packages/shared + migrations
 - **Neon Postgres** with TimescaleDB + pgvector — `001_init.sql` applied
 - **Universe** — 51 tickers across sectors (49 equities + 2 crypto)
-- **5 ingestors** — Alpaca EOD, Coinbase EOD, FRED macro, FMP fundamentals, NewsAPI
+- **6 ingestors** — Alpaca EOD, Coinbase EOD, FRED macro, FMP fundamentals, NewsAPI, SEC EDGAR (10-K + 10-Q with GCS raw HTML)
 - **Feature builder** — ret_*, vol_30d, rsi_14, sma_{20,50}, volume_z; 13 property-based tests
-- **Daily orchestrator** — `ingest_daily.py`, 6 steps, idempotent, CLI flags
+- **Daily orchestrator** — `ingest_daily.py`, 7 steps, idempotent, CLI flags
 - **Vercel Cron** — `30 21 * * 1-5`, Bearer-auth endpoint
 - **Sentry** — wired for both `tessera-web` and `tessera-worker` projects; errors-only (no perf traces / replays) for free-tier cost guard. Verified end-to-end with `/api/sentry-verify` (now removed). See `apps/web/sentry.*.config.ts` and `apps/worker/tessera_worker/observability.py`.
-- **GCP + Cloud Run** (2026-06-01) — project `tessera-498200` (us-east1). Artifact Registry repo `tessera`. Service account `tessera-worker` with `roles/secretmanager.secretAccessor`. Secret Manager holds 9 secrets (DATABASE_URL, ANTHROPIC, ALPACA × 2, FMP, FRED, NEWSAPI, SENTRY_DSN, WORKER_WEBHOOK_SECRET). Worker container deployed via `apps/worker/scripts/deploy_cloud_run.ps1` and verified end-to-end (Vercel cron call → 6/6 ingest steps green).
+- **GCP + Cloud Run** (2026-06-01) — project `tessera-498200` (us-east1). Artifact Registry repo `tessera`. Service account `tessera-worker` with `roles/secretmanager.secretAccessor` + `roles/storage.objectAdmin` on `gs://tessera-raw`. Secret Manager holds 10 secrets (DATABASE_URL, ANTHROPIC, ALPACA × 2, FMP, FRED, NEWSAPI, SENTRY_DSN, WORKER_WEBHOOK_SECRET, SEC_USER_AGENT). Worker container deployed via `apps/worker/scripts/deploy_cloud_run.ps1` and verified end-to-end (Vercel cron call → ingest steps green).
+- **SEC EDGAR ingestor** (2026-06-01) — adds 7th `filings` step. Per ticker: 2 × 10-K + 4 × 10-Q (≈1.5 yrs of management prose). Body excerpt (8KB) into `filings.text_summary`, raw HTML to GCS `tessera-raw/edgar/{accession}.html`. Skip-if-already-have on accession means daily runs are no-ops once steady-state.
 
 Verified:
 - Connection check passes for all 6 external services
@@ -436,7 +446,7 @@ Verified:
 Deferred to Phase B:
 - ~~Cloud Run worker deployment~~ — **shipped 2026-06-01** (see "Daily data flow" diagram above)
 - ~~Sentry DSN registration~~ — **shipped 2026-06-01** (errors-only, cost-guarded)
-- SEC EDGAR filings ingestor (Phase B Week 2 — `filings` schema exists, not yet populated)
+- ~~SEC EDGAR filings ingestor~~ — **shipped 2026-06-01** (12 filings smoke-test for AAPL + MSFT, end-to-end Neon + GCS)
 - Frontend swap from `lib/mock/*` to `/api/*` (Phase B Week 3 — sequence: real theses must exist first)
 
 ### Open questions to resolve before Phase B
