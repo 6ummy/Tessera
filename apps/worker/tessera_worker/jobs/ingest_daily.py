@@ -37,6 +37,7 @@ from tessera_worker.ingestors import (
     fred_macro,
     newsapi_news,
     sec_edgar,
+    sec_edgar_facts,
 )
 from tessera_worker.logging import configure_logging, get_logger
 from tessera_worker.universe import TICKERS, by_asset_class
@@ -130,6 +131,25 @@ def _step_filings() -> dict[str, object]:
     }
 
 
+def _step_edgar_facts() -> dict[str, object]:
+    """Pull SEC XBRL companyfacts (structured GAAP fundamentals).
+
+    Covers tickers FMP free tier blocks (HON, LLY, MA, etc.). Daily runs are
+    mostly no-ops once steady-state because companyfacts only updates when a
+    new 10-K/10-Q is filed; the JSONB-merge upsert pattern means re-fetching
+    the same period_end is harmless. ~30s for full universe.
+    """
+    tickers = [t.ticker for t in by_asset_class("equity")]
+    r = sec_edgar_facts.ingest(tickers)
+    return {
+        "rows": r.rows_upserted,
+        "tickers": r.tickers_processed,
+        "missing_cik": len(r.tickers_missing_cik),
+        "no_data": len(r.tickers_no_data),
+        "ms": r.duration_ms,
+    }
+
+
 def _step_features() -> dict[str, object]:
     """Recompute features for everything that has OHLCV. Idempotent."""
     with session_scope() as session:
@@ -144,9 +164,10 @@ STEPS: dict[str, StepFn] = {
     "ohlcv_equity":  _step_ohlcv_equity,
     "ohlcv_crypto":  _step_ohlcv_crypto,
     "macro":         _step_macro,
-    "fundamentals":  _step_fundamentals,
+    "fundamentals":  _step_fundamentals,    # FMP — limited free-tier coverage
+    "edgar_facts":   _step_edgar_facts,     # SEC XBRL — fills FMP gaps via JSONB merge
     "news":          _step_news,
-    "filings":       _step_filings,
+    "filings":       _step_filings,         # SEC 10-K/10-Q text → GCS
     "features":      _step_features,
 }
 
