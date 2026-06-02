@@ -72,7 +72,7 @@ Tessera는 두 가지 runtime이 필요합니다:
 ### Negative
 - **운영 dashboard 2개** — Vercel + GCP. 모니터링 alert를 어디서 받을지 결정 필요.
 - **Billing 2곳** — 합계 추적 수동 (현재 액셀로).
-- **Secret 2곳에 둠** — `CRON_SECRET`은 Vercel env, `ANTHROPIC_API_KEY`는 GCP Secret Manager. 1Password / Notion으로 중앙화.
+- **Secret 2곳에 둠** — `CRON_SECRET`은 Vercel env, `ANTHROPIC_API_KEY`는 GCP Secret Manager. 팀 공유는 카톡 pinned 메시지로.
 - **Cron → Worker 통신 latency** — Vercel edge → Cloud Run 호출. 보통 < 500ms, daily batch context엔 무시 가능.
 
 ### Neutral / 관찰할 것

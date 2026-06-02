@@ -174,7 +174,7 @@ git pull
 
 # 2. Fill in .env (one-time)
 cp apps/worker/.env.example apps/worker/.env
-# → open apps/worker/.env, paste values from 1Password vault "Tessera"
+# → open apps/worker/.env, paste values from the team KakaoTalk credential pin
 # → DATABASE_URL is the most important one — that's what reads Neon
 # → SEC_USER_AGENT: put your own contact email ("Tessera Pilot you@gmail.com")
 

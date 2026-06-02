@@ -188,7 +188,7 @@ no broker, no LLM. It exists to validate UX before backend investment.
 └────────────────────────────────────────────────────────────┘
 ```
 
-**Data lives only in Neon.** Cloud Run is stateless — when a job finishes the worker memory is freed and the container may scale to zero. Local `.env` files hold API keys but no data. To onboard a new dev: `git clone` + `.env` from 1Password + `pip install -e .` is enough to run the same code against the same Neon DB.
+**Data lives only in Neon.** Cloud Run is stateless — when a job finishes the worker memory is freed and the container may scale to zero. Local `.env` files hold API keys but no data. To onboard a new dev: `git clone` + `.env` filled from the shared KakaoTalk credential pin + `pip install -e .` is enough to run the same code against the same Neon DB.
 
 **Concurrent-run note (Phase C todo)**: there is no app-level lock today. If two trigger calls land within the same second (e.g., manual curl + scheduled cron), both ingests run in parallel. Steps are idempotent so the DB stays consistent, but rare `step_failed` events can show up in logs from row-level conflicts. Phase C will add an advisory lock (`pg_advisory_lock(hashtext('ingest_daily'))`) so the second trigger is a fast no-op.
 
@@ -247,7 +247,7 @@ ticker_features    # derived: ret_*, vol_30d, rsi_14, sma_*, volume_z
 **Three access patterns:**
 
 #### 1. Direct SQL — fastest for exploration
-Connect with the `DATABASE_URL` from 1Password (same DB everyone uses). From `psql`, DBeaver, Neon's web console, or any Postgres client:
+Connect with the `DATABASE_URL` from the team KakaoTalk credential pin (same DB everyone uses). From `psql`, DBeaver, Neon's web console, or any Postgres client:
 
 ```sql
 -- Apple's last 5 trading days
