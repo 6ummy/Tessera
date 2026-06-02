@@ -308,6 +308,103 @@ The frontend swap (Phase B Week 3) reads from `analyst_reports` — so as soon a
 - Use Haiku 4.5 for the universe screen step (cheap, fast); Sonnet 4.6 only for the deep thesis on shortlisted names.
 - Cache the persona spec via `cache_control: ephemeral` on the system block — saves ~2K tokens × 4 personas × ~5 calls = 40K tokens/day repeated.
 
+#### Worked example — assemble Warren's AAPL thesis input end-to-end
+
+The single most useful snippet to internalize. Save as `apps/worker/scripts/_warren_aapl_demo.py`, then `python -m scripts._warren_aapl_demo`. This is what the real `prompt_assembler.py` will do programmatically for all 4 personas × ~30 shortlisted tickers daily.
+
+```python
+"""Demo: gather every input Warren's prompt would need for AAPL.
+Run from apps/worker/ with the venv active."""
+from datetime import date, timedelta
+from sqlalchemy import text
+from tessera_worker.db import session_scope
+
+TICKER = "AAPL"
+LOOKBACK_NEWS_DAYS = 7
+
+with session_scope() as session:
+    # ─── 1. Price + return snapshot (latest row in ticker_features) ───
+    feat = session.execute(text("""
+        SELECT ts, ret_1d, ret_5d, ret_30d, ret_90d, ret_1y,
+               vol_30d, rsi_14, sma_20, sma_50, volume_z
+        FROM ticker_features WHERE ticker = :t
+        ORDER BY ts DESC LIMIT 1
+    """), {"t": TICKER}).mappings().first()
+
+    # ─── 2. Last 30 days of closes (for chart context in the prompt) ───
+    prices = session.execute(text("""
+        SELECT ts, close FROM ohlcv_1d
+        WHERE ticker = :t ORDER BY ts DESC LIMIT 30
+    """), {"t": TICKER}).all()
+
+    # ─── 3. Latest annual fundamentals (what Warren actually values) ───
+    fund = session.execute(text("""
+        SELECT period, income_stmt, balance_sheet, cash_flow
+        FROM fundamentals
+        WHERE ticker = :t AND period_type = 'annual'
+        ORDER BY period DESC LIMIT 1
+    """), {"t": TICKER}).mappings().first()
+
+    # ─── 4. Macro backdrop (Warren cares about real rates + credit spread) ───
+    macros = session.execute(text("""
+        SELECT series_id, value FROM macro_series
+        WHERE series_id = ANY(:ids)
+          AND ts = (SELECT MAX(ts) FROM macro_series WHERE series_id='DGS10')
+    """), {"ids": ["DGS10", "T10YIE", "BAMLH0A0HYM2"]}).all()
+
+    # ─── 5. Recent news headlines (Warren wants signal, not noise — 7 days) ───
+    news = session.execute(text("""
+        SELECT ts, source, title, id FROM news
+        WHERE :t = ANY(tickers)
+          AND ts >= :since
+        ORDER BY ts DESC LIMIT 10
+    """), {"t": TICKER, "since": date.today() - timedelta(days=LOOKBACK_NEWS_DAYS)}).all()
+
+    # ─── 6. Latest 10-K excerpt (Warren reads management's prose carefully) ───
+    filing = session.execute(text("""
+        SELECT filing_date, period_end, text_summary, raw_gcs_uri
+        FROM filings
+        WHERE ticker = :t AND filing_type = '10-K'
+        ORDER BY filing_date DESC LIMIT 1
+    """), {"t": TICKER}).mappings().first()
+
+# ─── Print what we got — this is the raw material the prompt assembler bundles ───
+print(f"=== {TICKER} snapshot as of {feat['ts']} ===")
+print(f"Returns: 1d={feat['ret_1d']:+.2%}  30d={feat['ret_30d']:+.2%}  1y={feat['ret_1y']:+.2%}")
+print(f"Vol30={feat['vol_30d']:.2%}  RSI14={feat['rsi_14']:.0f}  SMA20={feat['sma_20']:.2f}")
+print()
+print(f"Macro context: " + ", ".join(f"{r.series_id}={r.value}" for r in macros))
+print()
+print(f"Last {len(news)} news (7d):")
+for n in news:
+    print(f"  {n.ts.date()}  [{n.source}]  {n.title[:80]}")
+print()
+print(f"Latest 10-K: filed {filing['filing_date']}, period_end {filing['period_end']}")
+print(f"  Excerpt ({len(filing['text_summary']):,} chars):")
+print(f"  {filing['text_summary'][:400]}…")
+print(f"  Full HTML at {filing['raw_gcs_uri']}")
+```
+
+**What each of the 6 blocks becomes in the actual prompt** (LLM Pipeline pattern reference):
+
+| Block | Where it lands in the system prompt |
+|---|---|
+| 1. Feature snapshot | `<features>` block — numbers Warren can quote as evidence |
+| 2. Price history | Used by Quant for chart sparkline in the UI; LLM gets only the summary stats |
+| 3. Fundamentals JSON | `<financials>` block — Warren computes FCF yield, P/E from this |
+| 4. Macro | `<context>` block — sets the regime Warren is operating in |
+| 5. News | `<news>` block — each item has `id` so Warren must cite by ID (citation validator enforces) |
+| 6. 10-K excerpt | `<filing>` block — direct quotes from management; this is where Warren picks up qualitative signal that pure numbers miss |
+
+**Persona-specific tweaks** the real assembler will apply:
+
+- **Warren**: include 10-K excerpt (block 6) at full length, downweight macros, include 5y EPS history from `fundamentals`.
+- **Cathie**: skip 10-K (she invests on disruption narrative), include heavy news (block 5) and `volume_z`/`ret_30d` momentum.
+- **Ray**: skip filings + news for individual tickers, include ALL macro series (yield curve, breakevens, VIX, USD), aggregate per-asset-class signals.
+- **Peter**: include both filings and PEG-relevant fundamentals; news only if `ret_30d > 10%` (his "is the market noticing yet?" filter).
+
+That selectivity is exactly what `prompt_assembler.py` per-persona logic encodes — same data sources, different cut.
+
 #### When something looks wrong
 
 - **Cloud Run cron run failed?** Check `gcloud logging read "resource.type=cloud_run_revision AND resource.labels.service_name=tessera-worker AND severity>=ERROR" --freshness=1d`. Anything user-visible should also surface in Sentry → `tessera-worker` project.
