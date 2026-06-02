@@ -308,7 +308,7 @@ The frontend swap (Phase B Week 3) reads from `analyst_reports` — so as soon a
 - Use Haiku 4.5 for the universe screen step (cheap, fast); Sonnet 4.6 only for the deep thesis on shortlisted names.
 - Cache the persona spec via `cache_control: ephemeral` on the system block — saves ~2K tokens × 4 personas × ~5 calls = 40K tokens/day repeated.
 
-#### Worked example — assemble Warren's AAPL thesis input end-to-end
+#### Worked example A (LLM Pipeline) — assemble Warren's AAPL thesis input end-to-end
 
 The single most useful snippet to internalize. Save as `apps/worker/scripts/_warren_aapl_demo.py`, then `python -m scripts._warren_aapl_demo`. This is what the real `prompt_assembler.py` will do programmatically for all 4 personas × ~30 shortlisted tickers daily.
 
@@ -404,6 +404,106 @@ print(f"  Full HTML at {filing['raw_gcs_uri']}")
 - **Peter**: include both filings and PEG-relevant fundamentals; news only if `ret_30d > 10%` (his "is the market noticing yet?" filter).
 
 That selectivity is exactly what `prompt_assembler.py` per-persona logic encodes — same data sources, different cut.
+
+#### Worked example B (Quant) — compute FCF yield + screen the universe end-to-end
+
+The Quant equivalent of the Warren+AAPL demo. Save as `apps/worker/scripts/_fcf_yield_demo.py`, then `python -m scripts._fcf_yield_demo`. Shows the read → compute → upsert pattern that every new feature in `features/compute.py` will follow.
+
+```python
+"""Demo: compute FCF yield for the equity universe, rank it,
+write back to ticker_features. Run from apps/worker/ with venv active.
+
+FCF yield = trailing free cash flow / market cap
+  free cash flow         ← fundamentals.cash_flow JSONB
+  market cap = price × shares outstanding
+                          ← ohlcv_1d.close (latest) × fundamentals.balance_sheet (latest)
+"""
+import json
+import pandas as pd
+from sqlalchemy import text
+from tessera_worker.db import session_scope
+from tessera_worker.universe import by_asset_class
+
+tickers = [t.ticker for t in by_asset_class("equity")]  # 49 names
+
+with session_scope() as session:
+    # ─── 1. Latest close per ticker (Timescale handles "latest" fast) ───
+    closes = session.execute(text("""
+        SELECT DISTINCT ON (ticker) ticker, close
+        FROM ohlcv_1d
+        WHERE ticker = ANY(:t)
+        ORDER BY ticker, ts DESC
+    """), {"t": tickers}).all()
+    close_by = {r.ticker: float(r.close) for r in closes}
+
+    # ─── 2. Latest annual fundamentals per ticker (JSONB extraction) ───
+    funds = session.execute(text("""
+        SELECT DISTINCT ON (ticker) ticker,
+               cash_flow ->> 'freeCashFlow'             AS fcf,
+               balance_sheet ->> 'commonStockShares'    AS shares
+        FROM fundamentals
+        WHERE ticker = ANY(:t) AND period_type = 'annual'
+        ORDER BY ticker, period DESC
+    """), {"t": tickers}).all()
+
+# ─── 3. Compute in pandas (deterministic, easy to property-test) ───
+rows = []
+for r in funds:
+    fcf, shares = r.fcf, r.shares
+    if not fcf or not shares: continue
+    fcf, shares = float(fcf), float(shares)
+    close = close_by.get(r.ticker)
+    if not close: continue
+    market_cap = close * shares
+    if market_cap <= 0: continue
+    rows.append({"ticker": r.ticker, "fcf_yield": fcf / market_cap})
+
+df = pd.DataFrame(rows).sort_values("fcf_yield", ascending=False)
+
+# ─── 4. Show the screen — top 10 cheapest by FCF yield ───
+print("=== FCF yield screen (top 10) ===")
+print(df.head(10).to_string(index=False, float_format=lambda v: f"{v:.2%}"))
+
+# ─── 5. Write back into ticker_features as a new column.
+#    In the real `features/compute.py`, you'd add this to the build()
+#    function so it goes through the existing upsert path. This demo
+#    shows the SQL for it explicitly:
+WRITE_BACK = False  # flip to True after schema migration adds fcf_yield col
+if WRITE_BACK:
+    with session_scope() as session:
+        session.execute(text("""
+            UPDATE ticker_features SET fcf_yield = :fcf_yield
+            WHERE ticker = :ticker
+              AND ts = (SELECT MAX(ts) FROM ticker_features WHERE ticker = :ticker)
+        """), df.to_dict(orient="records"))
+```
+
+**The Quant pattern this demonstrates** (apply to every new feature you add):
+
+| Step | What you do | Where it lives |
+|---|---|---|
+| 1. Identify inputs | Which existing tables hold the raw signal? | Read `architecture.md` §6 schema list |
+| 2. Read minimally | Use `DISTINCT ON (ticker)` for "latest per ticker" so you don't drag full history | Right at the top of the function |
+| 3. Compute in pandas | Pure function, no DB calls during the math | `features/compute.py` |
+| 4. Property test | One `hypothesis` test that proves the math holds on synthetic data | `tests/test_features.py` |
+| 5. Schema migrate | If adding a column, write `migrations/00X_add_<feature>.sql` and ADR if non-trivial | `migrations/` |
+| 6. Wire to upsert | Plug the function into the existing `build()` pipeline so daily cron picks it up | `features/compute.py` `build()` |
+
+**Phase B feature backlog for Quant** (`features/compute.py` extensions, in priority order):
+
+1. **`fcf_yield`** — Warren's primary screen. Pattern shown above.
+2. **`peg_ratio`** — Peter's screen. Needs forward EPS estimate (use FMP `analyst_estimates` if accessible, else trailing as proxy).
+3. **`eps_cagr_3y`** — both Warren and Peter want growth durability. Compute from 3 consecutive annual `fundamentals.income_stmt`.
+4. **`debt_to_equity`** — risk hygiene for every persona. `fundamentals.balance_sheet`.
+5. **`gross_margin_trend`** — Cathie's "is it scaling?" signal. 4 quarters of `fundamentals.income_stmt`.
+6. **`news_sentiment_30d`** — placeholder for Phase C; need an LLM or local model to score `news.body`.
+
+**Phase C precursor work** (start sketching now, ship next phase):
+
+- **Correlation matrix** of equity universe (rolling 90d) → goes into risk gateway's "diversification floor" check.
+- **Sector exposure tagging** from `universe.py` metadata × per-persona portfolio weights → used by risk gateway's "single-sector cap" check.
+
+These two are read-only (don't write back to `ticker_features`) — they're called on demand by the risk gateway in Phase C Week 4.
 
 #### When something looks wrong
 
