@@ -83,11 +83,13 @@ and "implementation" weeks — they ship together).
 
 **Goal**: Real market data, fundamentals, macro, and news flowing into Neon. Frontend reads from API routes instead of mock files.
 
-**Actual result**: All ingestors + feature builder + daily orchestrator + Vercel Cron endpoint shipped. Frontend swap deferred to Phase B (user choice). Cloud Run deployment deferred — orchestrator runs from laptop for now and Vercel Cron returns `noop` until `WORKER_WEBHOOK_URL` is set.
+**Actual result**: All ingestors + feature builder + daily orchestrator + Vercel Cron endpoint shipped. End-to-end production verification on 2026-06-01: 14,523 ohlcv rows · 300 fundamentals · 646 macro · 1,648 news · 14,470 features — all 6 steps pass, 0 failures.
+
+**Carried over to Phase B Week 2** (not Phase A blockers): GCP/Cloud Run deploy, Sentry DSN, SEC EDGAR ingestor, frontend mock→/api swap. See `[→]` markers below for each.
 
 ### Infrastructure (Mon–Tue) — ✅
 - [x] Create Neon project (free tier), install TimescaleDB + pgvector extensions
-- [ ] Create GCP project; enable Cloud Run + Cloud Tasks + Secret Manager *(deferred — not blocking; orchestrator runs locally)*
+- [→] Create GCP project; enable Cloud Run + Cloud Tasks + Secret Manager — **moved to Phase B Week 2** (orchestrator runs locally for Phase A; Cloud Run needed once `WORKER_WEBHOOK_URL` is wired)
 - [x] Restructure repo into monorepo:
   ```
   apps/web/        # existing Next.js
@@ -107,20 +109,20 @@ and "implementation" weeks — they ship together).
   persona_trades    (id, persona_id, ts, ticker, side, qty, price, report_id)
   persona_performance(persona_id, date, pnl_day, pnl_cum, return_cum, sharpe_30d, mdd_30d)
   ```
-- [ ] Sentry on web + worker *(deferred — scaffolded in config but DSN not set)*
+- [→] Sentry on web + worker — **moved to Phase B Week 2** (scaffolded in config; only DSN registration remains)
 
 ### Ingestors + feature builder — ✅
 - [x] **Alpaca EOD ingestor** — 51 tickers (US equities + ETFs); chunked, idempotent ON CONFLICT
 - [x] **Coinbase EOD ingestor** — BTC, ETH (300-candle paginated windows, public API)
 - [x] **FMP fundamentals ingestor** — `/stable/*` endpoints (legacy `/api/v3` returns 403); 30-day cache check in orchestrator
-- [ ] **SEC EDGAR filings ingestor** *(deferred to Phase B — `filings` table schema exists; not yet populated)*
+- [→] **SEC EDGAR filings ingestor** — **moved to Phase B Week 2** (`filings` table schema exists; not yet populated. Phase A had enough signal from OHLCV + fundamentals + news to validate the pipeline)
 - [x] **FRED macro ingestor** — 20 series (yields, breakevens, CPI/PCE, unemployment, M2, Fed bs, VIX, USD)
 - [x] **NewsAPI ingestor** — 49 equities, "TICKER OR Company Name" query, in-process dedup. Embeddings deferred to Phase B (need Anthropic/Voyage or self-hosted bge-small).
 - [x] **Feature builder** (`features/compute.py`): deterministic pandas/numpy; ret_{1d,5d,30d,90d,1y}, vol_30d, rsi_14, sma_{20,50}, volume_z
 - [x] **Property-based tests** on feature builder — 13 hypothesis tests pass
 - [x] **Canary asserts**: SPY 1y return vs Yahoo → **0.49 bps diff** (threshold 100 bps)
 - [x] **Vercel Cron**: declared in `apps/web/vercel.json` (`30 21 * * 1-5`), endpoint at `/api/cron/daily` (edge runtime, Bearer auth via `CRON_SECRET`); pending `WORKER_WEBHOOK_URL` once Cloud Run is deployed
-- [ ] Frontend swap: `lib/mock/performance.ts` → `/api/performance` route *(deferred per user — Phase B will inject real theses first)*
+- [→] Frontend swap: `lib/mock/performance.ts` → `/api/performance` route — **moved to Phase B Week 3** (sequence: real theses must exist first, then swap mock for non-empty UI)
 
 **End-to-end production results** (one full daily orchestrator run on Neon):
 | Step | Rows | Time |
@@ -170,6 +172,11 @@ and "implementation" weeks — they ship together).
 - [ ] **Cost logging**: every call → Grafana metric `tessera_llm_cost_usd{persona, stage}`
 - [ ] **First sanity check**: Warren writes a real thesis on AAPL. Manual review.
 
+#### Carried over from Phase A — 정우 owned these (offloaded from 윤채/예슬 for Week 2)
+- [x] **Sentry DSN registration** on web + worker — shipped 2026-06-01. Both `tessera-web` + `tessera-worker` projects live, errors-only (no perf traces / replays) for free-tier cost guard. End-to-end verified via `/api/sentry-verify` (now removed). Pattern: explicit `Sentry.captureException` + `flush()` in Next 14 route handlers (auto-instrumentation isn't reliable there).
+- [x] **GCP project + Cloud Run + Cloud Tasks + Secret Manager** — shipped 2026-06-01. Project `tessera-498200` (us-east1), Artifact Registry repo `tessera`, service account `tessera-worker` with `roles/secretmanager.secretAccessor`, 9 secrets in Secret Manager. Worker container at `tessera-worker-ffr7g3a76a-ue.a.run.app`. Vercel Cron now triggers Cloud Run via `WORKER_WEBHOOK_URL` and the full 6-step ingest runs autonomously — verified Neon row counts incremented end-to-end. Implementation notes captured in `docs/adr/006-vercel-cloud-run-split.md`.
+- [ ] **SEC EDGAR filings ingestor** (정우) — populate `filings` table (10-K, 10-Q text); plug into Warren/Peter context. Frees 예슬 to focus on features + risk gateway prep for Phase C. _In progress._
+
 ### Week 3 — Chat + backtest + hardening
 - [ ] **Chat backend**: `/api/chat/[personaId]` assembling 6-part system prompt
   (persona spec + book + recent reports + relevant features + history + user msg);
@@ -179,6 +186,7 @@ and "implementation" weeks — they ship together).
 - [ ] **Hard rule enforcement**: per-persona validators (e.g., Warren cannot output `target_weight > 0.18`)
 - [ ] **Hallucination canary**: 5 known-bad prompts run weekly, all must be rejected
 - [ ] **Cost cap**: alert in Grafana if daily LLM cost > $10
+- [ ] **Frontend swap** (한솔, carried over from Phase A): `lib/mock/performance.ts` → `/api/performance`; same for thesis + portfolio reads. Now safe because real theses exist.
 
 **Compression note**: previously three weeks (runner / desk / chat). Now two
 weeks. Risk: backtest review is rushed. Mitigation: review sample size from 10
