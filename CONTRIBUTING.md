@@ -131,6 +131,12 @@ remote: Create a pull request for 'feature/llm/warren-first-thesis' on GitHub by
 remote:      https://github.com/6ummy/Tessera/pull/new/feature/llm/warren-first-thesis
 
 # 5. 그 URL 클릭 → GitHub PR 페이지 열림
+# (또는 GitHub repo 페이지 상단의 노란 "Compare & pull request" 배너)
+
+# ⚠️ 배너는 push 후 ~1시간 안에만 뜸. 그 후엔 URL 패턴 직접 입력:
+#    https://github.com/6ummy/Tessera/pull/new/<branch-name>
+# (예: https://github.com/6ummy/Tessera/pull/new/feature/llm/warren-first-thesis)
+# Push 출력에서 URL 못 본 경우, 또는 force-push로 다시 만든 경우 이 패턴 사용.
 
 우리가 만든 .github/PULL_REQUEST_TEMPLATE.md가 자동으로 description에 채워짐
 "What / Why / How" 채우고, 체크박스 확인 (채울게 없으면 그냥 적당히 적어주시면 됩니다)
