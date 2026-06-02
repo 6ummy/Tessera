@@ -1,0 +1,53 @@
+# syntax=docker/dockerfile:1.7
+#
+# Tessera Worker - Cloud Run image.
+#
+# Two-stage build:
+#   1. builder - installs the worker package + deps into /opt/venv
+#   2. runtime - copies the venv + source, runs uvicorn as non-root
+#
+# Slim Python base. Runs as non-root for hardening.
+
+# ---------------- builder ----------------
+FROM python:3.11-slim AS builder
+
+ENV PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+# Build deps for any wheels that compile (pyarrow + cffi).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+WORKDIR /build
+# Copy only the files pip needs to resolve + install.
+COPY pyproject.toml ./
+COPY tessera_worker ./tessera_worker
+
+RUN pip install --upgrade pip && pip install .
+
+# ---------------- runtime ----------------
+FROM python:3.11-slim AS runtime
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PORT=8080 \
+    PATH="/opt/venv/bin:$PATH"
+
+# Non-root user.
+RUN groupadd --system tessera && useradd --system --gid tessera --home /home/tessera tessera \
+    && mkdir -p /home/tessera && chown -R tessera:tessera /home/tessera
+
+COPY --from=builder /opt/venv /opt/venv
+
+WORKDIR /app
+COPY --chown=tessera:tessera tessera_worker /app/tessera_worker
+
+USER tessera
+
+# Cloud Run injects $PORT. Use shell form so it expands.
+CMD exec uvicorn tessera_worker.main:app --host 0.0.0.0 --port "$PORT" --workers 1

@@ -60,6 +60,12 @@ class Settings(BaseSettings):
     sentry_dsn: str = Field("", description="Sentry DSN for the tessera-worker project. Blank → Sentry disabled.")
     sentry_environment: str = Field("local", description="Tag attached to events (local / staging / production)")
 
+    # ── Inter-service auth ──
+    # Shared secret between Vercel cron and this worker. Vercel sends
+    # `Authorization: Bearer ${WORKER_WEBHOOK_SECRET}`; we reject any /jobs/*
+    # request without it. Blank = auth disabled (local dev only).
+    worker_webhook_secret: str = Field("", description="Bearer secret for /jobs/* endpoints")
+
 
 @lru_cache
 def get_settings() -> Settings:
