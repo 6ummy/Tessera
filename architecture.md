@@ -124,7 +124,7 @@ no broker, no LLM. It exists to validate UX before backend investment.
 ### Phase A backend (shipped, runs against production Neon)
 - **Neon Postgres** provisioned (us-east-1, free tier), `001_init.sql` applied. 14 tables + 3 extensions (TimescaleDB, pgvector, uuid-ossp).
 - **Python worker** (apps/worker) with FastAPI skeleton, structured JSON logging, SQLAlchemy + psycopg3 session pool.
-- **6 ingestors operational**: Alpaca EOD (equities + ETFs), Coinbase EOD (BTC, ETH), FMP fundamentals (`/stable/` endpoints), FRED macro (37 series — yields, inflation, labor, growth, money, FX, energy, commodities, credit spreads, VIX), NewsAPI (ticker-tagged headlines), SEC EDGAR (10-K + 10-Q with GCS raw HTML — added 2026-06-01 in Phase B). All idempotent via `ON CONFLICT DO UPDATE`.
+- **7 ingestors operational**: Alpaca EOD (equities + ETFs), Coinbase EOD (BTC, ETH), FMP fundamentals (`/stable/` endpoints), FRED macro (37 series — yields, inflation, labor, growth, money, FX, energy, commodities, credit spreads, VIX), NewsAPI (ticker-tagged headlines), SEC EDGAR (10-K + 10-Q with GCS raw HTML — added 2026-06-01 in Phase B), **SEC XBRL companyfacts** (structured GAAP fundamentals via `data.sec.gov/api/xbrl` — added 2026-06-02; fills FMP free-tier gaps so coverage went 20/42 → 39/42 equity tickers). All idempotent via `ON CONFLICT DO UPDATE`.
 - **Universe**: 51 tickers (49 equities + 2 crypto pairs) spanning the sectors each persona cares about.
 - **Feature builder** (`compute.py`): deterministic pandas/numpy module. Reads `ohlcv_1d`, writes `ticker_features`. Computes ret_{1d,5d,30d,90d,1y}, vol_30d, rsi_14, sma_{20,50}, volume_z. **This is the only path numerical features reach the LLM** (Phase B). 13 property-based tests on the math.
 - **Daily orchestrator** (`jobs/ingest_daily.py`): 8 sequential steps (ohlcv_equity → ohlcv_crypto → macro → fundamentals → edgar_facts → news → filings → features). CLI flags `--only`/`--skip`. Exit code 0/1 maps to Cloud Run Job success/failure.
@@ -191,7 +191,7 @@ no broker, no LLM. It exists to validate UX before backend investment.
 │  $ python -m tessera_worker.jobs.ingest_daily \              │
 │        --only ohlcv_equity --since 2018-01-01                │
 │                                                              │
-│  Same 7 ingestors, wider time window.                       │
+│  Same 8 ingestors, wider time window.                       │
 │  Upserts are idempotent → safe to re-run.                   │
 │                                                              │
 │  Source         depth available     why                      │
@@ -249,6 +249,7 @@ no broker, no LLM. It exists to validate UX before backend investment.
 | **FMP** (Financial Modeling Prep) | API key | Free tier (some premium endpoints 402) | Annual income / balance / cashflow as JSON | 30-day cache per ticker | `fundamentals` |
 | **NewsAPI** | API key | Free tier (100 req/day) | Ticker-tagged headlines + body excerpts | Daily, last 24h | `news` |
 | **SEC EDGAR** | `User-Agent` header (name + contact email) | Free, unmetered | 10-K (annual) + 10-Q (quarterly) full filings | Weekly (skip if accession already stored) | `filings` (meta + 8KB excerpt) + GCS (raw HTML) |
+| **SEC XBRL companyfacts** | same `User-Agent` | Free, unmetered | Structured GAAP fundamentals — revenue, op income, FCF, EPS, shares, balance sheet items, etc. SEC's pre-parsed XBRL JSON, no XML parsing needed. 39/42 tickers (vs FMP 20/42). | Daily (cheap, idempotent) | `fundamentals` (JSONB merge with FMP) |
 
 **Why some have keys and some don't**
 
@@ -476,13 +477,15 @@ Built (real, in production against Neon):
 - **Monorepo restructure** — apps/web + apps/worker + packages/shared + migrations
 - **Neon Postgres** with TimescaleDB + pgvector — `001_init.sql` applied
 - **Universe** — 51 tickers across sectors (49 equities + 2 crypto)
-- **6 ingestors** — Alpaca EOD, Coinbase EOD, FRED macro, FMP fundamentals, NewsAPI, SEC EDGAR (10-K + 10-Q with GCS raw HTML)
+- **7 ingestors** — Alpaca EOD, Coinbase EOD, FRED macro (37 series), FMP fundamentals, NewsAPI, SEC EDGAR (10-K + 10-Q with GCS raw HTML), SEC XBRL companyfacts (structured fundamentals — fills FMP free-tier gap)
 - **Feature builder** — ret_*, vol_30d, rsi_14, sma_{20,50}, volume_z; 13 property-based tests
-- **Daily orchestrator** — `ingest_daily.py`, 7 steps, idempotent, CLI flags
+- **Daily orchestrator** — `ingest_daily.py`, 8 steps, idempotent, CLI flags
+- **Historical backfill job** (`backfill_history.py`, 2026-06-02) — one-shot operator script `--source {alpaca|coinbase|fred|yahoo|all}` that loaded 325K rows in 3 min: Alpaca 6yr, Coinbase 11yr, FRED full series-by-series history. yfinance opt-in via `[backfill]` extras for >7yr equity depth.
 - **Vercel Cron** — `30 21 * * 1-5`, Bearer-auth endpoint
 - **Sentry** — wired for both `tessera-web` and `tessera-worker` projects; errors-only (no perf traces / replays) for free-tier cost guard. Verified end-to-end with `/api/sentry-verify` (now removed). See `apps/web/sentry.*.config.ts` and `apps/worker/tessera_worker/observability.py`.
 - **GCP + Cloud Run** (2026-06-01) — project `tessera-498200` (us-east1). Artifact Registry repo `tessera`. Service account `tessera-worker` with `roles/secretmanager.secretAccessor` + `roles/storage.objectAdmin` on `gs://tessera-raw`. Secret Manager holds 10 secrets (DATABASE_URL, ANTHROPIC, ALPACA × 2, FMP, FRED, NEWSAPI, SENTRY_DSN, WORKER_WEBHOOK_SECRET, SEC_USER_AGENT). Worker container deployed via `apps/worker/scripts/deploy_cloud_run.ps1` and verified end-to-end (Vercel cron call → ingest steps green).
-- **SEC EDGAR ingestor** (2026-06-01) — adds 7th `filings` step. Per ticker: 2 × 10-K + 4 × 10-Q (≈1.5 yrs of management prose). Body excerpt (8KB) into `filings.text_summary`, raw HTML to GCS `tessera-raw/edgar/{accession}.html`. Skip-if-already-have on accession means daily runs are no-ops once steady-state.
+- **SEC EDGAR ingestor** (2026-06-01) — adds `filings` step. Per ticker: 2 × 10-K + 4 × 10-Q (≈1.5 yrs of management prose). Body excerpt (8KB) into `filings.text_summary`, raw HTML to GCS `tessera-raw/edgar/{accession}.html`. Skip-if-already-have on accession means daily runs are no-ops once steady-state.
+- **SEC XBRL companyfacts ingestor** (2026-06-02) — adds `edgar_facts` step. Pulls SEC's pre-parsed XBRL JSON (`/api/xbrl/companyfacts/CIK{cik}.json`), maps us-gaap concepts to FMP-compatible field names, JSONB-merges into `fundamentals` table. Coverage 39/42 tickers (vs FMP free 20/42); 3 missing for clear reasons (BRK.B ticker-dash, ASML+TSM foreign filers).
 
 Verified:
 - Connection check passes for all 6 external services

@@ -352,6 +352,7 @@ The frontend swap (Phase B Week 3) reads from `analyst_reports` — so as soon a
 |---|---|---|---|
 | **LLM Pipeline** (윤채, 한솔) | `apps/worker/tessera_worker/agents/` | `LLM_pipeline_demo.md` | `python -m tessera_worker.agents.demo_warren_aapl` |
 | **Quant** (예슬, 준원) | `apps/worker/tessera_worker/features/` | `Quant_demo.md` | `python -m tessera_worker.features.demo_fcf_yield` |
+| **Anyone — "what's in the DB?"** | same `features/` folder | (no doc, just run it) | `python -m tessera_worker.features.demo_data_explorer` |
 
 Both demos connect to Neon, run in ~5 seconds, print readable output, and are designed to be **forked** into your own feature/persona work. They live inside the package (not in `scripts/`) so `python -m tessera_worker.<...>.demo_*` works the moment `pip install -e .` is done — no extra setup.
 

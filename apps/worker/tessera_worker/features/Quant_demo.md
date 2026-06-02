@@ -1,19 +1,34 @@
 # Quant Demo — read → compute → screen
 
 Concrete walkthrough for **예슬 / 준원** and anyone adding a new feature in
-Phase B. Pairs with `demo_fcf_yield.py` in this directory.
+Phase B. Pairs with `demo_fcf_yield.py` in this directory. A sister
+script `demo_data_explorer.py` shows ASCII sparklines of every series
+already in Neon — run it once to grok how much data you have.
 
 ```bash
 cd apps/worker
 .\.venv\Scripts\Activate.ps1            # mac/linux: source .venv/bin/activate
+
+# (a) See what's in the DB right now — universe coverage + price + macro sparklines
+python -m tessera_worker.features.demo_data_explorer
+
+# (b) Compute FCF yield + Warren screen
 python -m tessera_worker.features.demo_fcf_yield
 ```
 
-The script connects to the shared Neon DB (using `DATABASE_URL` from
+The FCF demo connects to the shared Neon DB (using `DATABASE_URL` from
 your `apps/worker/.env`), pulls the latest close per ticker and the latest
 annual fundamentals, computes **FCF yield = FCF / (close × shares)**, and
-prints a ranked ASCII bar chart. No matplotlib, no Jupyter, no setup —
-just `python -m`.
+prints a ranked ASCII bar chart. The explorer demo is read-only — just
+sparklines and tables so you can answer "what data do we have?" in 5 sec.
+No matplotlib, no Jupyter, no setup — just `python -m`.
+
+**Fundamentals coverage**: 39/42 equities (was 20/42 pre-2026-06-02 when
+SEC XBRL companyfacts ingestor shipped). 3 still missing: BRK.B (ticker
+dot/dash), ASML + TSM (foreign filers, submit 20-F not 10-K).
+
+**Price/macro depth**: full backfill done 2026-06-02 — Alpaca 6 yrs,
+Coinbase 11 yrs, FRED to each series' inception (UNRATE → 1948).
 
 ## What you should see
 
