@@ -20,10 +20,10 @@
 - Mock performance series, proposals, reports — frontend still reads this
 - **Python worker** (apps/worker) — FastAPI skeleton, SQLAlchemy + psycopg3, structlog
 - **Neon Postgres** live with TimescaleDB + pgvector, 14 tables, 001_init.sql applied
-- **5 production ingestors**: Alpaca EOD, Coinbase EOD, FRED macro, FMP fundamentals, NewsAPI
+- **6 production ingestors**: Alpaca EOD, Coinbase EOD, FRED macro, FMP fundamentals, NewsAPI, SEC EDGAR (10-K + 10-Q with GCS raw HTML)
 - **51-ticker universe** spanning sectors each persona cares about
 - **Deterministic feature builder** — ret_*, vol_30d, rsi_14, sma_{20,50}, volume_z. 13/13 hypothesis tests pass.
-- **Daily orchestrator** (`ingest_daily.py`) — 6 sequential steps, idempotent, CLI flags
+- **Daily orchestrator** (`ingest_daily.py`) — 7 sequential steps, idempotent, CLI flags
 - **Vercel Cron endpoint** (`/api/cron/daily`) — edge runtime, Bearer-auth via `CRON_SECRET`, schedule `30 21 * * 1-5`
 - **Connection smoke test** + **SPY canary** (0.49 bps vs Yahoo)
 
@@ -156,6 +156,341 @@ and "implementation" weeks — they ship together).
 
 **Goal**: Each persona writes a real Sonnet 4.6 thesis daily. Chat replaces mock engine with real Anthropic call.
 
+### Week 2 Quickstart — working with the data we already have
+
+Phase A wired the entire data plane. **Quant (예슬, 준원) and LLM Pipeline (윤채, 한솔) work on top of what's already there** — nobody needs to wait on infra.
+
+#### ✅ Already done by 정우 — DO NOT redo
+
+You'll see this stack referenced everywhere. It's all live. Coworkers don't sign up, deploy, or configure any of it.
+
+| Component | State | Why it matters to you |
+|---|---|---|
+| **Neon Postgres** (`tessera-498200` region us-east-1, 14 tables) | ✅ live, applied `001_init.sql` | Connect with `DATABASE_URL` from KakaoTalk pin — just read |
+| **Vercel deploy** (`tessera-ruby.vercel.app`) | ✅ live | Frontend you'll wire in Week 3 |
+| **Vercel Cron** (`30 21 * * 1-5`, weekday 21:30 UTC) | ✅ scheduled | Triggers the daily 7-step ingest automatically — you don't run it |
+| **Cloud Run worker** (`tessera-worker`, us-east1, autoscale 0–2) | ✅ deployed | Where the cron fires; runs the ingest job; you don't touch its config |
+| **GCP project** (`tessera-498200`) + Artifact Registry + Service Account + 10 Secret Manager secrets | ✅ set up | Production credentials live here; you'll never need to log in to GCP for normal Week 2 work |
+| **6 ingestors** (Alpaca, Coinbase, FRED, FMP, NewsAPI, SEC EDGAR) | ✅ shipped to Cloud Run | They run daily; data lands in Neon overnight |
+| **Sentry** (web + worker projects, errors-only) | ✅ wired | Unhandled exceptions show up automatically; no DSN paste needed |
+| **GCS bucket** `gs://tessera-raw/edgar/` (raw 10-K/10-Q HTML) | ✅ created | Only matters if you work on the EDGAR parser — most don't need access |
+| **API keys** (Anthropic, Alpaca, FMP, FRED, NewsAPI) | ✅ in 1) Secret Manager (prod) 2) KakaoTalk pin (local dev) | Copy to your `.env`, do not generate new keys |
+
+**The one thing 정우 cannot do for you**: `gcloud auth application-default login` (only the EDGAR parser owner needs this, and they use their own Google account — never share credentials).
+
+#### TL;DR — what's automatic
+
+- **Neon refreshes every weekday at 21:30 UTC** (≈ 06:30 KST next morning). Vercel Cron → Cloud Run worker → 7-step ingest. You'll see fresh OHLCV, news, features in the morning without doing anything.
+- **EDGAR runs in the same job** but is mostly a no-op day-to-day (filings update quarterly). The first full-universe run populates ~300 filings; after that, only new accessions get pulled.
+- **If you need data right now without waiting for cron**, you can trigger the same job manually with `curl -X POST https://tessera-ruby.vercel.app/api/cron/daily -H "Authorization: Bearer $CRON_SECRET"`. Takes ~7 min, runs in Cloud Run background. Don't do this more than a few times a day — every run hits the third-party APIs.
+
+#### Step 0 — dev env setup (10 min, once)
+
+```powershell
+# 1. Clone (if you haven't) + pick up the latest
+git pull
+
+# 2. Fill in .env (one-time)
+cp apps/worker/.env.example apps/worker/.env
+# → open apps/worker/.env, paste values from the team KakaoTalk credential pin
+# → DATABASE_URL is the most important one — that's what reads Neon
+# → SEC_USER_AGENT: put your own contact email ("Tessera Pilot you@gmail.com")
+
+# 3. Install
+cd apps/worker
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1            # Mac/Linux: source .venv/bin/activate
+pip install -e .
+
+# 4. Smoke test — should print "All checks passed"
+python -m scripts.check_connections
+```
+
+#### Reading the data — 3 patterns (most → least common in Phase B)
+
+**(a) Python from inside the worker package** — what Quant + LLM Pipeline code will look like:
+
+```python
+from sqlalchemy import text
+from tessera_worker.db import session_scope
+
+with session_scope() as session:
+    # Latest features snapshot for one ticker
+    row = session.execute(text("""
+        SELECT ret_30d, ret_90d, vol_30d, rsi_14, sma_20, sma_50, volume_z
+        FROM ticker_features
+        WHERE ticker = :t
+        ORDER BY ts DESC LIMIT 1
+    """), {"t": "AAPL"}).first()
+    print(dict(row._mapping))
+
+    # Latest macro snapshot (yield curve + inflation expectations)
+    macros = session.execute(text("""
+        SELECT series_id, value FROM macro_series
+        WHERE series_id = ANY(:ids)
+          AND ts = (SELECT MAX(ts) FROM macro_series WHERE series_id='DGS10')
+    """), {"ids": ["DGS2", "DGS10", "T10Y2Y", "T10YIE", "VIXCLS"]}).all()
+
+    # Recent news for a ticker (last 7 days, title only)
+    news = session.execute(text("""
+        SELECT ts, source, title FROM news
+        WHERE :t = ANY(tickers) AND ts >= NOW() - INTERVAL '7 days'
+        ORDER BY ts DESC LIMIT 10
+    """), {"t": "AAPL"}).all()
+
+    # Latest 10-K excerpt for LLM context (first 8KB of management's prose)
+    filing = session.execute(text("""
+        SELECT filing_date, text_summary FROM filings
+        WHERE ticker = :t AND filing_type = '10-K'
+        ORDER BY filing_date DESC LIMIT 1
+    """), {"t": "AAPL"}).first()
+```
+
+**(b) Raw SQL exploration** — useful for ad-hoc "what does the data look like" while writing features. Use Neon's web console at https://console.neon.tech or any Postgres client with `DATABASE_URL`. See `architecture.md` §6 "How to read the data we've stored" for a longer SQL cheatsheet.
+
+**(c) Full filing text from GCS** — `filings.text_summary` is only the first 8KB. For the full document (e.g. to extract MD&A section), download from GCS:
+
+```python
+from google.cloud import storage
+from urllib.parse import urlparse
+
+uri = filing.raw_gcs_uri   # gs://tessera-raw/edgar/0000320193-26-000013.html
+parsed = urlparse(uri)
+blob = storage.Client().bucket(parsed.netloc).blob(parsed.path.lstrip("/"))
+full_html = blob.download_as_bytes()
+```
+
+**Most of Phase B does NOT need this.** The 8KB `filings.text_summary` excerpt is enough for the standard persona prompt; only the EDGAR parser improvement task needs the full HTML. If you do need it:
+
+1. Ping 정우 with your Google account email (not 정우's — your own).
+2. 정우 grants you `roles/storage.objectViewer` on `gs://tessera-raw` from his terminal:
+   ```powershell
+   gcloud projects add-iam-policy-binding tessera-498200 `
+     --member="user:<your-email>" --role="roles/storage.objectViewer" `
+     --condition=None
+   ```
+3. On your own machine, run **once**:
+   ```bash
+   gcloud auth login                              # your own Google account
+   gcloud auth application-default login          # again, your own account
+   gcloud config set project tessera-498200
+   ```
+4. The `storage.Client()` snippet above works.
+
+**Never share or log in with another teammate's Google account** — auth is per-person so audit trails stay clean.
+
+#### Track-specific guidance
+
+**Quant track (예슬, 준원) — build models on top of `ticker_features` + raw data**
+
+What's in `ticker_features` today (already populated daily):
+- Returns: `ret_1d`, `ret_5d`, `ret_30d`, `ret_90d`, `ret_1y`
+- Volatility: `vol_30d`
+- Momentum: `rsi_14`
+- Trend: `sma_20`, `sma_50`
+- Liquidity: `volume_z`
+
+What's missing for Phase B that needs to be added to `features/compute.py` (Quant owns this):
+- **FCF yield** — needs `ohlcv_1d.close * shares_outstanding` and `fundamentals.cash_flow.free_cash_flow`
+- **PEG ratio** — `forward P/E ÷ EPS growth 3yr`
+- **Debt-to-equity** — from `fundamentals.balance_sheet`
+- **EPS CAGR 3y / 5y** — derived from `fundamentals.income_stmt` over consecutive periods
+
+Pattern to follow: each new feature is a pure pandas function inside `features/compute.py`, with a property-based test in `tests/test_features.py`. Goes through the same `ticker_features` upsert path — no schema change needed (jsonb column or extend the table; ADR if extending).
+
+For **risk gateway prep** (Phase C precursor): compute per-ticker volatility and correlation matrices using existing `ohlcv_1d`. Don't store yet — Phase C is when persona positions exist and we need to gate them.
+
+**LLM Pipeline track (윤채, 한솔) — assemble persona prompts**
+
+Each persona's daily thesis needs 4 inputs from Neon (already populated):
+1. **Feature snapshot** for the shortlisted tickers (~30 per persona) — `ticker_features` latest row per ticker
+2. **Macro context** — last 30 days of relevant FRED series (Ray cares most; others get a summary)
+3. **News** — last 24-48h headlines tagged to each ticker (`news` table, `:ticker = ANY(tickers)`)
+4. **Filings excerpt** — `filings.text_summary` for the most recent 10-K/10-Q per ticker (Warren + Peter especially care about MD&A)
+
+**Pattern to follow** (this is the `apps/worker/tessera_worker/agents/` directory you'll create):
+
+```
+agents/
+  persona_loader.py      # parse personalities.md → in-memory dict
+  prompt_assembler.py    # given (persona, ticker) → 6-part system prompt
+  anthropic_runner.py    # typed call, Pydantic validation, retry on schema fail
+  citation_validator.py  # verify cited_news_ids actually exist in news table
+  models.py              # AnalystReport, Proposal Pydantic schemas
+```
+
+The **output** goes into the existing `analyst_reports` table:
+
+```python
+session.execute(text("""
+    INSERT INTO analyst_reports
+        (persona_id, ts, inputs_hash, parsed, raw_response, cost_usd)
+    VALUES (:p, NOW(), :h, :parsed, :raw, :cost)
+"""), {
+    "p": "warren",
+    "h": inputs_hash,           # SHA256 of the feature snapshot — for caching
+    "parsed": parsed_json,       # validated AnalystReport.model_dump()
+    "raw": raw_text,             # full Anthropic response for audit
+    "cost": cost_usd,            # from anthropic SDK usage.input_tokens/output_tokens × pricing
+})
+```
+
+The frontend swap (Phase B Week 3) reads from `analyst_reports` — so as soon as you start writing rows, the UI can pick them up.
+
+**Cost guardrails (apply to both tracks)**
+
+- Set `LLM_MAX_DAILY_COST_USD=5` in `.env` — the wrapper will refuse to call Anthropic if today's accumulated cost exceeds it.
+- Use Haiku 4.5 for the universe screen step (cheap, fast); Sonnet 4.6 only for the deep thesis on shortlisted names.
+- Cache the persona spec via `cache_control: ephemeral` on the system block — saves ~2K tokens × 4 personas × ~5 calls = 40K tokens/day repeated.
+
+#### Worked examples — runnable demos in each track's folder
+
+**⚡ Just want the paths? Here they are:**
+
+| Track | Folder | Doc to read | Demo to run |
+|---|---|---|---|
+| **LLM Pipeline** (윤채, 한솔) | `apps/worker/tessera_worker/agents/` | `LLM_pipeline_demo.md` | `python -m tessera_worker.agents.demo_warren_aapl` |
+| **Quant** (예슬, 준원) | `apps/worker/tessera_worker/features/` | `Quant_demo.md` | `python -m tessera_worker.features.demo_fcf_yield` |
+
+Both demos connect to Neon, run in ~5 seconds, print readable output, and are designed to be **forked** into your own feature/persona work. They live inside the package (not in `scripts/`) so `python -m tessera_worker.<...>.demo_*` works the moment `pip install -e .` is done — no extra setup.
+
+> **Read this section once, then jump straight to your track's demo and markdown.** Each track owns its own folder; you do not need to touch the other track's files to be productive.
+
+---
+
+##### 🧠 If you're on **LLM Pipeline (윤채 + 한솔)** — start here
+
+**Already done for you by 정우** (zero setup on your side):
+- ✅ Anthropic API key is in Secret Manager (prod) and in the KakaoTalk pin (local). Don't generate a new one.
+- ✅ Sentry is wired — your `raise`/`except` inside any agent module shows up in the `tessera-worker` Sentry project automatically.
+- ✅ `personalities.md` is the canonical persona spec. CODEOWNERS lets all four team owners (정우, 윤채, 한솔, 예슬) approve changes — but big voice changes get a 카톡 heads-up first.
+- ✅ `news`, `filings.text_summary`, `ticker_features`, `fundamentals`, `macro_series` tables are all populated overnight — you can read them right now.
+
+**Your scope** (Week 2): build the `agents/` package that turns persona spec + Neon data → validated `analyst_reports` rows. Five new files, each small. Frontend wiring is Week 3.
+
+**Your folder**: `apps/worker/tessera_worker/agents/`
+
+```
+agents/
+  LLM_pipeline_demo.md       ← read first (5 min)
+  demo_warren_aapl.py        ← run, then fork
+  (later you'll add: persona_loader.py, prompt_assembler.py,
+                     anthropic_runner.py, citation_validator.py, models.py)
+```
+
+**3-minute first run**:
+```bash
+cd apps/worker
+.\.venv\Scripts\Activate.ps1
+python -m tessera_worker.agents.demo_warren_aapl
+```
+
+You should see:
+- All 6 prompt inputs Warren needs for AAPL (features, fundamentals, macro, news, 10-K excerpt) rendered as named XML-ish blocks
+- The final assembled prompt at the bottom — **copy-paste into Anthropic console and you'll get Warren's first thesis**, no code needed
+
+**Then read `LLM_pipeline_demo.md`** — it has 4 "Extend this" recipes (~10 lines each):
+1. Swap personas (Warren → Cathie / Ray / Peter) without touching the data layer
+2. Loop the universe (call `screen()` first, then iterate the shortlist)
+3. Make a real Anthropic call (replace the print() with `client.messages.create(...)`)
+4. Citation validation (every `[n_xxxxx]` Warren cites must resolve to a real news row)
+
+**Your Week 2 task path** (recommended order):
+- Day 1: run the demo + read the .md
+- Day 2: fork `demo_warren_aapl.py` → `persona_loader.py` (parse `personalities.md` into a dict)
+- Day 3: `prompt_assembler.py` — generalize the per-persona cuts into per-persona logic
+- Day 4: `anthropic_runner.py` — real Anthropic call + Pydantic validation + cost log
+- Day 5: `citation_validator.py` + first sanity-check thesis on AAPL (Warren writes a real one, you read it together)
+
+**You will not need to touch**: `features/*`, `ingestors/*`, `risk/*`. Those are owned by Quant + Infra.
+
+---
+
+##### 📊 If you're on **Quant (예슬 + 준원)** — start here
+
+**Already done for you by 정우** (zero setup on your side):
+- ✅ All raw data is in Neon. `ohlcv_1d` (prices), `fundamentals` (FMP — three rows per period_end per ticker, one each for income / balance / cash_flow), `news`, `macro_series`, `filings` all populated overnight.
+- ✅ `ticker_features` is the existing feature table, already populated daily with `ret_*, vol_30d, rsi_14, sma_{20,50}, volume_z`. Your new features add columns / rows to this same table — no parallel store.
+- ✅ Property-test scaffolding exists in `tests/test_features.py` with 13 passing tests — copy the pattern when you add a new feature.
+- ✅ Cron job auto-runs your new features once they're plugged into `compute.py`'s `build()` — no extra deployment step.
+
+**Your scope** (Week 2): extend `features/compute.py` with Phase B features that the personas need (FCF yield, PEG, EPS CAGR, debt/equity, gross margin trend). Each feature is a small pandas function + a property test + a column migration. Risk gateway code lives in `risk/` and is Phase C — you can sketch it now but don't ship until Week 4.
+
+**Your folder**: `apps/worker/tessera_worker/features/`
+
+```
+features/
+  compute.py                 ← existing production feature builder
+  Quant_demo.md              ← read first (5 min)
+  demo_fcf_yield.py          ← run, then fork
+```
+
+**3-minute first run**:
+```bash
+cd apps/worker
+.\.venv\Scripts\Activate.ps1
+python -m tessera_worker.features.demo_fcf_yield
+```
+
+You should see:
+- ASCII bar chart of the equity universe ranked by FCF yield
+- Mean, median, and Warren's screen list (tickers with FCF yield ≥ 6%)
+- A `WRITE_BACK = False` flag at the bottom — that's the hook for when you wire this into `ticker_features` for real
+
+**Then read `Quant_demo.md`** — it has 4 "Extend this" recipes (~5 lines each):
+1. Sector overlay (group bars by GICS sector from `universe.py`)
+2. Historical trend (5 years of fundamentals, not just snapshot — is FCF yield stable or trending?)
+3. Wire into `ticker_features` for real (migration → `compute.py.build()` → property test → PR)
+4. Property test the math (a `hypothesis` test that FCF / (close × shares) is finite)
+
+**Your Week 2 task path** (recommended order — priority comes from Plan.md backlog):
+- Day 1: run the demo + read the .md
+- Day 2: ship `fcf_yield` as a real `ticker_features` column (migration + `build()` integration + test)
+- Day 3: `peg_ratio` (forward P/E ÷ EPS growth — needs FMP analyst estimates, else trailing proxy)
+- Day 4: `eps_cagr_3y` (3 consecutive annual income rows)
+- Day 5: `debt_to_equity` + start sketching the Phase C precursors (correlation matrix, sector exposure)
+
+**You will not need to touch**: `agents/*`, `ingestors/*` (mostly), `risk/*`. Those are owned by LLM Pipeline + Infra.
+
+---
+
+##### 🤝 Where the two tracks meet
+
+The two tracks share **one boundary**: `ticker_features`. Quant writes new columns into it; LLM Pipeline reads from it.
+
+```
+                                         writes
+  Quant (features/compute.py)  ──────────────────►  ticker_features
+                                                          │
+                                                          │ reads
+                                                          ▼
+  LLM Pipeline (agents/prompt_assembler.py)  ──►  Warren's <features> block
+```
+
+So when Quant ships `fcf_yield` into `ticker_features`, the next cron run automatically lights it up for every persona's prompt. **No coordination needed** beyond the column existing on Day 5 vs Day 3 — agree on column names in advance and you're done.
+
+The same is true for `filings.text_summary` (SEC EDGAR ingestor writes it, LLM Pipeline reads it for the `<filing>` block) and `news` (ditto for `<news>`).
+
+---
+
+##### Real-data quirks the demos surface (good "first issue" material)
+
+Both demos hit real production data and surface its imperfections — these are natural starting points for first PRs:
+
+| Quirk | Owner | Where it shows up |
+|---|---|---|
+| NewsAPI tags ~30% of AAPL stories with false positives (Disney World, NBA Finals, …) | Quant or LLM Pipeline | LLM demo's `<news>` block is dominated by noise |
+| SEC 10-K primary doc is XBRL-tagged; current 8KB excerpt is metadata header, not the MD&A prose Warren wants | LLM Pipeline | LLM demo's `<filing>` block shows XBRL goo instead of prose |
+| TSM FCF yield 48% — ADR share-count units mismatch | Quant | Quant demo's bar chart shows TSM as a wild outlier |
+
+Pick one as your first PR. They're all real, small, and improve the downstream signal quality for everyone.
+
+#### When something looks wrong
+
+- **Cloud Run cron run failed?** Check `gcloud logging read "resource.type=cloud_run_revision AND resource.labels.service_name=tessera-worker AND severity>=ERROR" --freshness=1d`. Anything user-visible should also surface in Sentry → `tessera-worker` project.
+- **DB has stale data?** Check the latest `fetched_at` on the suspected table (`SELECT MAX(fetched_at) FROM news`). If older than 24h, the cron skipped or failed.
+- **API rate-limited mid-run?** All ingestors are idempotent — just trigger again. `ON CONFLICT DO UPDATE` handles duplicates.
+
 ### Week 2 — Persona runner + full desk
 - [ ] **Persona loader**: parse `personalities.md` sections per persona, cache in memory
 - [ ] **Prompt assembler**: persona spec + feature snapshot + memory recall → prompt
@@ -175,7 +510,7 @@ and "implementation" weeks — they ship together).
 #### Carried over from Phase A — 정우 owned these (offloaded from 윤채/예슬 for Week 2)
 - [x] **Sentry DSN registration** on web + worker — shipped 2026-06-01. Both `tessera-web` + `tessera-worker` projects live, errors-only (no perf traces / replays) for free-tier cost guard. End-to-end verified via `/api/sentry-verify` (now removed). Pattern: explicit `Sentry.captureException` + `flush()` in Next 14 route handlers (auto-instrumentation isn't reliable there).
 - [x] **GCP project + Cloud Run + Cloud Tasks + Secret Manager** — shipped 2026-06-01. Project `tessera-498200` (us-east1), Artifact Registry repo `tessera`, service account `tessera-worker` with `roles/secretmanager.secretAccessor`, 9 secrets in Secret Manager. Worker container at `tessera-worker-ffr7g3a76a-ue.a.run.app`. Vercel Cron now triggers Cloud Run via `WORKER_WEBHOOK_URL` and the full 6-step ingest runs autonomously — verified Neon row counts incremented end-to-end. Implementation notes captured in `docs/adr/006-vercel-cloud-run-split.md`.
-- [ ] **SEC EDGAR filings ingestor** (정우) — populate `filings` table (10-K, 10-Q text); plug into Warren/Peter context. Frees 예슬 to focus on features + risk gateway prep for Phase C. _In progress._
+- [x] **SEC EDGAR filings ingestor** — shipped 2026-06-01. New 7th step in daily orchestrator. Per ticker: 2 × 10-K + 4 × 10-Q (≈1.5 yrs of management prose). Body excerpt (8KB) into `filings.text_summary`, raw HTML to GCS `tessera-raw/edgar/{accession}.html`. Skip-if-already-have on accession means daily runs are no-ops once steady-state. Smoke-test verified end-to-end with AAPL + MSFT (12 filings, 49 MB HTML, 32s local run). Full universe run scheduled with next Cloud Run cron. Frees 예슬 to focus on features + risk gateway prep for Phase C.
 
 ### Week 3 — Chat + backtest + hardening
 - [ ] **Chat backend**: `/api/chat/[personaId]` assembling 6-part system prompt

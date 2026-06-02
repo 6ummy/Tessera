@@ -58,9 +58,9 @@ python -m tessera_worker.jobs.ingest_daily
 
 ### Database
 
-Provisioned and shared across the team. Get `DATABASE_URL` from 1Password
-vault "Tessera". The v1 schema is already applied; to bootstrap a fresh
-Neon project (or your own dev branch):
+Provisioned and shared across the team. Get `DATABASE_URL` from the team
+KakaoTalk credential pin. The v1 schema is already applied; to bootstrap
+a fresh Neon project (or your own dev branch):
 
 ```bash
 psql "$DATABASE_URL" -f migrations/001_init.sql
