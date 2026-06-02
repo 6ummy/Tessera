@@ -38,38 +38,67 @@ npm run dev
 # → http://localhost:3000
 ```
 
-### Worker (Phase A in progress)
+### Worker (local dev)
 
 ```bash
 cd apps/worker
 python -m venv .venv
 source .venv/Scripts/activate    # Windows Git Bash; Mac/Linux: source .venv/bin/activate
 pip install -e ".[dev]"
-cp .env.example .env             # then fill keys
+cp .env.example .env             # then fill keys (DB + 6 API keys + SENTRY_DSN)
 python -m tessera_worker.main    # → http://localhost:8080/health
+```
+
+To run one full ingest locally (writes to the shared Neon DB):
+
+```bash
+python -m tessera_worker.jobs.ingest_daily
+# 6 steps, ~7 min. Use --only/--skip to run a subset.
 ```
 
 ### Database
 
+Provisioned and shared across the team. Get `DATABASE_URL` from 1Password
+vault "Tessera". The v1 schema is already applied; to bootstrap a fresh
+Neon project (or your own dev branch):
+
 ```bash
-# After provisioning Neon (free tier): apply the v1 schema
 psql "$DATABASE_URL" -f migrations/001_init.sql
 ```
+
+### Production runtime (cloud)
+
+```
+Vercel Cron (21:30 UTC weekdays)
+   → /api/cron/daily        (Bearer CRON_SECRET)
+   → Cloud Run worker       (us-east1, tessera-worker)
+   → /jobs/ingest-daily     (Bearer WORKER_WEBHOOK_SECRET)
+   → 6-step ingest          (BackgroundTask, ~7 min)
+   → Neon Postgres          (single source of truth)
+```
+
+- Worker image build + deploy: `apps/worker/scripts/deploy_cloud_run.ps1`
+- Secrets live in GCP Secret Manager (9 secrets, mounted as env in Cloud Run)
+- Observability: GCP Logging (structured JSON) + Sentry (errors only, both
+  `tessera-web` and `tessera-worker` projects)
+
+See `architecture.md` §6 "Daily data flow" for the full diagram.
 
 ## Phase status
 
 | Phase | Status | What it ships |
 |---|---|---|
 | **Frontend MVP** | ✅ shipped | 4 routes, 4 personas with photos + bios + chat UI, all on Vercel |
-| **A — Data backbone** (wk 1) | 🚧 in progress | Ingestors + features + Neon schema |
-| **B — Real LLM theses** (wks 2–3) | ⏳ planned | Anthropic SDK + Pydantic validation |
+| **A — Data backbone** (wk 1) | ✅ shipped | Ingestors + features + Neon schema + Cloud Run worker + Sentry |
+| **B — Real LLM theses** (wks 2–3) | 🚧 in progress | Anthropic SDK + Pydantic validation + EDGAR + frontend swap |
 | **C — Paper execution** (wks 4–5) | ⏳ planned | Risk gateway + paper engine + real P&L |
 | **D — User auth + follow** (wk 6) | ⏳ planned | Firebase Auth + 3 F&F users |
 | **E — Compliance** (wk 6, parallel) | ⏳ planned | Securities-lawyer consult |
 | **F — Live trading** (wk 7+, optional) | ⏳ planned | Alpaca OAuth, behind feature flag |
 
 See `Plan.md` for week-by-week task breakdown, acceptance criteria, risk
-register, and open decisions.
+register, and open decisions. See `docs/adr/` for the "why" behind major
+technical choices.
 
 ## Why "Tessera"
 

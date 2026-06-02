@@ -129,13 +129,64 @@ no broker, no LLM. It exists to validate UX before backend investment.
 - **Feature builder** (`compute.py`): deterministic pandas/numpy module. Reads `ohlcv_1d`, writes `ticker_features`. Computes ret_{1d,5d,30d,90d,1y}, vol_30d, rsi_14, sma_{20,50}, volume_z. **This is the only path numerical features reach the LLM** (Phase B). 13 property-based tests on the math.
 - **Daily orchestrator** (`jobs/ingest_daily.py`): 6 sequential steps (ohlcv_equity → ohlcv_crypto → macro → fundamentals → news → features). CLI flags `--only`/`--skip`. Exit code 0/1 maps to Cloud Run Job success/failure.
 - **Connection smoke test** (`scripts/check_connections.py`): verifies all 6 external services + redacts secrets from any error output.
-- **Production state right now**:
-  - `ohlcv_1d`: ~14,000 rows (51 tickers × ~270 trading days)
-  - `ticker_features`: 13,983 rows
-  - `macro_series`: 566 rows from 20 FRED series
-  - `fundamentals`: 255 rows from 42 tickers (income + balance + cash flow as jsonb)
-  - `news`: 555 rows tagged to 42 tickers
+- **Production state right now** (snapshot 2026-06-01, after first Cloud Run-driven run):
+  - `ohlcv_1d`: ~14,600 rows (53 tickers × ~270 trading days)
+  - `ticker_features`: ~14,500 rows
+  - `macro_series`: ~650 rows from 20 FRED series
+  - `fundamentals`: ~300 rows (FMP free tier blocks some premium endpoints; `fmp.fetch_skip` logs are expected)
+  - `news`: ~1,650 rows tagged to 42 tickers
 - **Canary**: SPY 1y return vs Yahoo Finance reference — diff **0.49 bps** (well inside 100 bps threshold).
+- **Cloud Run worker deployed** (2026-06-01): `tessera-worker` service at `https://tessera-worker-ffr7g3a76a-ue.a.run.app` (us-east1, `--allow-unauthenticated` + shared bearer in app code, non-root container, 1 vCPU / 1 GiB / max 2 instances). Vercel Cron now calls `WORKER_WEBHOOK_URL` and gets `{status:"queued", workerStatus:200}` back.
+
+### Daily data flow (production)
+
+```
+┌────────────────────────────────────────────────────────────┐
+│  REAL WORK — automatic, no human in the loop                │
+│                                                              │
+│  Vercel Cron (21:30 UTC, Mon–Fri; declared in vercel.json)  │
+│        ↓ POST /api/cron/daily  (Bearer CRON_SECRET)         │
+│  Vercel edge route (apps/web/app/api/cron/daily/route.ts)   │
+│        ↓ POST WORKER_WEBHOOK_URL                            │
+│        ↓ (Bearer WORKER_WEBHOOK_SECRET, 8s fetch timeout)   │
+│  Cloud Run worker  /jobs/ingest-daily                       │
+│        ↓ FastAPI BackgroundTask returns 202 immediately     │
+│        ↓ (heavy work continues async; cron not blocked)     │
+│  tessera_worker.jobs.ingest_daily.run()                     │
+│        ↓ 6 sequential steps, each idempotent                │
+│        1. Alpaca EOD     → ohlcv_1d (equities)              │
+│        2. Coinbase EOD   → ohlcv_1d (crypto)                │
+│        3. FRED macro     → macro_series                     │
+│        4. FMP fundamentals (30-day cache) → fundamentals    │
+│        5. NewsAPI        → news                             │
+│        6. Feature builder → ticker_features                 │
+│        ↓ UPSERT (ON CONFLICT DO UPDATE)                     │
+│  Neon Postgres   (single source of truth for all data)      │
+│        ↓ stdout (structlog JSON)                            │
+│  GCP Logging  +  Sentry (errors only)                       │
+└────────────────────────────────────────────────────────────┘
+
+┌────────────────────────────────────────────────────────────┐
+│  OBSERVATION — what humans run to check on it               │
+│                                                              │
+│  $ gcloud logging read \                                     │
+│      "resource.labels.service_name=tessera-worker" \         │
+│      --freshness=10m                                         │
+│      → reads recent Cloud Run log events                    │
+│      → "is it running? which step? passed/failed counts?"   │
+│                                                              │
+│  $ python -m scripts._counts                                 │
+│      → SELECT count(*) on 5 core tables                     │
+│      → "did the row counts go up after the run?"            │
+│                                                              │
+│  Sentry UI → tessera-worker / tessera-web Issues             │
+│      → any unhandled exception during the run               │
+└────────────────────────────────────────────────────────────┘
+```
+
+**Data lives only in Neon.** Cloud Run is stateless — when a job finishes the worker memory is freed and the container may scale to zero. Local `.env` files hold API keys but no data. To onboard a new dev: `git clone` + `.env` from 1Password + `pip install -e .` is enough to run the same code against the same Neon DB.
+
+**Concurrent-run note (Phase C todo)**: there is no app-level lock today. If two trigger calls land within the same second (e.g., manual curl + scheduled cron), both ingests run in parallel. Steps are idempotent so the DB stays consistent, but rare `step_failed` events can show up in logs from row-level conflicts. Phase C will add an advisory lock (`pg_advisory_lock(hashtext('ingest_daily'))`) so the second trigger is a fast no-op.
 
 ### Still mocked (Frontend reads these — Phase B/C swap)
 - All return series (seeded random walks in `lib/mock/performance.ts`).
@@ -230,7 +281,9 @@ Built (real, in production against Neon):
 - **5 ingestors** — Alpaca EOD, Coinbase EOD, FRED macro, FMP fundamentals, NewsAPI
 - **Feature builder** — ret_*, vol_30d, rsi_14, sma_{20,50}, volume_z; 13 property-based tests
 - **Daily orchestrator** — `ingest_daily.py`, 6 steps, idempotent, CLI flags
-- **Vercel Cron** — `30 21 * * 1-5`, Bearer-auth endpoint, returns `noop` until worker is deployed
+- **Vercel Cron** — `30 21 * * 1-5`, Bearer-auth endpoint
+- **Sentry** — wired for both `tessera-web` and `tessera-worker` projects; errors-only (no perf traces / replays) for free-tier cost guard. Verified end-to-end with `/api/sentry-verify` (now removed). See `apps/web/sentry.*.config.ts` and `apps/worker/tessera_worker/observability.py`.
+- **GCP + Cloud Run** (2026-06-01) — project `tessera-498200` (us-east1). Artifact Registry repo `tessera`. Service account `tessera-worker` with `roles/secretmanager.secretAccessor`. Secret Manager holds 9 secrets (DATABASE_URL, ANTHROPIC, ALPACA × 2, FMP, FRED, NEWSAPI, SENTRY_DSN, WORKER_WEBHOOK_SECRET). Worker container deployed via `apps/worker/scripts/deploy_cloud_run.ps1` and verified end-to-end (Vercel cron call → 6/6 ingest steps green).
 
 Verified:
 - Connection check passes for all 6 external services
@@ -238,14 +291,11 @@ Verified:
 - Full daily orchestrator: 6/6 steps green, ~8 min total (fundamentals dominates; 30-day cache afterwards)
 - All 13 property tests pass
 
-Deferred to Phase B/C:
-- Cloud Run worker deployment (currently runs from laptop; Vercel Cron returns noop)
-- Frontend swap from `lib/mock/*` to `/api/*` (per user request — Phase B will inject LLM-generated theses first, then frontend swap)
-
-### Open questions to resolve before Phase B
-- Decide if Cathie's universe should formally include crypto spot (BTC/ETH) or only equity proxies (COIN, MSTR).
-- Whether to ship Manager-curated portfolios (Cons/Bal/Aggr) as a separate `/proposals` tab, or keep the current 4-portfolio side-by-side as the only view.
-- Whether chat ("Chat with Warren") uses the same Sonnet calls as report generation (cheaper, slightly worse voice) or a fine-tuned Haiku per persona (more expensive to set up, much cheaper per call, stronger voice).
+Deferred to Phase B:
+- ~~Cloud Run worker deployment~~ — **shipped 2026-06-01** (see "Daily data flow" diagram above)
+- ~~Sentry DSN registration~~ — **shipped 2026-06-01** (errors-only, cost-guarded)
+- SEC EDGAR filings ingestor (Phase B Week 2 — `filings` schema exists, not yet populated)
+- Frontend swap from `lib/mock/*` to `/api/*` (Phase B Week 3 — sequence: real theses must exist first)
 
 ### Open questions to resolve before Phase B
 - Decide if Cathie's universe should formally include crypto spot (BTC/ETH) or only equity proxies (COIN, MSTR).
