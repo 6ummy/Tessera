@@ -495,7 +495,7 @@ Pick one as your first PR. They're all real, small, and improve the downstream s
 - **API rate-limited mid-run?** All ingestors are idempotent — just trigger again. `ON CONFLICT DO UPDATE` handles duplicates.
 
 ### Week 2 — Persona runner + full desk
-- [ ] **Persona loader**: parse `personalities.md` sections per persona, cache in memory
+- [x] **Persona loader** (한솔, PR #29 + #30 fix-forward, shipped 2026-06-02): `apps/worker/tessera_worker/agents/persona_loader.py` — parses the 4 `## <Name> — Operational system prompt` sections from `personalities.md`, returns a `{persona_id: spec_text}` dict, cached via `lru_cache`. Path resolution walks up from the package to find `personalities.md` at repo root. Strict validation (raises if any persona is missing). 5 pytest tests passing.
 - [ ] **Prompt assembler**: persona spec + feature snapshot + memory recall → prompt
 - [ ] **Pydantic models**: `AnalystReport`, `Proposal` with full field validation
 - [ ] **Anthropic SDK wrapper**: typed call, retry on schema failure (1×), log tokens + cost
