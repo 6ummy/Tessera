@@ -384,6 +384,77 @@ The web app's `lib/api.ts` will wrap these calls so components stay agnostic to 
 | Local Next.js (npm run dev) | `apps/web/.env.local` | Next.js auto-loads `.env.local` |
 | Vercel production | Vercel project env vars | Set in dashboard → Settings → Environment Variables |
 
+### LLM pipeline (Phase B — in progress)
+
+This is what sits on top of the data plane. It's the chain that turns the
+Neon rows into a written thesis a persona could defend out loud. The data
+plane is shipped; the LLM pipeline is the Week 2 / Week 3 work.
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│  PER-(PERSONA, TICKER) THESIS GENERATION                          │
+│                                                                    │
+│  agents/persona_loader.py                                          │
+│        ↓ parse personalities.md  →  {warren, cathie, ray, peter}  │
+│        ↓                                                           │
+│   ──────────────  Warren's system prompt (3.4K chars)  ─────────  │
+│                                                                    │
+│        ┌─────────────────────────────────────────┐                │
+│        ↓                                         ↓                 │
+│  persona spec               +  data inputs (per ticker × persona)  │
+│  (from loader)                  ┌──────────────────────────┐      │
+│                                 │ ticker_features (Quant)  │       │
+│                                 │ fundamentals  (FMP+EDGAR)│       │
+│                                 │ macro_series  (37 series)│       │
+│                                 │ news          (last 7d)  │       │
+│                                 │ filings       (10-K MD&A)│       │
+│                                 │ ohlcv_1d      (20yr hist)│       │
+│                                 └──────────────────────────┘      │
+│        ↓                                         ↓                 │
+│        └──────────────► merge ◄──────────────────┘                │
+│                          ↓                                         │
+│  agents/prompt_assembler.py        ← 윤채/한솔 Week 2              │
+│        ↓ system = persona spec   (cache_control: ephemeral)        │
+│        ↓ user   = data blocks    (features, fundamentals, …)       │
+│                          ↓                                         │
+│  agents/anthropic_runner.py        ← 윤채 Week 2                   │
+│        ↓ Claude API call (Sonnet 4.6 deep, Haiku 4.5 screen)       │
+│        ↓ Pydantic validation, 1× retry on schema fail              │
+│        ↓ log tokens + cost                                         │
+│                          ↓                                         │
+│  agents/citation_validator.py      ← 윤채 Week 2                   │
+│        ↓ verify every cited_news_id resolves in news table         │
+│                          ↓                                         │
+│  Neon  →  analyst_reports                                          │
+│        (persona_id, ts, inputs_hash, parsed jsonb,                 │
+│         raw_response, cost_usd)                                    │
+│                          ↓                                         │
+│  Frontend  →  /api/reports?personaId=warren  (Week 3, 한솔)        │
+│        ↓ swap from lib/mock/reports.ts                             │
+│  UI: persona thesis appears in the desk view                       │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+**Who owns what** (CODEOWNERS already routes the PRs):
+
+| Module | Owner | Status |
+|---|---|---|
+| `agents/persona_loader.py` | 한솔 | ✅ shipped (PR #29 + #30 fix) |
+| `agents/prompt_assembler.py` | 윤채 / 한솔 | ⏳ Week 2 |
+| `agents/anthropic_runner.py` | 윤채 | ⏳ Week 2 |
+| `agents/citation_validator.py` | 윤채 | ⏳ Week 2 |
+| `agents/models.py` (`AnalystReport`, `Proposal`) | 윤채 | ⏳ Week 2 |
+| `features/compute.py` extensions (fcf_yield, peg, …) | 예슬 / 준원 | ⏳ Week 2 |
+| `apps/web/app/api/reports/route.ts` + UI swap | 한솔 | ⏳ Week 3 |
+
+**Cost model** (Plan.md §4 acceptance: < $5/day average):
+
+- Haiku 4.5 universe screen (~500→top-30): ~$0.001/ticker × 4 personas × 50 tickers ≈ $0.20/day
+- Sonnet 4.6 deep thesis (top-30 only): ~$0.012/thesis × 4 personas × 30 ≈ $1.44/day
+- Persona spec cached (`cache_control: ephemeral`): saves ~3K tokens × 4 personas × ~5 calls ≈ ~$0.20/day saved
+- Buffer for chat (Week 3): ~$1.00/day
+- **Total: ~$2.50–4.00/day in steady-state.**
+
 ### Still mocked (Frontend reads these — Phase B/C swap)
 - All return series (seeded random walks in `lib/mock/performance.ts`).
 - All proposals (hand-curated in `lib/mock/proposals.ts`).
