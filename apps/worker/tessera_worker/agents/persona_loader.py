@@ -28,6 +28,13 @@ _OPERATIONAL_HEADER = re.compile(
     re.MULTILINE,
 )
 
+# Match ANY level-1 or level-2 header (`# ...` or `## ...`). Used to cap the
+# LAST persona's body so it doesn't run to EOF and swallow the
+# "# Chat fine-tuning specifications" level-1 divider + the subsequent
+# `## Universal chat policies`, per-persona chat specs, Manager Agent, and
+# Versioning sections that follow Peter's operational prompt.
+_ANY_TOP_HEADER = re.compile(r"^#{1,2}\s+", re.MULTILINE)
+
 _ID_BY_NAME: Final[dict[str, PersonaId]] = {
     name: pid for pid, name in _NAME_BY_ID.items()
 }
@@ -58,7 +65,15 @@ def _split_operational_sections(text: str) -> dict[PersonaId, str]:
         name = match.group(1)
         pid = _ID_BY_NAME[name]
         start = match.end()
-        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+        # End at the next persona operational header (interior personas) OR
+        # the next ANY `## ` header (last persona — Peter — to avoid
+        # absorbing chat fine-tuning + universal + versioning sections that
+        # come after the operational block).
+        if i + 1 < len(matches):
+            end = matches[i + 1].start()
+        else:
+            next_top = _ANY_TOP_HEADER.search(text, start)
+            end = next_top.start() if next_top else len(text)
         body = text[start:end].strip()
         # Drop trailing horizontal rule before the next major doc section.
         body = re.sub(r"\n---\s*$", "", body).strip()
