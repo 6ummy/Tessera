@@ -1,0 +1,53 @@
+# Files / dirs Cloud Build's `gcloud builds submit .` should NOT upload.
+# Build context is the repo root (per cloudbuild.yaml) so we exclude
+# everything the worker image doesn't need.
+
+# Web app — not part of the worker image
+apps/web/
+build-*-deck.js
+*.pptx
+
+# Decks + binaries
+reference-deck.pptx
+tessera-deck.pptx
+*.jpg
+*.png
+
+# Local dev artifacts
+.venv/
+**/.venv/
+node_modules/
+**/node_modules/
+.next/
+__pycache__/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+
+# Git / CI / editor metadata
+.git/
+.github/
+.vscode/
+.idea/
+.claude/
+
+# Secrets — never upload
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+
+# Tests / docs not needed at runtime
+**/tests/
+docs/
+*.md
+!apps/worker/**/*.md
+!packages/shared/**/*.md
+
+# Local logs
+.deploy.log
+.backfill_*.log

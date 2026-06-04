@@ -376,6 +376,8 @@ npm run dev                 # → http://localhost:3000
 cd ../worker
 python -m venv .venv
 source .venv/Scripts/activate    # Windows Git Bash; macOS/Linux: source .venv/bin/activate
+# Shared schemas package first — worker depends on it by name
+pip install -e ../../packages/shared
 pip install -e ".[dev]"
 
 # 4. 환경변수 받기

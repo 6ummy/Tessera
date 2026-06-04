@@ -1,0 +1,21 @@
+# Cloud Build config for the worker image.
+#
+# Build context = repo root so the Dockerfile can see BOTH apps/worker/
+# (the worker package) and packages/shared/ (the schema package the worker
+# imports). `gcloud builds submit --tag` alone assumed `./Dockerfile`,
+# which forced building from apps/worker/ and couldn't reach the shared
+# package. This config keeps the build context at root and points
+# explicitly at apps/worker/Dockerfile.
+#
+# Used by apps/worker/scripts/deploy_cloud_run.ps1.
+
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - --tag=${_IMAGE_TAG}
+      - --file=apps/worker/Dockerfile
+      - .
+
+images:
+  - ${_IMAGE_TAG}
