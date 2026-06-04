@@ -516,6 +516,8 @@ Pick one as your first PR. They're all real, small, and improve the downstream s
 - [x] **SEC EDGAR filings ingestor** — shipped 2026-06-01. New 7th step in daily orchestrator. Per ticker: 2 × 10-K + 4 × 10-Q (≈1.5 yrs of management prose). Body excerpt (8KB) into `filings.text_summary`, raw HTML to GCS `tessera-raw/edgar/{accession}.html`. Skip-if-already-have on accession means daily runs are no-ops once steady-state. Smoke-test verified end-to-end with AAPL + MSFT (12 filings, 49 MB HTML, 32s local run). Full universe run scheduled with next Cloud Run cron. Frees 예슬 to focus on features + risk gateway prep for Phase C.
 
 ### Week 3 — Chat + backtest + hardening
+- [ ] **Persona batch job** (LLM Pipeline): `apps/worker/tessera_worker/jobs/persona_batch.py` — loops the per-persona shortlist (Haiku screen 500→30) and calls `anthropic_runner.run_thesis()` for each (persona, ticker). Wired to a new orchestrator step OR a separate Vercel Cron / Cloud Run Job. Until this exists, **`FEATURE_REAL_LLM=true` on prod has no effect** because nothing in the daily orchestrator currently calls `anthropic_runner`. Manual `python -m tessera_worker.agents.anthropic_runner <persona> <ticker>` only.
+- [ ] **Ray RegimeProbabilities runner** (LLM Pipeline) — Ray doesn't pick stocks; he allocates to asset-class ETFs (VTI / IEF / TLT / GLD / etc.) and outputs regime probabilities (goldilocks / reflation / stagflation / deflation). Current `AnalystReport` + `Proposal` schema rejects his output (uses `instrument` not `ticker`, weight 0.20–0.40 exceeds Proposal's 0.20 cap). Surface: build a parallel `run_regime_thesis(persona='ray', as_of)` that uses `RegimeProbabilities` schema (already defined in `packages/shared/tessera_shared/schemas.py`) instead of `AnalystReport`. Persist to a separate `regime_reports` table or extend `analyst_reports.parsed` with a discriminated union. Smoke-test confirmed today (2026-06-03): Ray's prompt produces sane allocations (e.g. 28% VTI, 22% IEF, 18% GLD, 32% cash) — just can't land in DB until the schema route exists.
 - [ ] **Chat backend**: `/api/chat/[personaId]` assembling 6-part system prompt
   (persona spec + book + recent reports + relevant features + history + user msg);
   stream Anthropic response via SSE; wire `analyst-chat.tsx` to consume stream
@@ -524,7 +526,7 @@ Pick one as your first PR. They're all real, small, and improve the downstream s
 - [ ] **Hard rule enforcement**: per-persona validators (e.g., Warren cannot output `target_weight > 0.18`)
 - [ ] **Hallucination canary**: 5 known-bad prompts run weekly, all must be rejected
 - [ ] **Cost cap**: alert in Grafana if daily LLM cost > $10
-- [ ] **Frontend swap** (한솔, carried over from Phase A): `lib/mock/performance.ts` → `/api/performance`; same for thesis + portfolio reads. Now safe because real theses exist.
+- [ ] **Frontend swap** (Frontend track, carried over from Phase A): `lib/mock/performance.ts` → `/api/performance`; same for thesis + portfolio reads. Now safe because real theses exist.
 
 **Compression note**: previously three weeks (runner / desk / chat). Now two
 weeks. Risk: backtest review is rushed. Mitigation: review sample size from 10
