@@ -496,18 +496,18 @@ Pick one as your first PR. They're all real, small, and improve the downstream s
 
 ### Week 2 — Persona runner + full desk
 - [x] **Persona loader** (한솔, PR #29 + #30 fix-forward, shipped 2026-06-02): `apps/worker/tessera_worker/agents/persona_loader.py` — parses the 4 `## <Name> — Operational system prompt` sections from `personalities.md`, returns a `{persona_id: spec_text}` dict, cached via `lru_cache`. Path resolution walks up from the package to find `personalities.md` at repo root. Strict validation (raises if any persona is missing). 5 pytest tests passing.
-- [ ] **Prompt assembler**: persona spec + feature snapshot + memory recall → prompt
-- [ ] **Pydantic models**: `AnalystReport`, `Proposal` with full field validation
-- [ ] **Anthropic SDK wrapper**: typed call, retry on schema failure (1×), log tokens + cost
-- [ ] **Citation validator**: every `cited_news_ids` must resolve in `news` table
-- [ ] **Universe screen** (Haiku 4.5): per persona, narrow ~500 → top 30
-- [ ] **Hybrid selection**: ∪ with mechanical primary-metric top-30 per persona — see risk: *Haiku false negatives*
-- [ ] **Screen audit job** (weekly): Sonnet re-evaluates 10 randomly-sampled rejected names; alert if any score ≥ inclusion threshold
-- [ ] **`screen_promotion_rate` dashboard**: target band 30–80%
-- [ ] **Deep thesis** (Sonnet 4.6): on shortlist only
-- [ ] **Prompt caching**: persona spec (~3K tok) marked `cache_control: ephemeral`
-- [ ] **pgvector recall**: surface prior 5 theses on same ticker via embedding similarity
-- [ ] **Cost logging**: every call → Grafana metric `tessera_llm_cost_usd{persona, stage}`
+- [x] **Prompt assembler** (한솔, PR #33, shipped 2026-06-02): persona spec + feature snapshot + memory recall → prompt. `apps/worker/tessera_worker/agents/prompt_assembler.py`. Ray branch added Week 2 followups for RegimeReport JSON shape
+- [x] **Pydantic models** (PR #33, shipped 2026-06-02): `AnalystReport`, `Proposal` with full field validation in `packages/shared/tessera_shared/schemas.py`. `RegimeReport` + `RegimeAllocation` added 2026-06-03 for Ray (parallel schema, same table, `persona_id='ray'` discriminator)
+- [x] **Anthropic SDK wrapper** (PR #33, shipped 2026-06-02): typed call, 2-attempt retry with feedback on schema/JSON failure, tokens + cost logged per call to `llm_call_log`. `_normalize_conviction()` coerces LLM mistakes (percent, 1-10 scale, words) — 11 parametrized tests
+- [x] **Citation validator** (PR #33, shipped 2026-06-02): `apps/worker/tessera_worker/agents/citation_validator.py`. Runner drops invalid `n_xxxxxxxx` IDs before persist; report fails if any cite lacks a `news` row
+- [ ] **Universe screen** (Haiku 4.5): per persona, narrow ~500 → top 30 — **deferred to Week 4+**: current universe is ~50 names, no funnel needed. Revisit when universe > 200
+- [ ] **Hybrid selection**: ∪ with mechanical primary-metric top-30 per persona — see risk: *Haiku false negatives* — **blocked on Haiku screen**
+- [ ] **Screen audit job** (weekly): Sonnet re-evaluates 10 randomly-sampled rejected names; alert if any score ≥ inclusion threshold — **blocked on Haiku screen**
+- [ ] **`screen_promotion_rate` dashboard**: target band 30–80% — **blocked on Haiku screen**
+- [x] **Deep thesis** (Sonnet 4.6, PR #33, shipped 2026-06-02): currently runs on hand-picked tickers via CLI / `persona_batch.py`. "shortlist only" gating pending Haiku screen
+- [x] **Prompt caching** (PR #33, shipped 2026-06-02): persona spec marked `cache_control: ephemeral` in `anthropic_runner.py:258`. Verified cache hits in `llm_call_log` cost reduction
+- [ ] **pgvector recall**: surface prior 5 theses on same ticker via embedding similarity — **partial**: `fetch_memory_recall()` ships in `prompt_assembler.py` but uses **recency only** (`ORDER BY ts DESC LIMIT 3`), not embedding similarity. `persona_memory.embedding` column exists; needs (1) embedding writer on thesis persist (2) `<->` cosine query. **Week 3 task**
+- [x] **Cost logging** (PR #33, shipped 2026-06-02): every call → **`llm_call_log` table** `(persona_id, stage, model, tokens_in, tokens_out, cost_usd, latency_ms, ts)`. Daily cap check in `_check_daily_budget()`. ~~Grafana metric~~ deferred to Phase C observability
 - [x] **First sanity check** — shipped 2026-06-03. Warren wrote real theses on AAPL (3 runs, all `side=hold conv=0.55-0.62 cash=0.12-0.15`, ~$0.02 each), Cathie on NVDA (tri-scenario thesis, conv=0.72), Peter on COST (hold, conv=0.62). Ray's `instrument`+ETF schema doesn't fit `Proposal` — needs separate `RegimeProbabilities` path, deferred to Week 3.
 
 #### Carried over from Phase A — 정우 owned these (offloaded from the LLM and Quant tracks for Week 2)
