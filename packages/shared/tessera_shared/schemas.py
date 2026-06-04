@@ -96,6 +96,47 @@ class RegimeProbabilities(BaseModel):
         return self
 
 
+# ── Ray's full daily output: regime + asset-class allocations ─────────────
+class RegimeAllocation(BaseModel):
+    """One asset-class slice of Ray's portfolio. Uses an ETF instrument
+    instead of a single stock ticker because Ray is an allocator, not a
+    stock picker. Higher per-slice cap (0.40) than Proposal (0.20)."""
+
+    asset_class: str = Field(min_length=1, max_length=60,
+                             description="e.g. 'US equities', 'Long Treasuries', 'Gold'")
+    instrument: str = Field(min_length=1, max_length=8,
+                            description="ETF ticker, e.g. VTI, IEF, TLT, GLD, DBC, VXUS, TIP")
+    target_weight: float = Field(ge=0, le=0.40,
+                                 description="Fraction of NAV; allocator cap higher than stock-picker")
+    thesis_md: str = Field(min_length=20, max_length=1200)
+
+
+class RegimeReport(BaseModel):
+    """Ray's daily output. Persisted to the same `analyst_reports` table as
+    AnalystReport; the discriminator is `persona_id='ray'` and the parsed
+    JSONB has this shape instead of AnalystReport's. Frontend / risk
+    gateway switch on persona_id when deciding which schema to read."""
+
+    persona_id: Literal["ray"]
+    as_of: date
+    regime: RegimeProbabilities
+    allocations: list[RegimeAllocation] = Field(default_factory=list, max_length=10)
+    cash_target: float = Field(ge=0, le=1)
+    notes_to_manager: str = Field(default="", max_length=500)
+    inputs_hash: str = Field(description="SHA256 of the macro snapshot Ray read")
+    model: str
+    tokens_in: int = Field(ge=0)
+    tokens_out: int = Field(ge=0)
+    cost_usd: float = Field(ge=0)
+
+    @model_validator(mode="after")
+    def weights_sum_to_one_or_less(self) -> RegimeReport:
+        total = self.cash_target + sum(a.target_weight for a in self.allocations)
+        if total > 1.001:
+            raise ValueError(f"allocations + cash = {total:.4f} > 1.0")
+        return self
+
+
 # ── State (not LLM output): portfolio and positions ───────────────────────
 class Position(BaseModel):
     ticker: str

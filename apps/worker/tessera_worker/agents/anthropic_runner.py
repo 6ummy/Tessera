@@ -387,14 +387,156 @@ def run_thesis(
         raise RuntimeError("unreachable")
 
 
+# ─────────────────────────────────────────────────────────────────────────
+# Ray-specific runner — outputs RegimeReport (asset-class allocations +
+# regime probabilities) instead of AnalystReport (stock picks).
+# Shares prompt_assembler + persona spec + Claude wrapper, only the
+# response schema differs.
+# ─────────────────────────────────────────────────────────────────────────
+from tessera_worker.agents.models import RegimeReport  # noqa: E402
+
+
+def build_regime_report(
+    parsed: dict[str, Any],
+    *,
+    as_of: date,
+    inputs_hash: str,
+    model: str,
+    tokens_in: int,
+    tokens_out: int,
+    cost_usd: float,
+) -> RegimeReport:
+    parsed.setdefault("persona_id", "ray")
+    parsed.setdefault("as_of", as_of.isoformat())
+    parsed["inputs_hash"] = inputs_hash
+    parsed["model"] = model
+    parsed["tokens_in"] = tokens_in
+    parsed["tokens_out"] = tokens_out
+    parsed["cost_usd"] = cost_usd
+    return RegimeReport.model_validate(parsed)
+
+
+def persist_regime_report(
+    session,
+    report: RegimeReport,
+    *,
+    raw_response: str,
+    rejected: bool = False,
+    reject_reasons: list[str] | None = None,
+) -> UUID:
+    """Reuse the analyst_reports table; persona_id='ray' is the discriminator."""
+    row = session.execute(
+        text("""
+            INSERT INTO analyst_reports
+                (persona_id, as_of_date, inputs_hash, raw_response, parsed,
+                 model, tokens_in, tokens_out, cost_usd, rejected, reject_reasons)
+            VALUES
+                (:p, :d, :h, :raw, CAST(:parsed AS jsonb),
+                 :model, :ti, :to, :cost, :rej, :reasons)
+            RETURNING id
+        """),
+        {
+            "p": "ray",
+            "d": report.as_of,
+            "h": report.inputs_hash,
+            "raw": raw_response,
+            "parsed": report.model_dump_json(),
+            "model": report.model,
+            "ti": report.tokens_in,
+            "to": report.tokens_out,
+            "cost": report.cost_usd,
+            "rej": rejected,
+            "reasons": reject_reasons or [],
+        },
+    ).first()
+    return row[0]
+
+
+def run_regime_thesis(
+    *,
+    as_of: date | None = None,
+    persist: bool = True,
+) -> RegimeReport:
+    """Ray-specific path. No ticker — Ray writes a portfolio-level regime read."""
+    settings = get_settings()
+    if not settings.feature_real_llm:
+        raise LlmDisabledError(
+            "FEATURE_REAL_LLM=false — set in apps/worker/.env to call Anthropic"
+        )
+
+    # Ticker passed to assemble_prompt is unused in Ray's user_message
+    # (prompt_assembler branches on persona == 'ray'), but the macros_for()
+    # call needs *something*; "PORTFOLIO" is just a label.
+    assembled = assemble_prompt("ray", "PORTFOLIO", as_of=as_of)
+    model = settings.llm_model_thesis
+    raw = ""
+    tokens_in = tokens_out = cached = latency_ms = 0
+    last_error: str | None = None
+
+    with session_scope() as session:
+        check_daily_budget(session)
+
+        for attempt in range(2):
+            feedback = last_error if attempt > 0 else None
+            try:
+                raw, tokens_in, tokens_out, cached, latency_ms = call_anthropic_thesis(
+                    assembled, feedback=feedback
+                )
+                cost = estimate_cost_usd(model, tokens_in, tokens_out)
+                parsed = parse_llm_json(raw)
+                report = build_regime_report(
+                    parsed,
+                    as_of=assembled.as_of,
+                    inputs_hash=assembled.inputs_hash,
+                    model=model,
+                    tokens_in=tokens_in,
+                    tokens_out=tokens_out,
+                    cost_usd=cost,
+                )
+                log_llm_call(
+                    session, persona_id="ray", stage="regime", model=model,
+                    tokens_in=tokens_in, tokens_out=tokens_out, cost_usd=cost,
+                    latency_ms=latency_ms, success=True, cached_tokens=cached,
+                )
+                if persist:
+                    persist_regime_report(session, report, raw_response=raw)
+                session.commit()
+                return report
+
+            except (json.JSONDecodeError, ValueError) as exc:
+                last_error = str(exc)
+                cost = estimate_cost_usd(model, tokens_in, tokens_out)
+                log_llm_call(
+                    session, persona_id="ray", stage="regime", model=model,
+                    tokens_in=tokens_in, tokens_out=tokens_out, cost_usd=cost,
+                    latency_ms=latency_ms, success=False, error=last_error,
+                    cached_tokens=cached,
+                )
+                if attempt == 1:
+                    session.commit()
+                    raise
+
+        raise RuntimeError("unreachable")
+
+
 def main() -> int:
-    """CLI: python -m tessera_worker.agents.anthropic_runner warren AAPL"""
+    """CLI: python -m tessera_worker.agents.anthropic_runner <persona> [ticker]
+    Ray takes no ticker (portfolio-level): `... ray`
+    Others require a ticker:              `... warren AAPL`
+    """
     import sys
 
-    if len(sys.argv) < 3:
-        print("Usage: python -m tessera_worker.agents.anthropic_runner <persona> <ticker>")
+    if len(sys.argv) < 2:
+        print("Usage: python -m tessera_worker.agents.anthropic_runner <persona> [ticker]")
         return 1
     persona = sys.argv[1]
+    if persona == "ray":
+        report = run_regime_thesis()
+        print(report.model_dump_json(indent=2))
+        return 0
+    if len(sys.argv) < 3:
+        print(f"Persona '{persona}' requires a ticker arg.")
+        return 1
     ticker = sys.argv[2].upper()
     report = run_thesis(persona, ticker)  # type: ignore[arg-type]
     print(report.model_dump_json(indent=2))
