@@ -1,21 +1,30 @@
 """FCF yield screen demo — reads from Neon, computes, prints an ASCII bar
 chart of the equity universe sorted by FCF yield.
 
+⚠️  This is the Phase A teaching demo, not the production path.
+
+For the actual fcf_yield value the LLM personas read, see:
+  - `compute.py: compute_fcf_yield()` — production function with TTM
+    rollup (cumulative-YTD decomposition), FX conversion, and cross-
+    validated market cap. Wired into `build()` and written to
+    `ticker_features.fcf_yield` each daily run.
+  - `compute.py: sum_ttm_fcf()` — robust to 3 FMP data shapes.
+  - `compute.py: cross_validated()` — agreement primitive reusable
+    for the next features in the backlog (PEG, EPS CAGR, etc.).
+
+This demo stays as:
+  - A read→compute→print recipe that's ~100 lines and easy to fork.
+  - The "extend this" reference target in `Quant_demo.md`.
+It uses the SIMPLER naive formula (close × weightedAverageShsOut, no
+TTM rollup, no FX conversion) — fine for screen visualization but not
+the number the LLM gets. To see what production writes, query
+`ticker_features.fcf_yield` directly.
+
 Run:  python -m tessera_worker.features.demo_fcf_yield
 See:  features/Quant_demo.md  for context + "extend this" patterns.
 
-Why this lives next to compute.py (not in scripts/):
-- compute.py owns the real production feature pipeline.
-- demo_fcf_yield.py shows the read->compute->upsert pattern in ~100 lines
-  so anyone can fork it into a new feature without reverse-engineering
-  build().
-- Stays inside the package so `python -m tessera_worker.features.demo_*`
-  just works after `pip install -e .`.
-
 Schema notes (fundamentals table):
   ticker | period_end | filing_type ('income'|'balance'|'cash_flow') | payload JSONB
-  Each filing_type is its own row. We pull cash_flow.freeCashFlow and
-  income.weightedAverageShsOut, join in pandas.
 
 No new dependencies — only pandas + sqlalchemy already in pyproject.
 """

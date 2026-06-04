@@ -448,7 +448,14 @@ You should see:
 
 **Your Week 2 task path** (recommended order — priority comes from Plan.md backlog):
 - Day 1: run the demo + read the .md
-- [x] Day 2: ship `fcf_yield` as a real `ticker_features` column — **shipped 2026-06-04** as part of Quant track followups. `compute_fcf_yield()` in `features/compute.py` with `ADR_SHARE_RATIOS` (TSM=5, ASML=1) so the Phase A TSM-48% bug doesn't recur. Prefers provider `marketCap` when present; falls back to `close × shares / ADR ratio`. ±100% sanity bound drops obvious data bugs. Wired into `build()` as a fundamentals pass writing the latest-ts row per ticker. 9 new tests.
+- [x] Day 2: ship `fcf_yield` as a real `ticker_features` column — **shipped 2026-06-04** across 3 PRs that progressively tightened precision. Final state: `compute_fcf_yield()` in `features/compute.py` returns rolling-TTM FCF / fresh USD market cap, with multi-candidate cross-validation. Specifically:
+    - **TTM rollup** decomposes FMP's cumulative-YTD shape into a true 12-month value via `TTM = last_FY + current_YTD − prior_FY_YTD_at_same_period`. Falls back to `max(window)` (last full FY) when period anchors are missing.
+    - **Currency conversion** via `FX_TO_USD` for non-USD reporters (TWD, EUR, GBP, JPY, KRW, HKD, CNY, CAD). Unknown currency → drop.
+    - **Market cap** estimated via `cross_validated()` over 4 candidates (close×diluted, close×basic, payload-mcap-cash, payload-mcap-income). Disagreement → `max` (conservative-for-yield).
+    - **Safety**: ±100% sanity bound + `build(*, with_fundamentals: bool = True)` flexibility toggle (default daily, no API cost; toggle exists so future cadence splits flip from the orchestrator without touching compute logic).
+    - **Live verification (31/42 tickers write)**: AAPL 2.83%, COST 2.06%, META 3.38%, TSM 1.51% — all within ±10% of independently-computed real values. Ranking is Warren-correct: XOM/MA/JNJ at top, mega-cap tech mid, cash-burning growth at bottom.
+    - **50 tests**. Includes worked-example tests for AAPL Q2 FY26 and COST Q3 FY26 TTM math.
+    - **Deferred to Phase C** (data quality work): UNH/NVDA/AMZN/COIN edge cases (sparse FY anchors, alternating null filings, one-time spikes). Sanity bound keeps these from polluting the LLM prompt; precision fix waits for a dedicated daily mcap source (FMP `key_metrics`) and FY-aware ingestion.
 - Day 3: `peg_ratio` (forward P/E ÷ EPS growth — needs FMP analyst estimates, else trailing proxy)
 - Day 4: `eps_cagr_3y` (3 consecutive annual income rows)
 - Day 5: `debt_to_equity` + start sketching the Phase C precursors (correlation matrix, sector exposure)
@@ -484,7 +491,8 @@ Both demos hit real production data and surface its imperfections — these are 
 |---|---|---|
 | NewsAPI tags ~30% of AAPL stories with false positives (Disney World, NBA Finals, …) | Quant or LLM Pipeline | LLM demo's `<news>` block is dominated by noise |
 | SEC 10-K primary doc is XBRL-tagged; current 8KB excerpt is metadata header, not the MD&A prose Warren wants | LLM Pipeline | LLM demo's `<filing>` block shows XBRL goo instead of prose |
-| TSM FCF yield 48% — ADR share-count units mismatch | Quant | Quant demo's bar chart shows TSM as a wild outlier |
+| ~~TSM FCF yield 48% — ADR share-count units mismatch~~ — **fixed 2026-06-04** in the Week 2 Quant `fcf_yield` ship. Root cause turned out to be currency (TWD vs USD), not ADR ratios. See `compute_fcf_yield()` + `FX_TO_USD`. TSM now reads 1.51%. | Quant | (closed) |
+| **fcf_yield precision edge cases** — UNH (5.7% vs real ~3%), NVDA (0.07%), AMZN (0.35%), COIN (14.7%) read off-band when fundamentals data is sparse (few FY anchors, alternating null filings, or one-time spikes). Sanity bound prevents pollution of the LLM prompt. Proper fix needs a dedicated daily mcap source (FMP `key_metrics`) and FY-aware ingestion. | Quant (Phase C) | `ticker_features` rows for these names sit at the boundary or are dropped |
 
 Pick one as your first PR. They're all real, small, and improve the downstream signal quality for everyone.
 
@@ -566,6 +574,11 @@ to 5 per persona; defer voice tuning to post-launch iteration.
 - [ ] **Sentry alert**: paper engine error → page within 5 min
 - [ ] **Skeleton/error states**: all frontend reads have loading + error UIs
 - [ ] **Quant data integrity gates**: point-in-time guard, stale-data check, adjusted-price policy, and invalid-feature handling before leaderboard/backtest metrics are written
+- [ ] **fcf_yield precision edge cases** (Quant) — UNH (5.7% vs real ~3%), NVDA (0.07%), AMZN (0.35%), COIN (14.7%) read off-band on the Phase B shipping pass. Sanity bound (±100%) prevents these from polluting the LLM prompt, but precision is too loose for risk-gated backtests. Root causes:
+    1. **Sparse FY anchors** — some issuers' fundamentals history doesn't include a row ~12 months back, so the TTM decomposition falls back to `max(window)` (= last full FY annual; up to 12 months stale for fast growers).
+    2. **Alternating null filings** — some tickers have duplicate filing rows where one is a restatement/erratum with no FCF data; the Phase B fix filters nulls before capping the loader window, but a few cases still slip through when filings span > 2 fiscal years.
+    3. **One-time spikes** — COIN's TTM includes the late-2025 crypto turnover boom; the value is real but unrepresentative of forward yield.
+  - **Fix path**: dedicated daily mcap source (FMP `key_metrics` endpoint) + FY-aware ingestion that records `fiscal_year_end_month` per ticker so the decomposer can pick anchors precisely. Ingestor → new column `key_metrics_market_cap` on `ticker_features` → `estimate_market_cap()` adds it as a 5th candidate. Phase C because it touches the ingest plane, not just compute.
 - [ ] **Leakage tests for backtest mode**: ensure feature_date never overlaps with target_return_window and no post-rebalance data is used
 - [x] **SEC EDGAR XBRL fundamentals parser** (Quant) — **shipped 2026-06-02 (pre-Phase B)**. Took the simpler path via SEC's pre-parsed XBRL JSON (`data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json`) instead of parsing XML with arelle. New `ingestors/sec_edgar_facts.py` wired as step 5 of the orchestrator. Coverage jumped from FMP free's 20/42 tickers to **39/42** (HON, LLY, MA, NEE, LIN, etc. now reachable). 3 still missing for reasons unrelated to gating: BRK.B (SEC uses dash not dot in ticker map), ASML + TSM (foreign filers — submit 20-F, no us-gaap facts JSON). JSONB-merge upsert preserves any FMP-only fields, so the two sources coexist. FMP Starter $14/mo decision becomes moot for the 39 covered names; only useful if the 3 foreign filers become critical.
 - [x] **Maximum-history backfill across all sources** (Quant + Infra) — **shipped 2026-06-02 (pre-Phase B)** via new `jobs/backfill_history.py` with `--source {alpaca|coinbase|fred|yahoo|all}` flags. Results from the one-shot run:

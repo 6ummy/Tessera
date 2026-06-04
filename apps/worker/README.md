@@ -12,7 +12,8 @@ tessera_worker/
   main.py           FastAPI HTTP server (Vercel Cron triggers, /health)
 
   ingestors/        Phase A — pull from upstream sources into Neon
-  features/         Phase A — pandas/numpy feature builder (deterministic)
+  features/         Phase A price features + Phase B fundamentals (fcf_yield: TTM rollup,
+                    FX conversion, cross-validated mcap — see features/compute.py)
   agents/           Phase B — persona LLM pipeline + chat
   risk/             Phase C — risk gateway + paper / live execution
   jobs/             One-shot Cloud Run Job entry points

@@ -444,7 +444,8 @@ plane is shipped; the LLM pipeline is the Week 2 / Week 3 work.
 | `agents/anthropic_runner.py` | LLM Pipeline | ✅ shipped (FEATURE_REAL_LLM gate) |
 | `agents/citation_validator.py` | LLM Pipeline | ✅ shipped |
 | `agents/models.py` (`AnalystReport`, `Proposal`) | LLM Pipeline | ✅ shipped (re-export from `tessera_shared`) |
-| `features/compute.py` extensions (fcf_yield, peg, …) | Quant | ⏳ Week 2 |
+| `features/compute.py` — `fcf_yield` (TTM-decomposed cumulative-YTD, FX-converted, cross-validated mcap) | Quant | ✅ shipped 2026-06-04 |
+| `features/compute.py` — `peg`, `eps_cagr_3y`, `debt_to_equity`, `gross_margin_trend` | Quant | ⏳ Week 2–3 (reuses `cross_validated()` primitive) |
 | `apps/web/app/api/reports/route.ts` + UI swap | Frontend | ⏳ Week 3 |
 | Ray-specific `RegimeProbabilities` runner (separate schema) | LLM Pipeline | ⏳ Week 3 |
 

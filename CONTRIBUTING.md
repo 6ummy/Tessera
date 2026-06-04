@@ -354,7 +354,7 @@ PR 보내기 전에 본인 트랙 체크 항목을 다 통과해야 합니다.
 |---|---|---|
 | **Frontend (한솔, 윤채)** | 모바일 반응형 audit + 3 PR로 fix; `/api/reports` swap 준비 | issue 3개 → PR 3개 머지; chat backend 스트리밍 통합 spec 1장 |
 | **LLM (한솔)** | Warren 1명 first real thesis (Sonnet 호출 → Pydantic 통과 → DB 저장) | `agents/runner.py` + `agents/prompt.py` + 첫 `analyst_reports` row ✅ done 2026-06-03 |
-| **Quant (예슬, 준원)** | 3개 new feature (FCF yield, PEG, EPS CAGR 3y) + property test | `compute.py` 확장 + `tests/test_features.py` 16/16; 백테스트 harness 설계 doc |
+| **Quant (예슬, 준원)** | ~~FCF yield~~ ✅ 2026-06-04 shipped (TTM 분해 + FX + cross-validated mcap, 31/42 tickers writing). 다음: PEG, EPS CAGR 3y, debt/equity, gross margin trend — 같은 `cross_validated()` 패턴 재사용 | `compute.py` 확장 + `tests/test_features.py` 50/50; 백테스트 harness 설계 doc |
 | **Infra (준원)** | Worker Dockerfile + Cloud Run deploy + Vercel WORKER_WEBHOOK_URL wire ✅ shipped 2026-06-01; GitHub Actions CI 기본 (lint+typecheck) 이번 주 | GitHub Actions workflow PR |
 | **All (정우)** | 위 모든 파트 기여여
 
