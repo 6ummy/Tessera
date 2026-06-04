@@ -9,11 +9,12 @@ import pytest
 from tessera_worker.agents.anthropic_runner import (
     _normalize_conviction,
     build_analyst_report,
+    build_regime_report,
     estimate_cost_usd,
     parse_llm_json,
 )
 from tessera_worker.agents.citation_validator import validate_citations
-from tessera_worker.agents.models import AnalystReport
+from tessera_worker.agents.models import AnalystReport, RegimeReport
 
 
 def test_parse_llm_json_strips_fences() -> None:
@@ -88,3 +89,66 @@ def test_normalize_conviction_passes_through_unknowns():
     p = {}  # no conviction key
     _normalize_conviction(p)
     assert p == {}
+
+
+def test_build_regime_report_validates_allocations():
+    """Ray's RegimeReport accepts ETF allocations w/ weights > stock-picker cap."""
+    import datetime as _dt
+    report = build_regime_report(
+        {
+            "regime": {
+                "goldilocks_prob": 0.45,
+                "reflation_prob": 0.30,
+                "stagflation_prob": 0.15,
+                "deflation_prob": 0.10,
+                "delta_from_last_week_md": "Shifted 5pp from reflation to goldilocks; "
+                                            "softer CPI print, narrower HY spread.",
+            },
+            "allocations": [
+                {"asset_class": "US equities",        "instrument": "VTI",
+                 "target_weight": 0.30, "thesis_md": "A" * 25},
+                {"asset_class": "Intermediate UST",   "instrument": "IEF",
+                 "target_weight": 0.25, "thesis_md": "A" * 25},
+                {"asset_class": "Gold",               "instrument": "GLD",
+                 "target_weight": 0.15, "thesis_md": "A" * 25},
+            ],
+            "cash_target": 0.30,
+            "notes_to_manager": "Defensive tilt with optionality on real rates.",
+        },
+        as_of=_dt.date(2026, 6, 4),
+        inputs_hash="hash123",
+        model="claude-sonnet-4-6",
+        tokens_in=2000,
+        tokens_out=600,
+        cost_usd=0.015,
+    )
+    assert isinstance(report, RegimeReport)
+    assert report.persona_id == "ray"
+    assert len(report.allocations) == 3
+    # 0.30 weight would fail Proposal's 0.20 cap but is valid for RegimeAllocation (0.40 cap)
+    assert report.allocations[0].target_weight == 0.30
+
+
+def test_build_regime_report_rejects_weights_over_one():
+    import datetime as _dt
+    import pytest as _pt
+    with _pt.raises(Exception):  # ValidationError
+        build_regime_report(
+            {
+                "regime": {
+                    "goldilocks_prob": 0.25, "reflation_prob": 0.25,
+                    "stagflation_prob": 0.25, "deflation_prob": 0.25,
+                    "delta_from_last_week_md": "no change.",
+                },
+                "allocations": [
+                    {"asset_class": "US equities", "instrument": "VTI",
+                     "target_weight": 0.40, "thesis_md": "A" * 25},
+                    {"asset_class": "Long UST", "instrument": "TLT",
+                     "target_weight": 0.40, "thesis_md": "A" * 25},
+                ],
+                "cash_target": 0.30,  # 0.40 + 0.40 + 0.30 = 1.10 > 1.0
+                "notes_to_manager": "x",
+            },
+            as_of=_dt.date(2026, 6, 4), inputs_hash="h", model="m",
+            tokens_in=0, tokens_out=0, cost_usd=0.0,
+        )

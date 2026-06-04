@@ -8,7 +8,9 @@ from tessera_shared.schemas import (
     AnalystReport,
     PersonaId,
     Proposal,
+    RegimeAllocation,
     RegimeProbabilities,
+    RegimeReport,
     Side,
 )
 
@@ -16,6 +18,8 @@ __all__ = [
     "AnalystReport",
     "PersonaId",
     "Proposal",
+    "RegimeAllocation",
     "RegimeProbabilities",
+    "RegimeReport",
     "Side",
 ]

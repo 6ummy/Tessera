@@ -502,13 +502,35 @@ def build_user_message(
         parts.append(render_news(blocks["news"]))
     if rules["include_filing"]:
         parts.append(render_filing(blocks["filing"]))
-    parts.append(
-        "Write today's thesis on the target ticker. Output JSON matching the "
-        "AnalystReport schema (persona_id, as_of, proposals, cash_target, "
-        "notes_to_manager). Cite news using the short identifier shown in the "
-        "news block (e.g. \"n_b7a434db\") — the runner resolves these to full "
-        "UUIDs automatically."
-    )
+    if persona == "ray":
+        # Ray is an allocator, not a stock picker. Output RegimeReport
+        # (regime probabilities + asset-class ETF allocations), not
+        # AnalystReport. Ticker passed in is ignored — Ray always writes
+        # the same portfolio-level read.
+        parts.append(
+            "You are evaluating the macro regime today, not a single ticker.\n"
+            "Output JSON matching the RegimeReport schema:\n"
+            "  persona_id: \"ray\"\n"
+            "  as_of: \"YYYY-MM-DD\"\n"
+            "  regime: {goldilocks_prob, reflation_prob, stagflation_prob, "
+            "deflation_prob, delta_from_last_week_md}  ← four probs must sum to 1.0\n"
+            "  allocations: [{asset_class, instrument, target_weight, thesis_md}, ...]\n"
+            "    - allocate to asset-class ETFs only: VTI (US equities), "
+            "VXUS (intl equities), IEF (7-10y treasuries), TLT (long treasuries), "
+            "TIP (TIPS), GLD (gold), DBC (broad commodities), QQQ (US tech)\n"
+            "    - target_weight 0.0 to 0.40 per slice; allocations + cash_target ≤ 1.0\n"
+            "    - 5-8 allocations typical; do NOT pick individual stocks\n"
+            "  cash_target: 0.0 to 1.0\n"
+            "  notes_to_manager: one sentence on the dominant regime call"
+        )
+    else:
+        parts.append(
+            "Write today's thesis on the target ticker. Output JSON matching the "
+            "AnalystReport schema (persona_id, as_of, proposals, cash_target, "
+            "notes_to_manager). Cite news using the short identifier shown in the "
+            "news block (e.g. \"n_b7a434db\") — the runner resolves these to full "
+            "UUIDs automatically."
+        )
     return "\n\n".join(parts)
 
 
