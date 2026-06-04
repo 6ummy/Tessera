@@ -23,6 +23,8 @@ from tessera_worker.features.compute import (
     VOLUME_Z_WINDOW,
     _market_cap_from_shares,
     compute_fcf_yield,
+    cross_validated,
+    estimate_market_cap,
     pct_change,
     realized_vol,
     rsi,
@@ -195,20 +197,23 @@ def test_fcf_yield_falls_back_to_payload_mcap_when_shares_missing() -> None:
 
 
 def test_fcf_yield_tsm_with_twd_to_usd_conversion() -> None:
-    """TSM reports FCF in TWD. Real bug: 1097B TWD treated as USD blew
-    the yield up to 242%, sanity bound dropped it. With correct FX:
-    1097B TWD × (1/32) ≈ $34.3B USD; mcap ≈ $933B → ~3.7% yield.
+    """TSM reports FCF in TWD. Verify currency conversion + that FMP-shaped
+    ADR-equivalent share counts produce a sane yield without double-divide.
+    Real-world values circa 2026: close ~$437 (ADR), shares basic from
+    FMP ~5.19B (already ADR-equivalent), TTM FCF 1097B TWD ≈ $34.3B USD,
+    mcap ≈ $2.27T → ~1.5% yield.
     """
     yld = compute_fcf_yield(
-        close=180.0,
+        close=437.0,
         fcf_local=1097e9,                 # 1097B TWD
-        shares_common=25.93e9,
+        shares_basic=5.19e9,              # FMP-shape: already ADR-equivalent
+        shares_diluted=5.19e9,
         reported_currency="TWD",
         ticker="TSM",
     )
     assert yld is not None
-    # Real TSM yield: low-to-mid single digit %
-    assert 0.02 < yld < 0.08, f"TSM TWD-converted yield outside band: {yld:.4f}"
+    # Real TSM TTM yield mid-2026: ~1-2%
+    assert 0.005 < yld < 0.03, f"TSM TWD-converted yield outside band: {yld:.4f}"
 
 
 def test_fcf_yield_unknown_currency_drops_safely() -> None:
@@ -251,23 +256,30 @@ def test_adr_ratio_lookup_defaults_to_one_for_unknown_ticker() -> None:
     assert mcap == 100e9
 
 
-def test_adr_ratio_present_for_known_adrs() -> None:
-    assert ADR_SHARE_RATIOS["TSM"] == 5
-    assert ADR_SHARE_RATIOS["ASML"] == 1
+def test_adr_ratio_dict_is_empty_for_fmp_provider() -> None:
+    """ADR_SHARE_RATIOS is empty because FMP, our provider, returns
+    ADR-equivalent share counts (not foreign-issuer common totals).
+    Dividing again would double-divide. The dict is kept as a hook for
+    future providers that report common shares — populate only with
+    ground-truth verification."""
+    assert ADR_SHARE_RATIOS == {}
 
 
 # ─── TTM rollup ────────────────────────────────────────────────────────
 
 
 def test_ttm_sums_four_quarters() -> None:
+    """Genuinely quarterly data (provider returns standalone Q values).
+    Values are close to each other (ratio < 2.5) so cumulative detection
+    doesn't fire."""
     rows = [
         {"freeCashFlow": 30e9, "period": "Q2"},
         {"freeCashFlow": 25e9, "period": "Q1"},
-        {"freeCashFlow": 28e9, "period": "Q4"},
+        {"freeCashFlow": 28e9, "period": "Q3"},
         {"freeCashFlow": 22e9, "period": "Q3"},
-        {"freeCashFlow": 15e9, "period": "Q2"},  # 5th — should be ignored
+        {"freeCashFlow": 27e9, "period": "Q2"},
     ]
-    assert sum_ttm_fcf(rows) == 105e9
+    assert sum_ttm_fcf(rows) == 30e9 + 25e9 + 28e9 + 22e9
 
 
 def test_ttm_returns_annual_when_latest_is_FY() -> None:
@@ -319,6 +331,34 @@ def test_ttm_empty_input_returns_none() -> None:
     assert sum_ttm_fcf([]) is None
 
 
+def test_ttm_detects_cumulative_ytd_aapl_shape() -> None:
+    """FMP returns AAPL freeCashFlow as cumulative-since-FY-start:
+       Q1 ≈ 3 months of FCF, Q2 ≈ 6 months, ... Q4/FY ≈ 12 months.
+       Summing those triple-counts. Our detector should see the wide
+       max/min ratio across a 6-row window and return MAX (= last
+       FY-end annual value) instead of summing.
+    """
+    # Pattern mirroring real AAPL data observed in DB (period unspecified)
+    rows = [
+        {"freeCashFlow": 78.28e9, "period": None},  # Q2 FY26 YTD
+        {"freeCashFlow": 51.55e9, "period": None},  # Q1 FY26 YTD
+        {"freeCashFlow": 98.77e9, "period": None},  # Q4 FY25 = FY annual
+        {"freeCashFlow": 72.28e9, "period": None},  # Q3 FY25 YTD
+        {"freeCashFlow": 47.88e9, "period": None},  # Q2 FY25 YTD
+        {"freeCashFlow": 27.00e9, "period": None},  # Q1 FY25 YTD
+    ]
+    result = sum_ttm_fcf(rows)
+    # Should return MAX = 98.77B (FY25 annual), NOT sum = 376B (triple-count)
+    assert result == 98.77e9
+    assert result < 200e9, "sum-based answer would exceed any real AAPL TTM"
+
+
+def test_ttm_q4_period_is_treated_as_annual() -> None:
+    """Q4 period is full-year cumulative — same as FY shortcut."""
+    rows = [{"freeCashFlow": 100e9, "period": "Q4"}]
+    assert sum_ttm_fcf(rows) == 100e9
+
+
 # ─── FX table sanity ───────────────────────────────────────────────────
 
 
@@ -334,6 +374,138 @@ def test_fx_usd_is_identity() -> None:
 
 
 # ─── build() toggle ────────────────────────────────────────────────────
+
+
+# ─── Cross-validation primitive ────────────────────────────────────────
+
+
+def test_cross_validated_single_candidate() -> None:
+    assert cross_validated([("only", 100.0)]) == 100.0
+
+
+def test_cross_validated_no_valid_candidates() -> None:
+    assert cross_validated([("none", None), ("zero", 0)]) is None  # type: ignore[list-item]
+
+
+def test_cross_validated_agreement_returns_first() -> None:
+    """When all candidates agree (within max_spread), trust the first
+    (caller orders by trust priority)."""
+    result = cross_validated([("trust1", 100.0), ("trust2", 110.0), ("trust3", 120.0)])
+    assert result == 100.0  # first wins because spread 120/100=1.2 < 2.0
+
+
+def test_cross_validated_disagreement_picks_max() -> None:
+    """When spread > 2× (default), pick max as the conservative choice."""
+    # 100 vs 500 → spread 5× → disagreement → max
+    result = cross_validated([("under", 100.0), ("over", 500.0)])
+    assert result == 500.0
+
+
+def test_cross_validated_disagreement_pick_min_when_configured() -> None:
+    result = cross_validated(
+        [("a", 100.0), ("b", 500.0)],
+        pick_on_disagreement="min",
+    )
+    assert result == 100.0
+
+
+# ─── Market cap estimation — the systemic fix ──────────────────────────
+
+
+def test_estimate_market_cap_all_agree() -> None:
+    """Realistic AAPL: 4 candidates, all within 2×. Returns close×diluted
+    (first / most-trusted)."""
+    mcap = estimate_market_cap(
+        close=230.0,
+        shares_basic=14.67e9,    # close × basic = $3.37T
+        shares_diluted=14.73e9,  # close × dil   = $3.39T  ← preferred
+        payload_mcap_cash=3.4e12,
+        payload_mcap_income=3.45e12,
+        ticker="AAPL",
+    )
+    assert mcap is not None
+    expected = 230.0 * 14.73e9
+    assert abs(mcap - expected) < 1.0
+
+
+def test_estimate_market_cap_disagreement_picks_max() -> None:
+    """If close × shares severely undercounts vs payload mcap (or vice
+    versa), pick the bigger — yields a CONSERVATIVE fcf_yield."""
+    # close×shares would give $1.5T (under), payload says $3.5T (real-ish).
+    # Spread = 3.5/1.5 = 2.33 > 2.0 → disagreement → max
+    mcap = estimate_market_cap(
+        close=230.0,
+        shares_basic=6.5e9,        # close × basic = $1.50T (undercount)
+        shares_diluted=6.6e9,
+        payload_mcap_cash=3.5e12,
+        payload_mcap_income=3.5e12,
+        ticker="AAPL_LIKE",
+    )
+    assert mcap == 3.5e12
+
+
+def test_estimate_market_cap_only_payload_available() -> None:
+    """If shares are missing, fall back to payload."""
+    mcap = estimate_market_cap(
+        close=None, shares_basic=None, shares_diluted=None,
+        payload_mcap_cash=3.5e12, payload_mcap_income=None,
+        ticker="X",
+    )
+    assert mcap == 3.5e12
+
+
+def test_estimate_market_cap_only_shares_available() -> None:
+    """If payload mcap is missing, use close × shares."""
+    mcap = estimate_market_cap(
+        close=100.0, shares_basic=1e9, shares_diluted=1.01e9,
+        payload_mcap_cash=None, payload_mcap_income=None,
+        ticker="X",
+    )
+    assert mcap == 100.0 * 1.01e9  # diluted preferred
+
+
+def test_estimate_market_cap_no_candidates_returns_none() -> None:
+    assert estimate_market_cap(
+        close=None, shares_basic=None, shares_diluted=None,
+        payload_mcap_cash=None, payload_mcap_income=None,
+    ) is None
+
+
+def test_fcf_yield_uses_cross_validated_mcap_end_to_end() -> None:
+    """The TSM-shaped scenario: shares from FMP look like ADR-equivalent,
+    so close × shares undercounts; payload mcap reflects true USD mcap.
+    Cross-validation picks the higher one → conservative fcf_yield.
+    """
+    # Hypothetical: close × shares = $200B, payload = $450B → disagreement
+    # → mcap = $450B. fcf_local 1097B TWD = $34.3B USD → yield = 7.6%
+    yld = compute_fcf_yield(
+        close=180.0,
+        fcf_local=1097e9,
+        shares_basic=1.04e9,           # gives $187B (×1)
+        shares_diluted=1.04e9,
+        reported_currency="TWD",
+        payload_mcap_cash=450e9,       # gives $450B
+        ticker="TSM_LIKE",
+    )
+    assert yld is not None
+    # With max=$450B mcap: 34.3 / 450 = 7.6% ✓
+    assert 0.05 < yld < 0.10
+
+
+# ─── Back-compat — legacy callers ──────────────────────────────────────
+
+
+def test_legacy_kwarg_shares_common_still_works() -> None:
+    """Older callers / tests pass shares_common= and payload_market_cap=.
+    These are accepted as aliases for shares_basic / payload_mcap_cash."""
+    yld = compute_fcf_yield(
+        close=230.0, fcf_local=100e9,
+        shares_common=14.7e9,              # legacy positional alias
+        payload_market_cap=3.4e12,         # legacy alias
+        ticker="AAPL",
+    )
+    assert yld is not None
+    assert 0.025 < yld < 0.035
 
 
 def test_build_signature_accepts_with_fundamentals_toggle() -> None:

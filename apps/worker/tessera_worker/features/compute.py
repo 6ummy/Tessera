@@ -62,10 +62,16 @@ TRADING_DAYS_PER_YEAR = 252
 # universe and its ratio isn't listed here, we fall back to 1 with a warning.
 # ─────────────────────────────────────────────────────────────────────────
 ADR_SHARE_RATIOS: dict[str, int] = {
-    "TSM":  5,   # Taiwan Semiconductor — 1 ADR = 5 common shares
-    "ASML": 1,   # ASML Holding — 1 ADR = 1 ordinary share
-    # Note: many universe names (AAPL, MSFT, BRK.B, …) are US-domiciled and
-    # don't need ADR correction. Default to 1 — see _market_cap_from_shares.
+    # Empty by default. Populate only when you confirm a data provider
+    # returns COMMON (foreign-issuer total) share counts for a given
+    # ticker — in which case dividing by the ratio yields the ADR
+    # equivalent that matches per-ADR close.
+    #
+    # FMP, the provider we use for fundamentals, returns ADR-equivalent
+    # share counts for the ADRs in our pilot universe (verified for TSM,
+    # ASML). Dividing again here would double-divide and 5× undercount
+    # market cap. Leaving entries empty means `_market_cap_from_shares`
+    # treats `shares_common` as already ADR-equivalent — correct for FMP.
 }
 
 # Above this absolute value, fcf_yield is almost certainly a data bug
@@ -156,8 +162,8 @@ def volume_zscore(volume: pd.Series, window: int = VOLUME_Z_WINDOW) -> pd.Series
 # ─────────────────────────────────────────────────────────────────────────
 
 def _market_cap_from_shares(
-    close: float,
-    shares_common: float,
+    close: float | None,
+    shares_common: float | None,
     ticker: str | None = None,
 ) -> float | None:
     """Market cap from price × ADR-adjusted shares.
@@ -166,6 +172,11 @@ def _market_cap_from_shares(
     reported in the income filing. For ADRs, we divide by the sponsor-bank
     ratio so the unit matches the per-ADR `close`. For US-domiciled names
     (default ratio 1) this is a no-op.
+
+    Note: this is ONE candidate the cross-validator considers; data
+    providers are inconsistent about whether they report common or
+    ADR-equivalent share counts. `estimate_market_cap` runs this against
+    other sources and picks the consensus value.
     """
     if close is None or shares_common is None:
         return None
@@ -176,31 +187,129 @@ def _market_cap_from_shares(
     return close * shares_adr_equivalent
 
 
+# ─────────────────────────────────────────────────────────────────────────
+# Cross-validation: market cap from multiple candidates.
+#
+# Why we need this: real-world fundamentals data is messy.
+# - FMP returns `weightedAverageShsOut` and `weightedAverageShsOutDil`
+#   for EPS computation — often slightly off from "true" shares outstanding.
+# - For ADRs, providers inconsistently report common-share count vs
+#   ADR-equivalent count. (TSM shows 5.19B in FMP, which already looks
+#   ADR-equivalent — but we can't tell without ground truth.)
+# - `payload.marketCap` is sometimes populated, sometimes null, and when
+#   present is from the filing date (frozen between quarters).
+# - Multiple share classes (GOOGL Class A/C, BRK Class A/B) split totals
+#   across rows.
+#
+# Single-source picks fail unpredictably across the universe. Cross-
+# validation makes failure visible AND systematic:
+#   1. Collect all candidates from all sources.
+#   2. If they agree (within `max_spread`), trust the freshest (close × shares).
+#   3. If they disagree, pick the LARGEST. Rationale:
+#      - Undercount errors (missing share class, wrong-unit shares) are
+#        more common than overcount.
+#      - Larger mcap → lower fcf_yield → more conservative for the LLM
+#        prompt. We'd rather understate a value name than overstate one.
+#   4. Log every disagreement so we can audit which tickers are systemic
+#      problems.
+# ─────────────────────────────────────────────────────────────────────────
+
+McapCandidate = tuple[str, float]  # (label, value)
+
+
+def cross_validated(
+    candidates: list[McapCandidate],
+    *,
+    max_spread: float = 2.0,
+    pick_on_disagreement: str = "max",
+    log_label: str = "cross_validated",
+    ticker: str | None = None,
+) -> float | None:
+    """Reusable cross-validation. Used here for mcap; applies cleanly to
+    any quant ratio where multiple data sources should agree."""
+    valid = [(lbl, v) for lbl, v in candidates if v is not None and v > 0]
+    if not valid:
+        return None
+    if len(valid) == 1:
+        return valid[0][1]
+    vals = [v for _, v in valid]
+    spread = max(vals) / min(vals)
+    if spread > max_spread:
+        log.warning(
+            f"features.{log_label}.disagreement",
+            ticker=ticker, candidates=valid, spread=round(spread, 2),
+            decision=pick_on_disagreement,
+        )
+        return max(vals) if pick_on_disagreement == "max" else min(vals)
+    # In agreement — return the first (caller orders by trust)
+    return valid[0][1]
+
+
+def estimate_market_cap(
+    *,
+    close: float | None,
+    shares_basic: float | None,
+    shares_diluted: float | None,
+    payload_mcap_cash: float | None = None,
+    payload_mcap_income: float | None = None,
+    ticker: str | None = None,
+) -> float | None:
+    """Best-effort USD market cap from 4 candidates with cross-validation.
+
+    Ordering reflects trust priority (used when candidates agree):
+      1. close × shares_diluted (most-current price × inclusive share count)
+      2. close × shares_basic
+      3. payload_mcap_cash    (stale-by-a-quarter but a real reported number)
+      4. payload_mcap_income
+    """
+    candidates: list[McapCandidate] = []
+    mc_d = _market_cap_from_shares(close, shares_diluted, ticker=ticker)
+    if mc_d is not None:
+        candidates.append(("close×diluted", mc_d))
+    mc_b = _market_cap_from_shares(close, shares_basic, ticker=ticker)
+    if mc_b is not None:
+        candidates.append(("close×basic", mc_b))
+    if payload_mcap_cash is not None and payload_mcap_cash > 0:
+        candidates.append(("payload_cash", float(payload_mcap_cash)))
+    if payload_mcap_income is not None and payload_mcap_income > 0:
+        candidates.append(("payload_income", float(payload_mcap_income)))
+
+    return cross_validated(
+        candidates, max_spread=2.0, pick_on_disagreement="max",
+        log_label="market_cap", ticker=ticker,
+    )
+
+
 def compute_fcf_yield(
     close: float | None,
     fcf_local: float | None,
-    shares_common: float | None,
     *,
+    shares_basic: float | None = None,
+    shares_diluted: float | None = None,
     reported_currency: str | None = "USD",
-    payload_market_cap: float | None = None,
+    payload_mcap_cash: float | None = None,
+    payload_mcap_income: float | None = None,
     ticker: str | None = None,
+    # Legacy positional kwarg, accepted for back-compat with v1 callers
+    shares_common: float | None = None,
+    payload_market_cap: float | None = None,
 ) -> float | None:
     """Trailing-twelve-month FCF / today's market cap. USD/USD.
 
-    Denominator preference, most → least trusted (reversed from the v1
-    fix — payload `marketCap` is stale between filings while `close`
-    moves daily; the correct fcf_yield must reflect today's price):
-      1. close × (shares_common / ADR ratio).         ← PRIMARY (fresh)
-      2. payload_market_cap from the provider.        ← fallback (stale)
+    Market cap is estimated via `estimate_market_cap()` — cross-validation
+    over 4 candidates (close × diluted, close × basic, payload mcap from
+    cash and income filings) with disagreement-detection and conservative
+    (max) fallback. See that function's docstring for rationale.
 
-    Currency handling: `fcf_local` is in `reported_currency`. We convert
-    to USD via FX_TO_USD before dividing. Unknown currency → drop.
+    Currency: `fcf_local` is in `reported_currency`. We convert to USD via
+    FX_TO_USD before dividing. Unknown currency → drop.
 
-    Returns None when:
-      - any input is missing,
-      - currency is unknown,
-      - denominator is non-positive,
-      - the result exceeds ±FCF_YIELD_SANITY_BOUND (logged as a data bug).
+    Returns None when fcf is missing, currency is unknown, no mcap
+    candidate can be built, or the result exceeds ±FCF_YIELD_SANITY_BOUND.
+
+    Back-compat: `shares_common` and `payload_market_cap` are accepted
+    as aliases for the basic-share / cash-payload candidates so legacy
+    tests + call sites keep working.
     """
     if fcf_local is None:
         return None
@@ -214,11 +323,18 @@ def compute_fcf_yield(
         return None
     fcf_usd = float(fcf_local) * fx
 
-    # Market cap — prefer fresh price × shares; fall back to payload
-    mcap = _market_cap_from_shares(close, shares_common, ticker=ticker)
-    if mcap is None or mcap <= 0:
-        if payload_market_cap is not None and payload_market_cap > 0:
-            mcap = float(payload_market_cap)
+    # Cross-validated market cap. Back-compat aliases fold in.
+    eff_basic = shares_basic if shares_basic is not None else shares_common
+    eff_mcap_cash = payload_mcap_cash if payload_mcap_cash is not None else payload_market_cap
+
+    mcap = estimate_market_cap(
+        close=close,
+        shares_basic=eff_basic,
+        shares_diluted=shares_diluted,
+        payload_mcap_cash=eff_mcap_cash,
+        payload_mcap_income=payload_mcap_income,
+        ticker=ticker,
+    )
     if mcap is None or mcap <= 0:
         return None
 
@@ -235,19 +351,32 @@ def compute_fcf_yield(
 
 
 def sum_ttm_fcf(rows: list[dict]) -> float | None:
-    """Trailing-twelve-month FCF, robust to mixed filing cadence.
+    """Trailing-twelve-month FCF — robust to three data shapes.
 
     `rows` are most-recent first, each with `freeCashFlow` and optional
     `period` ("Q1"/"Q2"/"Q3"/"Q4"/"FY" or None).
 
-    Strategy:
-      - If the latest row is annual ("FY"), it's already 12-month —
-        return that single value. (Common for issuers that only file
-        annually, e.g. some foreign companies in our DB.)
-      - Otherwise, sum the 4 most-recent rows whose period is NOT "FY"
-        (mixing FY with quarterlies would double-count).
-      - Fewer than 4 quarterlies → return None (partial-year FCF is
-        misleading; we'd rather drop than ship a low-balled yield).
+    The three shapes we've seen in real data:
+
+      (A) Annual-only filings (e.g. TSM): each row is one full fiscal
+          year. `period` = "FY". Latest row is already TTM-equivalent.
+
+      (B) Per-quarter standalone (theoretical / some providers):
+          each row is one quarter's FCF. Sum the latest 4.
+
+      (C) Cumulative-YTD-per-fiscal-year (FMP, the provider we use):
+          row.freeCashFlow = "FCF since start of this fiscal year, as
+          of period_end". So Q1 = 3 months YTD, Q2 = 6 months YTD,
+          Q4 = full annual. Summing 4 such rows triple-counts.
+          Detection: within a 6-row window, max/min ratio > 2.5 indicates
+          large fiscal-year resets (Q1's 3-month value vs. Q4's full-year
+          value differs by ~4×). When detected, return MAX(window) — that's
+          the most-recent FY-end value (last annual report), the best
+          available TTM proxy without a quarterly-decomposition step.
+
+    Returns None when fewer than 4 non-FY rows are present and detection
+    doesn't fire (partial-year FCF is misleading — drop rather than
+    ship a low-balled yield).
     """
     if not rows:
         return None
@@ -261,10 +390,43 @@ def sum_ttm_fcf(rows: list[dict]) -> float | None:
         except (TypeError, ValueError):
             return None
 
+    # Shape (A): latest is annual FY → already TTM.
     first_period = (rows[0].get("period") or "").upper()
-    if first_period == "FY":
+    if first_period in ("FY", "Q4"):
         return _fcf(rows[0])
 
+    # Shape (C): cumulative-YTD detection via 6-row max/min ratio.
+    # FMP's pattern: Q1≈X, Q2≈2X, Q3≈3X, Q4≈4X, then resets to ≈X again.
+    # Six rows span ~1.5 fiscal years → max/min ratio typically ≥ 3 for
+    # cumulative shape, ≤ 2 for genuinely quarterly shape.
+    #
+    # Heuristic only fires when periods are ALL None — when the provider
+    # gives us explicit Q1/Q2/Q3/Q4/FY labels, we trust them (Shape A/B).
+    all_periods_unlabelled = all(
+        not (r.get("period") or "").strip() for r in rows
+    )
+    if all_periods_unlabelled:
+        window: list[float] = []
+        for r in rows:
+            v = _fcf(r)
+            if v is None:
+                continue
+            window.append(v)
+            if len(window) == 6:
+                break
+        if len(window) >= 4:
+            pos = [v for v in window if v > 0]
+            # Threshold 2.0: a 6-row window spanning ≥1.5 fiscal years of
+            # cumulative-YTD data has max ≈ 4×Q1 ≈ 4×min, while genuinely
+            # quarterly data stays within ~1.5×. 2.0 sits in the gap; COST
+            # at 2.44 fires correctly, a real quarterly stream at 1.36
+            # does not.
+            if len(pos) >= 4 and (max(pos) / min(pos)) > 2.0:
+                # Cumulative-YTD pattern detected; the largest = latest
+                # fiscal-year annual = best TTM proxy.
+                return max(window)
+
+    # Shape (B): treat as quarterly, sum 4 non-FY rows.
     qs: list[float] = []
     for r in rows:
         period = (r.get("period") or "").upper()
@@ -416,8 +578,9 @@ def _load_fundamentals_latest(tickers: list[str]) -> dict[str, dict]:
     income_sql = text("""
         SELECT DISTINCT ON (ticker)
                ticker,
-               payload ->> 'weightedAverageShsOut' AS shares,
-               payload ->> 'marketCap'             AS market_cap_inc
+               payload ->> 'weightedAverageShsOut'    AS shares_basic,
+               payload ->> 'weightedAverageShsOutDil' AS shares_diluted,
+               payload ->> 'marketCap'                AS market_cap_inc
         FROM fundamentals
         WHERE ticker = ANY(:t) AND filing_type = 'income'
         ORDER BY ticker, period_end DESC
@@ -426,13 +589,16 @@ def _load_fundamentals_latest(tickers: list[str]) -> dict[str, dict]:
         cash_rows = session.execute(cash_sql, {"t": tickers}).all()
         inc_rows = session.execute(income_sql, {"t": tickers}).all()
 
-    # Group cash rows by ticker, keep top 4 (already sorted DESC by period_end)
+    # Group cash rows by ticker, keep top 6 — enough for both the TTM
+    # 4-row sum (Shape B) AND the 6-row cumulative-YTD detector (Shape C
+    # in sum_ttm_fcf needs a ≥1.5-FY window to distinguish cumulative
+    # from quarterly via max/min ratio).
     cash_by_ticker: dict[str, list[dict]] = {}
     ccy_by_ticker: dict[str, str | None] = {}
     mcap_payload: dict[str, float | None] = {}
     for r in cash_rows:
         bucket = cash_by_ticker.setdefault(r.ticker, [])
-        if len(bucket) < 4:
+        if len(bucket) < 6:
             bucket.append({
                 "freeCashFlow": _to_float(r.fcf),
                 "period":       r.period,
@@ -451,11 +617,12 @@ def _load_fundamentals_latest(tickers: list[str]) -> dict[str, dict]:
     for ticker in tickers_seen:
         inc = inc_by_ticker.get(ticker)
         out[ticker] = {
-            "cash_rows":          cash_by_ticker.get(ticker, []),
-            "reported_currency":  ccy_by_ticker.get(ticker, "USD"),
-            "shares":             _to_float(inc.shares) if inc else None,
-            "market_cap_payload": mcap_payload.get(ticker)
-                                  or (_to_float(inc.market_cap_inc) if inc else None),
+            "cash_rows":           cash_by_ticker.get(ticker, []),
+            "reported_currency":   ccy_by_ticker.get(ticker, "USD"),
+            "shares_basic":        _to_float(inc.shares_basic) if inc else None,
+            "shares_diluted":      _to_float(inc.shares_diluted) if inc else None,
+            "payload_mcap_cash":   mcap_payload.get(ticker),
+            "payload_mcap_income": _to_float(inc.market_cap_inc) if inc else None,
         }
     return out
 
@@ -571,9 +738,11 @@ def build(
             yld = compute_fcf_yield(
                 close=close,
                 fcf_local=ttm_fcf,
-                shares_common=f.get("shares"),
+                shares_basic=f.get("shares_basic"),
+                shares_diluted=f.get("shares_diluted"),
                 reported_currency=f.get("reported_currency"),
-                payload_market_cap=f.get("market_cap_payload"),
+                payload_mcap_cash=f.get("payload_mcap_cash"),
+                payload_mcap_income=f.get("payload_mcap_income"),
                 ticker=ticker,
             )
             if yld is None:
