@@ -359,6 +359,102 @@ def test_ttm_q4_period_is_treated_as_annual() -> None:
     assert sum_ttm_fcf(rows) == 100e9
 
 
+# ─── Cumulative-YTD decomposition into true TTM ────────────────────────
+
+
+def test_cumulative_ytd_decomposes_to_true_ttm_aapl_shape() -> None:
+    """When period_end is present, decomposition yields true TTM, not the
+    last-FY-annual approximation.
+
+    AAPL Q2 FY26 worked example:
+      last_FY      = $98.77B (Q4 FY25, Sep 27 2025)
+      current_YTD  = $78.28B (Q2 FY26, Mar 28 2026)
+      prior_FY_YTD = $47.88B (Q2 FY25, Mar 29 2025)
+      TTM          = 98.77 + 78.28 − 47.88 = $129.17B
+    """
+    import datetime as _dt
+    rows = [
+        {"freeCashFlow": 78.28e9, "period": None,
+         "period_end": _dt.date(2026, 3, 28)},   # Q2 FY26 YTD
+        {"freeCashFlow": 51.55e9, "period": None,
+         "period_end": _dt.date(2025, 12, 27)},  # Q1 FY26 YTD
+        {"freeCashFlow": 98.77e9, "period": None,
+         "period_end": _dt.date(2025, 9, 27)},   # Q4 FY25 = FY25 annual
+        {"freeCashFlow": 72.28e9, "period": None,
+         "period_end": _dt.date(2025, 6, 28)},   # Q3 FY25 YTD
+        {"freeCashFlow": 47.88e9, "period": None,
+         "period_end": _dt.date(2025, 3, 29)},   # Q2 FY25 YTD  ← 12mo prior anchor
+        {"freeCashFlow": 27.00e9, "period": None,
+         "period_end": _dt.date(2024, 12, 28)},
+    ]
+    ttm = sum_ttm_fcf(rows)
+    assert ttm is not None
+    expected = 98.77e9 + 78.28e9 - 47.88e9
+    assert abs(ttm - expected) < 1.0, f"expected ~$129.17B, got {ttm/1e9:.2f}B"
+
+
+def test_cumulative_ytd_falls_back_to_max_when_no_period_end() -> None:
+    """Without period_end, decomposition can't run — fall back to max
+    approximation (= last FY annual, may be 6-12 months stale)."""
+    rows = [
+        {"freeCashFlow": 78.28e9, "period": None},
+        {"freeCashFlow": 51.55e9, "period": None},
+        {"freeCashFlow": 98.77e9, "period": None},  # FY annual
+        {"freeCashFlow": 72.28e9, "period": None},
+        {"freeCashFlow": 47.88e9, "period": None},
+        {"freeCashFlow": 27.00e9, "period": None},
+    ]
+    ttm = sum_ttm_fcf(rows)
+    assert ttm == 98.77e9
+
+
+def test_cumulative_ytd_falls_back_when_no_prior_year_anchor() -> None:
+    """If detection fires but no row is ~12 months prior to latest,
+    decomposition can't anchor — fall back to max(window)."""
+    import datetime as _dt
+    rows = [
+        {"freeCashFlow": 78e9, "period": None,
+         "period_end": _dt.date(2026, 3, 28)},
+        {"freeCashFlow": 51e9, "period": None,
+         "period_end": _dt.date(2025, 12, 27)},
+        {"freeCashFlow": 98e9, "period": None,
+         "period_end": _dt.date(2025, 9, 27)},   # FY annual (max)
+        {"freeCashFlow": 72e9, "period": None,
+         "period_end": _dt.date(2025, 6, 28)},
+        {"freeCashFlow": 27e9, "period": None,   # small value → trigger detect (98/27 > 2.0)
+         "period_end": _dt.date(2025, 5, 28)},   # only 304 days back, < 320 → no anchor
+    ]
+    ttm = sum_ttm_fcf(rows)
+    # Detection fires (max/min = 3.6 > 2.0), decomposition fails (no anchor),
+    # fallback to max(window) = $98B
+    assert ttm == 98e9
+
+
+def test_decomposition_handles_costco_shape() -> None:
+    """COST shape (fiscal year ends late August). Verify decomposition
+    works for non-Apple fiscal calendars."""
+    import datetime as _dt
+    rows = [
+        {"freeCashFlow": 6.91e9, "period": None,
+         "period_end": _dt.date(2026, 5, 10)},   # Q3 FY26 YTD
+        {"freeCashFlow": 4.87e9, "period": None,
+         "period_end": _dt.date(2026, 2, 15)},   # Q2 FY26
+        {"freeCashFlow": 3.16e9, "period": None,
+         "period_end": _dt.date(2025, 11, 23)},  # Q1 FY26
+        {"freeCashFlow": 7.84e9, "period": None,
+         "period_end": _dt.date(2025, 8, 31)},   # FY25 annual
+        {"freeCashFlow": 5.91e9, "period": None,
+         "period_end": _dt.date(2025, 5, 11)},   # Q3 FY25 YTD ← anchor (364 days back)
+        {"freeCashFlow": 3.62e9, "period": None,
+         "period_end": _dt.date(2025, 2, 16)},
+    ]
+    ttm = sum_ttm_fcf(rows)
+    # TTM = 7.84 + 6.91 − 5.91 = $8.84B (real COST TTM)
+    expected = 7.84e9 + 6.91e9 - 5.91e9
+    assert ttm is not None
+    assert abs(ttm - expected) < 1.0, f"expected ~$8.84B, got {ttm/1e9:.2f}B"
+
+
 # ─── FX table sanity ───────────────────────────────────────────────────
 
 
