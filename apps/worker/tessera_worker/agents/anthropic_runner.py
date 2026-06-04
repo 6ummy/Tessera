@@ -4,10 +4,18 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 import time
 from datetime import date
 from typing import Any
 from uuid import UUID
+
+# Force UTF-8 stdout so thesis output (with Unicode arrows/box chars
+# from sparklines, Korean text, etc.) doesn't crash Windows cp1252 consoles.
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+except AttributeError:
+    pass
 
 import structlog
 from anthropic import Anthropic
@@ -69,6 +77,42 @@ def _resolve_news_uuid(item: Any, allowed_news_ids: set[str]) -> UUID:
     return UUID(s)
 
 
+_CONVICTION_WORDS = {
+    "low": 0.25, "weak": 0.25,
+    "medium": 0.5, "moderate": 0.5, "neutral": 0.5,
+    "high": 0.75, "strong": 0.75,
+    "very high": 0.9, "very strong": 0.9, "max": 0.95,
+}
+
+
+def _normalize_conviction(p: dict[str, Any]) -> None:
+    """Coerce common LLM mistakes into Proposal.conviction's [0,1] float.
+
+    Observed in early Phase B runs: model occasionally returns conviction
+    as a percent (55), an integer (1-10 scale), or a word ("high"). We
+    normalize before Pydantic validation so we don't waste a retry on a
+    purely-formatting error. Out-of-range remains a hard reject.
+    """
+    c = p.get("conviction")
+    if c is None:
+        return
+    if isinstance(c, str):
+        word = c.strip().lower()
+        if word in _CONVICTION_WORDS:
+            p["conviction"] = _CONVICTION_WORDS[word]
+            return
+        try:
+            c = float(word)
+            p["conviction"] = c  # store the float so scale-rescue can re-touch it
+        except ValueError:
+            return  # Let Pydantic raise the clearer error.
+    if isinstance(c, (int, float)):
+        if c > 1 and c <= 10:        # 1-10 scale
+            p["conviction"] = c / 10.0
+        elif c > 10 and c <= 100:    # percent
+            p["conviction"] = c / 100.0
+
+
 def build_analyst_report(
     parsed: dict[str, Any],
     *,
@@ -83,6 +127,7 @@ def build_analyst_report(
 ) -> AnalystReport:
     proposals_raw = parsed.get("proposals") or []
     for p in proposals_raw:
+        _normalize_conviction(p)
         ids = p.get("cited_news_ids") or []
         p["cited_news_ids"] = [_resolve_news_uuid(x, allowed_news_ids) for x in ids]
     proposals = [Proposal.model_validate(p) for p in proposals_raw]

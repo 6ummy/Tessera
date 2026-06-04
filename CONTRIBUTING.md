@@ -23,11 +23,13 @@ PR을 어떻게 보내고 머지하는지 적은 운영 매뉴얼입니다.
 
 | 트랙 | 담당 | GitHub | 핵심 책임 영역 |
 |---|---|---|---|
-| **Frontend** | 한솔 | @limserenahansol | Next.js UI, UX 폴리시, 모바일 반응형, 시각화, real-data swap |
-| **LLM Pipeline** | 윤채, 한솔 | @yunchai-build, @limserenahansol | Anthropic SDK 연결, prompt assembly, Pydantic validation, citation check, chat backend |
+| **Frontend** | 한솔, 윤채 | @limserenahansol, @yunchai-build | Next.js UI, UX 폴리시, 모바일 반응형, 시각화, real-data swap, chat surface |
+| **LLM Pipeline** | 한솔 | @limserenahansol | Anthropic SDK 연결, prompt assembly, Pydantic validation, citation check, chat backend |
 | **Quant** | 예슬, 준원 | @genius-chang, @jlee0810 | Feature engineering, fundamentals 활용, backtest harness, risk gateway, performance attribution |
-| **Infra** | 윤채, 준원 | @yunchai-build, @jlee0810 | Cloud Run 배포, GCP IAM/Secret, GitHub Actions CI, Sentry/Grafana, cost alerts |
+| **Infra** | 준원 | @jlee0810 | Cloud Run 배포, GCP IAM/Secret, GitHub Actions CI, Sentry/Grafana, cost alerts |
 | **All** | 정우 | @6ummy | 전체 코디네이션, compliance 준비, 모든 PR 참여 |
+
+> 트랙 재배정 (2026-06-04): 윤채가 LLM/Infra → Frontend로 이동. 한솔이 LLM 단독 owner. 준원이 Infra 단독 owner.
 
 > **Persona voice는 팀 공동 책임** (ADR-008로 변경됨). `personalities.md`를
 > 누구나 PR로 변경 + approve 가능. 큰 변경 (페르소나 추가, hard rules 수정)
@@ -70,21 +72,22 @@ PR을 어떻게 보내고 머지하는지 적은 운영 매뉴얼입니다.
 ### Branch 이름 예시
 
 ```
-feature/frontend/xxx (Frontend, 한솔)
+feature/frontend/xxx (Frontend, 한솔 + 윤채)
 for example:
     feature/frontend/mobile-test
+    feature/frontend/reports-api-swap
 
-feature/llm/xxx (LLM Pipeline, 윤채, 한솔)
+feature/llm/xxx (LLM Pipeline, 한솔)
 for example: 
     feature/llm/persona-runner-skeleton  
     feature/llm/warren-thesis-end-to-end
     fix/llm/pydantic-retry-on-schema-fail
 
-feature/quant/xxx (quant, 예슬)
+feature/quant/xxx (Quant, 예슬 + 준원)
 for example: 
     feature/quant/fcf-yield-from-fundamentals
 
-feature/infra/xxx (Infra, 윤채)
+feature/infra/xxx (Infra, 준원)
 for example: 
     feature/infra/cloud-run-deploy
 
@@ -349,10 +352,10 @@ PR 보내기 전에 본인 트랙 체크 항목을 다 통과해야 합니다.
 
 | 트랙 | Deliverable | 산출물 |
 |---|---|---|
-| **Frontend (한솔)** | 모바일 반응형 audit + 3 PR로 fix | issue 3개 → PR 3개 머지; chat backend 스트리밍 통합 spec 1장 |
-| **LLM (윤채+한솔)** | Warren 1명 first real thesis (Sonnet 호출 → Pydantic 통과 → DB 저장) | `agents/runner.py` + `agents/prompt.py` + 첫 `analyst_reports` row |
-| **Quant (예슬)** | 3개 new feature (FCF yield, PEG, EPS CAGR 3y) + property test | `compute.py` 확장 + `tests/test_features.py` 16/16; 백테스트 harness 설계 doc |
-| **Infra (윤채)** | Worker Dockerfile + Cloud Run deploy + Vercel WORKER_WEBHOOK_URL wire | deployed URL + Vercel cron이 실제로 worker 깨움; GitHub Actions CI 기본 (lint+typecheck) |
+| **Frontend (한솔, 윤채)** | 모바일 반응형 audit + 3 PR로 fix; `/api/reports` swap 준비 | issue 3개 → PR 3개 머지; chat backend 스트리밍 통합 spec 1장 |
+| **LLM (한솔)** | Warren 1명 first real thesis (Sonnet 호출 → Pydantic 통과 → DB 저장) | `agents/runner.py` + `agents/prompt.py` + 첫 `analyst_reports` row ✅ done 2026-06-03 |
+| **Quant (예슬, 준원)** | 3개 new feature (FCF yield, PEG, EPS CAGR 3y) + property test | `compute.py` 확장 + `tests/test_features.py` 16/16; 백테스트 harness 설계 doc |
+| **Infra (준원)** | Worker Dockerfile + Cloud Run deploy + Vercel WORKER_WEBHOOK_URL wire ✅ shipped 2026-06-01; GitHub Actions CI 기본 (lint+typecheck) 이번 주 | GitHub Actions workflow PR |
 | **All (정우)** | 위 모든 파트 기여여
 
 **Week 1 종료 조건**: Anthropic 호출 1개 성공, Cloud Run 배포 완료, web/mobile 깨짐 0건. mockup 말고 실제 backend 연결결

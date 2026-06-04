@@ -7,6 +7,7 @@ from uuid import UUID
 import pytest
 
 from tessera_worker.agents.anthropic_runner import (
+    _normalize_conviction,
     build_analyst_report,
     estimate_cost_usd,
     parse_llm_json,
@@ -55,3 +56,35 @@ def test_build_analyst_report_and_citations() -> None:
     )
     assert isinstance(report, AnalystReport)
     assert validate_citations(report, {news_id}) == []
+
+
+@pytest.mark.parametrize(
+    "given, expected",
+    [
+        (0.62, 0.62),            # already in [0,1]
+        (62, 0.62),              # percent
+        (55.5, 0.555),           # percent float
+        (7, 0.7),                # 1-10 scale
+        (8.5, 0.85),             # 1-10 scale float
+        ("high", 0.75),
+        ("Medium", 0.5),
+        ("very high", 0.9),
+        ("0.6", 0.6),            # stringified float in range
+        ("80", 0.8),             # stringified percent
+    ],
+)
+def test_normalize_conviction(given, expected):
+    p = {"conviction": given}
+    _normalize_conviction(p)
+    assert abs(p["conviction"] - expected) < 1e-6, (given, p["conviction"], expected)
+
+
+def test_normalize_conviction_passes_through_unknowns():
+    """Unparseable values aren't touched — Pydantic raises a clearer error."""
+    p = {"conviction": "purple"}
+    _normalize_conviction(p)
+    assert p["conviction"] == "purple"
+
+    p = {}  # no conviction key
+    _normalize_conviction(p)
+    assert p == {}
