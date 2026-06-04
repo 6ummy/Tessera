@@ -78,23 +78,50 @@ and watch FCF yield evolve — is it trending or stable?
 ```
 
 ### Wire into ticker_features (the actual production path)
-The demo doesn't write back (the `WRITE_BACK` flag is off). To make this
-a real feature consumed by the LLM personas:
+> ✅ **Shipped 2026-06-04** across PRs #37 / #38 / #39. This section is
+> kept for educational reference and as the recipe for the next features
+> in the backlog (PEG, EPS CAGR, debt/equity, gross margin trend).
 
-1. Open `migrations/` — write `002_add_fcf_yield.sql` adding the column.
-2. Open `compute.py` `build()` — fold the compute step in. Pattern:
-   ```python
-   df = pd.merge(features_df, fcf_yield_df, on="ticker", how="left")
-   ```
-3. Open `tests/test_features.py` — add a hypothesis test (random
-   positive FCF + positive shares + positive close → fcf_yield is finite
-   and matches FCF / (close × shares)).
-4. Apply migration to Neon: `psql "$DATABASE_URL" -f migrations/002_*.sql`.
-5. PR with title `feature(quant): add fcf_yield to ticker_features`.
+What's now live in `compute.py`:
 
-After PR merge + next daily cron run, every persona's prompt assembler
-will see `ticker_features.fcf_yield` automatically. Warren's screen will
-start using it as a hard input.
+- `compute_fcf_yield()` — pure function: TTM FCF (USD) ÷ today's mcap
+- `sum_ttm_fcf()` — TTM rollup robust to three FMP data shapes (annual
+  FY rows, quarterly standalones, cumulative-YTD-per-FY). The
+  cumulative case decomposes precisely via
+  `TTM = last_FY + current_YTD − prior_FY_YTD_at_same_period`.
+- `FX_TO_USD` — currency conversion for non-USD reporters (TWD, EUR,
+  GBP, JPY, KRW, HKD, CNY, CAD). Unknown currency → drop.
+- `cross_validated()` + `estimate_market_cap()` — agreement-based mcap
+  from 4 candidates (close × diluted, close × basic, payload cash, payload
+  income). Disagreement → conservative max.
+- `±100%` sanity bound on yield (`FCF_YIELD_SANITY_BOUND`).
+- `build(*, with_fundamentals: bool = True)` — flexibility toggle.
+  Default daily; toggle exists for future cadence splits.
+
+Live state (mid-2026, 42-ticker equity universe): 31 tickers write
+`fcf_yield` each daily run. Representative values:
+
+| Ticker | Yield | Notes |
+|---|---|---|
+| XOM, MA, JNJ | 3–5% | top of the screen (Warren-friendly) |
+| AAPL, MSFT, COST | 2–3% | mid (matches independently-computed real) |
+| TSM | 1.5% | currency-converted from TWD |
+| PLTR, TSLA | <1% | cash-burning growth — sub-bound, but in band |
+
+**Deferred to Phase C** (data-quality work): UNH, NVDA, AMZN, COIN
+edge cases (sparse FY anchors, alternating null filings, one-time
+spikes). Sanity bound prevents pollution of the LLM prompt; full fix
+needs a dedicated daily mcap source (FMP `key_metrics`) and FY-aware
+ingestion.
+
+Recipe for the next feature in the backlog (use the same scaffold):
+
+1. Pure function in `compute.py` (`compute_<feature>()`), with
+   `cross_validated()` over whatever candidate sources exist.
+2. Loader extension: pull additional fields into `_load_fundamentals_latest`.
+3. Wire into `build()`'s fundamentals pass.
+4. Tests in `test_features.py` (worked examples + edge cases).
+5. PR titled `feat(features): add <feature> to ticker_features`.
 
 ### Property test the math
 ```python
