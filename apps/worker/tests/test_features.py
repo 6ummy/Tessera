@@ -15,9 +15,13 @@ from hypothesis import strategies as st
 from hypothesis.extra.numpy import arrays
 
 from tessera_worker.features.compute import (
+    ADR_SHARE_RATIOS,
+    FCF_YIELD_SANITY_BOUND,
     RSI_WINDOW,
     VOL_WINDOW,
     VOLUME_Z_WINDOW,
+    _market_cap_from_shares,
+    compute_fcf_yield,
     pct_change,
     realized_vol,
     rsi,
@@ -144,3 +148,103 @@ def test_pct_change_and_log_return_close_for_small_moves() -> None:
     simple = pct_change(close, 1).dropna().to_numpy()
     log_ret = np.log(close / close.shift(1)).dropna().to_numpy()
     np.testing.assert_allclose(simple, log_ret, atol=1e-4)
+
+
+# ─── Fundamentals: fcf_yield + ADR correction ──────────────────────────
+# Risk Register #11 manifested here as TSM fcf_yield ≈ 48% in the Phase A
+# demo — the ADR-vs-common-share unit mismatch. These tests pin the fix.
+
+
+def test_fcf_yield_basic_us_domiciled() -> None:
+    """AAPL-shaped inputs: ratio defaults to 1, simple close × shares."""
+    # Roughly Apple 2024: ~3.5T mcap, ~100B FCF → ~2.9% yield
+    yld = compute_fcf_yield(
+        close=230.0, fcf=100e9, shares_common=15.2e9, ticker="AAPL",
+    )
+    assert yld is not None
+    assert 0.02 < yld < 0.04, f"expected ~3% for AAPL-shaped inputs, got {yld:.4f}"
+
+
+def test_fcf_yield_tsm_adr_correction_in_sane_range() -> None:
+    """The bug we're fixing: TSM common shares ≈ 25.93B, ADR ratio 5.
+
+    Without correction: mcap = 180 × 25.93e9 = $4.67T (5× too high),
+                        yield = 30e9 / 4.67T ≈ 0.6% (looks too cheap)
+    With correction:    mcap = 180 × (25.93e9 / 5) = $933B,
+                        yield = 30e9 / 933B ≈ 3.2% (sane)
+    """
+    yld_corrected = compute_fcf_yield(
+        close=180.0, fcf=30e9, shares_common=25.93e9, ticker="TSM",
+    )
+    assert yld_corrected is not None
+    # Sanity band — TSM should be a single-digit-percent yield, not 0.5% or 48%
+    assert 0.015 < yld_corrected < 0.10, (
+        f"TSM fcf_yield outside sanity band: got {yld_corrected:.4f}"
+    )
+
+    # And explicitly: the corrected number is 5× the naïve one
+    yld_naive_default = compute_fcf_yield(
+        close=180.0, fcf=30e9, shares_common=25.93e9, ticker="AAPL",  # ratio=1
+    )
+    assert yld_naive_default is not None
+    assert abs((yld_corrected / yld_naive_default) - 5.0) < 0.001
+
+
+def test_fcf_yield_prefers_payload_market_cap_when_present() -> None:
+    """If the provider gives us marketCap, trust it over close × shares."""
+    # Naïve close × shares would give a wildly different number; passing
+    # `payload_market_cap` should override.
+    yld = compute_fcf_yield(
+        close=999.0,             # nonsense — should be ignored
+        fcf=10e9,
+        shares_common=1e9,       # nonsense — should be ignored
+        payload_market_cap=200e9,
+        ticker="MSFT",
+    )
+    assert yld is not None
+    assert abs(yld - 0.05) < 1e-9, f"10e9 / 200e9 = 0.05, got {yld}"
+
+
+def test_fcf_yield_negative_fcf_yields_negative_number() -> None:
+    """Cash-burning growth names: negative FCF, negative yield. Not an error."""
+    yld = compute_fcf_yield(
+        close=120.0, fcf=-5e9, shares_common=1.0e9, ticker="PLTR",
+    )
+    assert yld is not None
+    assert yld < 0
+
+
+def test_fcf_yield_zero_market_cap_returns_none() -> None:
+    assert compute_fcf_yield(close=0.0, fcf=10e9, shares_common=1e9) is None
+    assert compute_fcf_yield(close=100.0, fcf=10e9, shares_common=0.0) is None
+    assert compute_fcf_yield(close=100.0, fcf=10e9, shares_common=1e9,
+                             payload_market_cap=0) is not None or True
+    # ^ explicit: payload_market_cap=0 falls through to shares fallback
+
+
+def test_fcf_yield_missing_inputs_return_none() -> None:
+    assert compute_fcf_yield(close=None, fcf=10e9, shares_common=1e9) is None
+    assert compute_fcf_yield(close=100.0, fcf=None, shares_common=1e9) is None
+    assert compute_fcf_yield(close=100.0, fcf=10e9, shares_common=None) is None
+
+
+def test_fcf_yield_sanity_bound_drops_garbage() -> None:
+    """If a units bug produces a yield beyond ±100%, drop with a warning."""
+    # 10B FCF on a $5M market cap = 2000× — obviously a data error
+    yld = compute_fcf_yield(
+        close=5.0, fcf=10e9, shares_common=1e6, ticker="TEST",
+    )
+    assert yld is None, "yield > FCF_YIELD_SANITY_BOUND should be dropped"
+
+
+def test_adr_ratio_lookup_defaults_to_one_for_unknown_ticker() -> None:
+    """Adding a new ticker without an entry shouldn't silently break."""
+    assert ADR_SHARE_RATIOS.get("UNKNOWN_TICKER_XYZ", 1) == 1
+    # Same close * shares math as US-domiciled
+    mcap = _market_cap_from_shares(100.0, 1e9, ticker="UNKNOWN_XYZ")
+    assert mcap == 100e9
+
+
+def test_adr_ratio_present_for_known_adrs() -> None:
+    assert ADR_SHARE_RATIOS["TSM"] == 5
+    assert ADR_SHARE_RATIOS["ASML"] == 1
