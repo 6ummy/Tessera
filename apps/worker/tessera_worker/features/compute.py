@@ -353,8 +353,9 @@ def compute_fcf_yield(
 def sum_ttm_fcf(rows: list[dict]) -> float | None:
     """Trailing-twelve-month FCF — robust to three data shapes.
 
-    `rows` are most-recent first, each with `freeCashFlow` and optional
-    `period` ("Q1"/"Q2"/"Q3"/"Q4"/"FY" or None).
+    `rows` are most-recent first, each with `freeCashFlow`, optional
+    `period` ("Q1"/"Q2"/"Q3"/"Q4"/"FY" or None), and optional
+    `period_end` (`date`).
 
     The three shapes we've seen in real data:
 
@@ -366,13 +367,19 @@ def sum_ttm_fcf(rows: list[dict]) -> float | None:
 
       (C) Cumulative-YTD-per-fiscal-year (FMP, the provider we use):
           row.freeCashFlow = "FCF since start of this fiscal year, as
-          of period_end". So Q1 = 3 months YTD, Q2 = 6 months YTD,
-          Q4 = full annual. Summing 4 such rows triple-counts.
-          Detection: within a 6-row window, max/min ratio > 2.5 indicates
-          large fiscal-year resets (Q1's 3-month value vs. Q4's full-year
-          value differs by ~4×). When detected, return MAX(window) — that's
-          the most-recent FY-end value (last annual report), the best
-          available TTM proxy without a quarterly-decomposition step.
+          of period_end". Q1 = 3 months YTD, Q2 = 6 months, Q4 = full
+          annual. Two paths:
+
+            (C-precise)  when period_end is present on rows, decompose
+                         into true TTM via:
+                           TTM = last_full_FY
+                                 + current_YTD
+                                 − prior_FY_YTD_at_same_period
+                         See `_decompose_cumulative_ytd_to_ttm`.
+
+            (C-fallback) when period_end is missing, approximate as
+                         max(window) = the last fiscal-year annual.
+                         Up to ~12 months stale for fast growers.
 
     Returns None when fewer than 4 non-FY rows are present and detection
     doesn't fire (partial-year FCF is misleading — drop rather than
@@ -381,50 +388,32 @@ def sum_ttm_fcf(rows: list[dict]) -> float | None:
     if not rows:
         return None
 
-    def _fcf(r: dict) -> float | None:
-        v = r.get("freeCashFlow")
-        if v is None:
-            return None
-        try:
-            return float(v)
-        except (TypeError, ValueError):
-            return None
-
     # Shape (A): latest is annual FY → already TTM.
     first_period = (rows[0].get("period") or "").upper()
     if first_period in ("FY", "Q4"):
-        return _fcf(rows[0])
+        return _fcf_value(rows[0])
 
     # Shape (C): cumulative-YTD detection via 6-row max/min ratio.
     # FMP's pattern: Q1≈X, Q2≈2X, Q3≈3X, Q4≈4X, then resets to ≈X again.
-    # Six rows span ~1.5 fiscal years → max/min ratio typically ≥ 3 for
-    # cumulative shape, ≤ 2 for genuinely quarterly shape.
-    #
     # Heuristic only fires when periods are ALL None — when the provider
     # gives us explicit Q1/Q2/Q3/Q4/FY labels, we trust them (Shape A/B).
     all_periods_unlabelled = all(
         not (r.get("period") or "").strip() for r in rows
     )
     if all_periods_unlabelled:
-        window: list[float] = []
-        for r in rows:
-            v = _fcf(r)
-            if v is None:
-                continue
-            window.append(v)
-            if len(window) == 6:
-                break
+        window = [r for r in rows if _fcf_value(r) is not None][:8]
+        vals = [_fcf_value(r) for r in window]
         if len(window) >= 4:
-            pos = [v for v in window if v > 0]
-            # Threshold 2.0: a 6-row window spanning ≥1.5 fiscal years of
-            # cumulative-YTD data has max ≈ 4×Q1 ≈ 4×min, while genuinely
-            # quarterly data stays within ~1.5×. 2.0 sits in the gap; COST
-            # at 2.44 fires correctly, a real quarterly stream at 1.36
-            # does not.
+            pos = [v for v in vals if v > 0]
+            # Threshold 2.0: cumulative shape has max ≈ 4×Q1 ≈ 4×min;
+            # genuinely quarterly stays within ~1.5×.
             if len(pos) >= 4 and (max(pos) / min(pos)) > 2.0:
-                # Cumulative-YTD pattern detected; the largest = latest
-                # fiscal-year annual = best TTM proxy.
-                return max(window)
+                # (C-precise) Try period_end-aware decomposition.
+                ttm = _decompose_cumulative_ytd_to_ttm(window)
+                if ttm is not None:
+                    return ttm
+                # (C-fallback) Last fiscal-year annual ≈ TTM.
+                return max(vals)
 
     # Shape (B): treat as quarterly, sum 4 non-FY rows.
     qs: list[float] = []
@@ -432,7 +421,7 @@ def sum_ttm_fcf(rows: list[dict]) -> float | None:
         period = (r.get("period") or "").upper()
         if period == "FY":
             continue
-        v = _fcf(r)
+        v = _fcf_value(r)
         if v is None:
             continue
         qs.append(v)
@@ -441,6 +430,94 @@ def sum_ttm_fcf(rows: list[dict]) -> float | None:
     if len(qs) < 4:
         return None
     return sum(qs)
+
+
+def _fcf_value(r: dict) -> float | None:
+    v = r.get("freeCashFlow")
+    if v is None:
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _decompose_cumulative_ytd_to_ttm(rows: list[dict]) -> float | None:
+    """Precise TTM from cumulative-YTD rows when period_end is present.
+
+    The math:
+        TTM_as_of_current_YTD
+          = (last full fiscal year's annual FCF)
+            + (current YTD FCF)
+            − (prior fiscal year's YTD at the same calendar offset)
+
+    Why this works: the prior-FY-same-YTD term removes the months
+    already counted in the last-full-FY annual, and the current-YTD
+    adds the same number of months from the new fiscal year — netting
+    out to exactly 12 months ending at the current YTD's period_end.
+
+    Worked example for AAPL Q2 FY26 (2026-03-28):
+        last_FY        = FY25 annual (period_end 2025-09-27) = $98.77B
+        current_YTD    = Q2 FY26 (period_end 2026-03-28)     = $78.28B
+        prior_FY_YTD   = Q2 FY25 (period_end 2025-03-29)     = $47.88B
+        TTM            = 98.77 + 78.28 − 47.88               = $129.17B
+                         (matches independently-computed Apple TTM
+                         for the trailing 12 months ending Mar 28 2026.)
+
+    Returns None when any of:
+      - period_end missing on any candidate row,
+      - no row found ~365 days before the latest (±45-day tolerance),
+      - no FY annual candidate found between prior YTD and current YTD,
+      - latest row's period_end is younger than ~12 months from any prior
+        (universe too sparse to do TTM decomposition).
+    """
+    dated = []
+    for r in rows:
+        pe = r.get("period_end")
+        if pe is None:
+            continue
+        dated.append((pe, r))
+    if len(dated) < 3:
+        return None
+
+    # Sort by period_end DESC — latest first.
+    dated.sort(key=lambda x: x[0], reverse=True)
+    latest_pe, latest_row = dated[0]
+    current_ytd = _fcf_value(latest_row)
+    if current_ytd is None:
+        return None
+
+    # Find row ~365 days before the latest (320–410 day tolerance: handles
+    # 5-week month variance + occasional 53-week fiscal years).
+    prior_ytd_row = None
+    prior_pe = None
+    for pe, r in dated[1:]:
+        delta_days = (latest_pe - pe).days
+        if 320 <= delta_days <= 410:
+            prior_ytd_row = r
+            prior_pe = pe
+            break
+    if prior_ytd_row is None:
+        return None
+    prior_ytd = _fcf_value(prior_ytd_row)
+    if prior_ytd is None:
+        return None
+
+    # The "last full FY" is the row strictly between prior_pe and latest_pe
+    # with the LARGEST freeCashFlow value (= the fiscal year end inside
+    # the window, the only row that's a full-12-month cumulative).
+    fy_candidates: list[float] = []
+    for pe, r in dated:
+        if pe <= prior_pe or pe >= latest_pe:
+            continue
+        v = _fcf_value(r)
+        if v is not None:
+            fy_candidates.append(v)
+    if not fy_candidates:
+        return None
+    last_fy_annual = max(fy_candidates)
+
+    return last_fy_annual + current_ytd - prior_ytd
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -589,19 +666,37 @@ def _load_fundamentals_latest(tickers: list[str]) -> dict[str, dict]:
         cash_rows = session.execute(cash_sql, {"t": tickers}).all()
         inc_rows = session.execute(income_sql, {"t": tickers}).all()
 
-    # Group cash rows by ticker, keep top 6 — enough for both the TTM
-    # 4-row sum (Shape B) AND the 6-row cumulative-YTD detector (Shape C
-    # in sum_ttm_fcf needs a ≥1.5-FY window to distinguish cumulative
-    # from quarterly via max/min ratio).
+    # Group cash rows by ticker, keep top 8 — covers:
+    #   - 4 rows for the Shape-B quarterly sum
+    #   - 6+ rows for the Shape-C cumulative-YTD detector
+    #   - 8 rows to guarantee a prior-FY YTD anchor (~12 months back)
+    #     for the precise TTM decomposition in
+    #     `_decompose_cumulative_ytd_to_ttm`.
+    #
+    # IMPORTANT: filter rows whose freeCashFlow is null BEFORE capping.
+    # Some tickers (e.g. UNH) have alternating real + restatement/erratum
+    # filings where the restatement row carries no FCF value. Counting
+    # those toward the cap pushes the 12-month anchor row off the end of
+    # the window and degrades TTM decomposition to the max() fallback.
     cash_by_ticker: dict[str, list[dict]] = {}
     ccy_by_ticker: dict[str, str | None] = {}
     mcap_payload: dict[str, float | None] = {}
     for r in cash_rows:
+        fcf = _to_float(r.fcf)
+        if fcf is None:
+            # Still update currency / payload-mcap from the row even if
+            # FCF is missing — both fields are independent of FCF.
+            if r.ticker not in ccy_by_ticker:
+                ccy_by_ticker[r.ticker] = (r.ccy or "USD")
+            if r.ticker not in mcap_payload and r.market_cap is not None:
+                mcap_payload[r.ticker] = _to_float(r.market_cap)
+            continue
         bucket = cash_by_ticker.setdefault(r.ticker, [])
-        if len(bucket) < 6:
+        if len(bucket) < 8:
             bucket.append({
-                "freeCashFlow": _to_float(r.fcf),
+                "freeCashFlow": fcf,
                 "period":       r.period,
+                "period_end":   r.period_end,
             })
         # Lock in currency from the newest available row
         if r.ticker not in ccy_by_ticker:
