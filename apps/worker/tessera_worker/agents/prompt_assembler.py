@@ -505,7 +505,9 @@ def build_user_message(
     parts.append(
         "Write today's thesis on the target ticker. Output JSON matching the "
         "AnalystReport schema (persona_id, as_of, proposals, cash_target, "
-        "notes_to_manager). Cite news using full UUID strings from the news block."
+        "notes_to_manager). Cite news using the short identifier shown in the "
+        "news block (e.g. \"n_b7a434db\") — the runner resolves these to full "
+        "UUIDs automatically."
     )
     return "\n\n".join(parts)
 

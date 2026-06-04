@@ -2,9 +2,12 @@
 #
 # Tessera Worker - Cloud Run image.
 #
+# Build context: REPO ROOT (not apps/worker/) so this Dockerfile can see
+# packages/shared/. deploy_cloud_run.ps1 sets the context accordingly.
+#
 # Two-stage build:
-#   1. builder - installs the worker package + deps into /opt/venv
-#   2. runtime - copies the venv + source, runs uvicorn as non-root
+#   1. builder - installs tessera-shared + tessera-worker + deps into /opt/venv
+#   2. runtime - copies the venv + worker source, runs uvicorn as non-root
 #
 # Slim Python base. Runs as non-root for hardening.
 
@@ -23,12 +26,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-WORKDIR /build
-# Copy only the files pip needs to resolve + install.
-COPY pyproject.toml ./
-COPY tessera_worker ./tessera_worker
-
+# Install tessera-shared FIRST so tessera-worker's `"tessera-shared"`
+# dependency resolves by name from the local install cache instead of PyPI.
+WORKDIR /build/shared
+COPY packages/shared/pyproject.toml ./
+COPY packages/shared/tessera_shared ./tessera_shared
 RUN pip install --upgrade pip && pip install .
+
+# Now install the worker. pip finds tessera-shared in the venv already.
+WORKDIR /build/worker
+COPY apps/worker/pyproject.toml ./
+COPY apps/worker/tessera_worker ./tessera_worker
+RUN pip install .
 
 # ---------------- runtime ----------------
 FROM python:3.11-slim AS runtime
@@ -45,7 +54,7 @@ RUN groupadd --system tessera && useradd --system --gid tessera --home /home/tes
 COPY --from=builder /opt/venv /opt/venv
 
 WORKDIR /app
-COPY --chown=tessera:tessera tessera_worker /app/tessera_worker
+COPY --chown=tessera:tessera apps/worker/tessera_worker /app/tessera_worker
 
 USER tessera
 

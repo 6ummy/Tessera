@@ -25,6 +25,10 @@ tessera_worker/
 cd apps/worker
 python -m venv .venv
 source .venv/Scripts/activate  # Windows Git Bash
+
+# tessera_worker depends on tessera_shared (Pydantic schemas).
+# Install the shared package FIRST so pip can resolve the name dep.
+pip install -e ../../packages/shared
 pip install -e ".[dev]"
 
 # Configure

@@ -16,15 +16,23 @@ $REPO     = "tessera"
 $IMAGE    = "$REGION-docker.pkg.dev/$PROJECT/$REPO/worker"
 $SERVICE  = "tessera-worker"
 $SA       = "tessera-worker@$PROJECT.iam.gserviceaccount.com"
-$WORKER_DIR = "C:\Users\jshin\Documents\Project\PennyMaker\apps\worker"
+# Build context = REPO ROOT (not apps/worker/) because the Dockerfile needs
+# to COPY both packages/shared/ and apps/worker/ — they're sibling dirs under
+# the monorepo root. The Dockerfile path is given relative to that root.
+$REPO_ROOT  = "C:\Users\jshin\Documents\Project\PennyMaker"
+$DOCKERFILE = "apps/worker/Dockerfile"
 
 $TAG = (Get-Date -Format "yyyyMMdd-HHmmss")
 $IMAGE_TAGGED = "${IMAGE}:${TAG}"
 
 Write-Output "==> Building image $IMAGE_TAGGED via Cloud Build"
-Set-Location $WORKER_DIR
+Set-Location $REPO_ROOT
+# cloudbuild.yaml at repo root passes -f apps/worker/Dockerfile to docker
+# build, so the build context is the repo root and the Dockerfile can COPY
+# both packages/shared/ and apps/worker/.
 & gcloud builds submit `
-    --tag $IMAGE_TAGGED `
+    --config=cloudbuild.yaml `
+    --substitutions="_IMAGE_TAG=${IMAGE_TAGGED}" `
     --project $PROJECT `
     .
 if ($LASTEXITCODE -ne 0) { Write-Error "Cloud Build failed"; exit 1 }
