@@ -448,7 +448,7 @@ You should see:
 
 **Your Week 2 task path** (recommended order — priority comes from Plan.md backlog):
 - Day 1: run the demo + read the .md
-- Day 2: ship `fcf_yield` as a real `ticker_features` column (migration + `build()` integration + test)
+- [x] Day 2: ship `fcf_yield` as a real `ticker_features` column — **shipped 2026-06-04** as part of Quant track followups. `compute_fcf_yield()` in `features/compute.py` with `ADR_SHARE_RATIOS` (TSM=5, ASML=1) so the Phase A TSM-48% bug doesn't recur. Prefers provider `marketCap` when present; falls back to `close × shares / ADR ratio`. ±100% sanity bound drops obvious data bugs. Wired into `build()` as a fundamentals pass writing the latest-ts row per ticker. 9 new tests.
 - Day 3: `peg_ratio` (forward P/E ÷ EPS growth — needs FMP analyst estimates, else trailing proxy)
 - Day 4: `eps_cagr_3y` (3 consecutive annual income rows)
 - Day 5: `debt_to_equity` + start sketching the Phase C precursors (correlation matrix, sector exposure)
