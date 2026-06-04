@@ -28,6 +28,7 @@ dependencies = [
     # Schema + validation
     "pydantic>=2.10.0",
     "pydantic-settings>=2.6.0",
+    "tessera-shared",
 
     # Observability
     "sentry-sdk[fastapi]>=2.18.0",
