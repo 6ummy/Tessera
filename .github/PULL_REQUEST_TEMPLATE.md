@@ -36,10 +36,10 @@
 
 ## 트랙 (1개 체크)
 
-- [ ] Frontend (한솔)
-- [ ] LLM Pipeline (윤채/한솔)
-- [ ] Quant (예슬/준원)
-- [ ] Infra (윤채/준원)
+- [ ] Frontend (한솔, 윤채)
+- [ ] LLM Pipeline (한솔)
+- [ ] Quant (예슬, 준원)
+- [ ] Infra (준원)
 - [ ] Docs / Persona voice (정우)
 - [ ] Cross-track  → 어느 트랙들: ____________
 

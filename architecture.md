@@ -413,39 +413,40 @@ plane is shipped; the LLM pipeline is the Week 2 / Week 3 work.
 │        ↓                                         ↓                 │
 │        └──────────────► merge ◄──────────────────┘                │
 │                          ↓                                         │
-│  agents/prompt_assembler.py        ← 윤채/한솔 Week 2              │
+│  agents/prompt_assembler.py        ← LLM Pipeline (shipped)        │
 │        ↓ system = persona spec   (cache_control: ephemeral)        │
 │        ↓ user   = data blocks    (features, fundamentals, …)       │
 │                          ↓                                         │
-│  agents/anthropic_runner.py        ← 윤채 Week 2                   │
+│  agents/anthropic_runner.py        ← LLM Pipeline (shipped)        │
 │        ↓ Claude API call (Sonnet 4.6 deep, Haiku 4.5 screen)       │
 │        ↓ Pydantic validation, 1× retry on schema fail              │
 │        ↓ log tokens + cost                                         │
 │                          ↓                                         │
-│  agents/citation_validator.py      ← 윤채 Week 2                   │
+│  agents/citation_validator.py      ← LLM Pipeline (shipped)        │
 │        ↓ verify every cited_news_id resolves in news table         │
 │                          ↓                                         │
 │  Neon  →  analyst_reports                                          │
 │        (persona_id, ts, inputs_hash, parsed jsonb,                 │
 │         raw_response, cost_usd)                                    │
 │                          ↓                                         │
-│  Frontend  →  /api/reports?personaId=warren  (Week 3, 한솔)        │
+│  Frontend  →  /api/reports?personaId=warren  (Week 3 task)         │
 │        ↓ swap from lib/mock/reports.ts                             │
 │  UI: persona thesis appears in the desk view                       │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-**Who owns what** (CODEOWNERS already routes the PRs):
+**Who owns what** (track-level, see CODEOWNERS for the GitHub handles that auto-route PR reviews):
 
-| Module | Owner | Status |
+| Module | Track | Status |
 |---|---|---|
-| `agents/persona_loader.py` | 한솔 | ✅ shipped (PR #29 + #30 fix) |
-| `agents/prompt_assembler.py` | 윤채 / 한솔 | ⏳ Week 2 |
-| `agents/anthropic_runner.py` | 윤채 | ⏳ Week 2 |
-| `agents/citation_validator.py` | 윤채 | ⏳ Week 2 |
-| `agents/models.py` (`AnalystReport`, `Proposal`) | 윤채 | ⏳ Week 2 |
-| `features/compute.py` extensions (fcf_yield, peg, …) | 예슬 / 준원 | ⏳ Week 2 |
-| `apps/web/app/api/reports/route.ts` + UI swap | 한솔 | ⏳ Week 3 |
+| `agents/persona_loader.py` | LLM Pipeline | ✅ shipped |
+| `agents/prompt_assembler.py` | LLM Pipeline | ✅ shipped |
+| `agents/anthropic_runner.py` | LLM Pipeline | ✅ shipped (FEATURE_REAL_LLM gate) |
+| `agents/citation_validator.py` | LLM Pipeline | ✅ shipped |
+| `agents/models.py` (`AnalystReport`, `Proposal`) | LLM Pipeline | ✅ shipped (re-export from `tessera_shared`) |
+| `features/compute.py` extensions (fcf_yield, peg, …) | Quant | ⏳ Week 2 |
+| `apps/web/app/api/reports/route.ts` + UI swap | Frontend | ⏳ Week 3 |
+| Ray-specific `RegimeProbabilities` runner (separate schema) | LLM Pipeline | ⏳ Week 3 |
 
 **Cost model** (Plan.md §4 acceptance: < $5/day average):
 

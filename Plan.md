@@ -159,7 +159,7 @@ and "implementation" weeks — they ship together).
 
 ### Week 2 Quickstart — working with the data we already have
 
-Phase A wired the entire data plane. **Quant (예슬, 준원) and LLM Pipeline (윤채, 한솔) work on top of what's already there** — nobody needs to wait on infra.
+Phase A wired the entire data plane. **Quant (예슬, 준원), LLM Pipeline (한솔), and Frontend (한솔, 윤채) work on top of what's already there** — nobody needs to wait on infra.
 
 #### ✅ Already done by 정우 — DO NOT redo
 
@@ -301,7 +301,7 @@ Pattern to follow: each new feature is a pure pandas function inside `features/c
 
 For **risk gateway prep** (Phase C precursor): compute per-ticker volatility and correlation matrices using existing `ohlcv_1d`. Don't store yet — Phase C is when persona positions exist and we need to gate them.
 
-**LLM Pipeline track (윤채, 한솔) — assemble persona prompts**
+**LLM Pipeline track (한솔) — assemble persona prompts**
 
 Each persona's daily thesis needs 4 inputs from Neon (already populated):
 1. **Feature snapshot** for the shortlisted tickers (~30 per persona) — `ticker_features` latest row per ticker
@@ -350,7 +350,7 @@ The frontend swap (Phase B Week 3) reads from `analyst_reports` — so as soon a
 
 | Track | Folder | Doc to read | Demo to run |
 |---|---|---|---|
-| **LLM Pipeline** (윤채, 한솔) | `apps/worker/tessera_worker/agents/` | `LLM_pipeline_demo.md` | `python -m tessera_worker.agents.demo_warren_aapl` |
+| **LLM Pipeline** (한솔) | `apps/worker/tessera_worker/agents/` | `LLM_pipeline_demo.md` | `python -m tessera_worker.agents.demo_warren_aapl` |
 | **Quant** (예슬, 준원) | `apps/worker/tessera_worker/features/` | `Quant_demo.md` | `python -m tessera_worker.features.demo_fcf_yield` |
 | **Anyone — "what's in the DB?"** | same `features/` folder | (no doc, just run it) | `python -m tessera_worker.features.demo_data_explorer` |
 | **Anyone — "which macros drive which tickers?"** | same `features/` folder | (no doc) | `python -m tessera_worker.features.demo_macro_sensitivity` |
@@ -361,12 +361,12 @@ Both demos connect to Neon, run in ~5 seconds, print readable output, and are de
 
 ---
 
-##### 🧠 If you're on **LLM Pipeline (윤채 + 한솔)** — start here
+##### 🧠 If you're on **LLM Pipeline (한솔)** — start here
 
 **Already done for you by 정우** (zero setup on your side):
 - ✅ Anthropic API key is in Secret Manager (prod) and in the KakaoTalk pin (local). Don't generate a new one.
 - ✅ Sentry is wired — your `raise`/`except` inside any agent module shows up in the `tessera-worker` Sentry project automatically.
-- ✅ `personalities.md` is the canonical persona spec. CODEOWNERS lets all four team owners (정우, 윤채, 한솔, 예슬) approve changes — but big voice changes get a 카톡 heads-up first.
+- ✅ `personalities.md` is the canonical persona spec. CODEOWNERS lets all five team owners (정우, 윤채, 한솔, 예슬, 준원) approve changes — but big voice changes get a 카톡 heads-up first.
 - ✅ `news`, `filings.text_summary`, `ticker_features`, `fundamentals`, `macro_series` tables are all populated overnight — you can read them right now.
 
 **Your scope** (Week 2): build the `agents/` package that turns persona spec + Neon data → validated `analyst_reports` rows. Five new files, each small. Frontend wiring is Week 3.
@@ -508,9 +508,9 @@ Pick one as your first PR. They're all real, small, and improve the downstream s
 - [ ] **Prompt caching**: persona spec (~3K tok) marked `cache_control: ephemeral`
 - [ ] **pgvector recall**: surface prior 5 theses on same ticker via embedding similarity
 - [ ] **Cost logging**: every call → Grafana metric `tessera_llm_cost_usd{persona, stage}`
-- [ ] **First sanity check**: Warren writes a real thesis on AAPL. Manual review.
+- [x] **First sanity check** — shipped 2026-06-03. Warren wrote real theses on AAPL (3 runs, all `side=hold conv=0.55-0.62 cash=0.12-0.15`, ~$0.02 each), Cathie on NVDA (tri-scenario thesis, conv=0.72), Peter on COST (hold, conv=0.62). Ray's `instrument`+ETF schema doesn't fit `Proposal` — needs separate `RegimeProbabilities` path, deferred to Week 3.
 
-#### Carried over from Phase A — 정우 owned these (offloaded from 윤채/예슬 for Week 2)
+#### Carried over from Phase A — 정우 owned these (offloaded from the LLM and Quant tracks for Week 2)
 - [x] **Sentry DSN registration** on web + worker — shipped 2026-06-01. Both `tessera-web` + `tessera-worker` projects live, errors-only (no perf traces / replays) for free-tier cost guard. End-to-end verified via `/api/sentry-verify` (now removed). Pattern: explicit `Sentry.captureException` + `flush()` in Next 14 route handlers (auto-instrumentation isn't reliable there).
 - [x] **GCP project + Cloud Run + Cloud Tasks + Secret Manager** — shipped 2026-06-01. Project `tessera-498200` (us-east1), Artifact Registry repo `tessera`, service account `tessera-worker` with `roles/secretmanager.secretAccessor`, 9 secrets in Secret Manager. Worker container at `tessera-worker-ffr7g3a76a-ue.a.run.app`. Vercel Cron now triggers Cloud Run via `WORKER_WEBHOOK_URL` and the full 6-step ingest runs autonomously — verified Neon row counts incremented end-to-end. Implementation notes captured in `docs/adr/006-vercel-cloud-run-split.md`.
 - [x] **SEC EDGAR filings ingestor** — shipped 2026-06-01. New 7th step in daily orchestrator. Per ticker: 2 × 10-K + 4 × 10-Q (≈1.5 yrs of management prose). Body excerpt (8KB) into `filings.text_summary`, raw HTML to GCS `tessera-raw/edgar/{accession}.html`. Skip-if-already-have on accession means daily runs are no-ops once steady-state. Smoke-test verified end-to-end with AAPL + MSFT (12 filings, 49 MB HTML, 32s local run). Full universe run scheduled with next Cloud Run cron. Frees 예슬 to focus on features + risk gateway prep for Phase C.
