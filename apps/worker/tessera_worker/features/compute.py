@@ -73,6 +73,33 @@ ADR_SHARE_RATIOS: dict[str, int] = {
 # than feed garbage into the LLM prompt.
 FCF_YIELD_SANITY_BOUND = 1.0   # ±100%
 
+# ─────────────────────────────────────────────────────────────────────────
+# FX conversion: financial data providers report `freeCashFlow` in the
+# issuer's local currency (TSM in TWD, ASML's parent entity in EUR, …),
+# while `close` is quoted on the US ADR in USD. We compute fcf_yield as
+# USD/USD, so FCF must be converted to USD before dividing.
+#
+# Hardcoded rates: pragmatic for the ~50-name pilot universe. A proper
+# daily FX feed (FRED DEXTWUS, DEXUSEU) is a Phase C task. Rates here
+# are mid-2026 spot averages — accurate enough for relative comparison
+# across personas, not for trading.
+#
+# How it's used: if `reportedCurrency` in the payload != "USD", we
+# multiply the local-currency FCF by FX_TO_USD[ccy] before dividing.
+# Unknown currency → log + drop (don't guess).
+# ─────────────────────────────────────────────────────────────────────────
+FX_TO_USD: dict[str, float] = {
+    "USD": 1.0,
+    "TWD": 1.0 / 32.0,   # ~32 TWD per USD
+    "EUR": 1.08,         # ~1.08 USD per EUR
+    "GBP": 1.27,
+    "JPY": 1.0 / 155.0,
+    "KRW": 1.0 / 1370.0,
+    "HKD": 1.0 / 7.8,
+    "CNY": 1.0 / 7.2,
+    "CAD": 1.0 / 1.36,
+}
+
 
 @dataclass(frozen=True, slots=True)
 class FeatureResult:
@@ -151,45 +178,107 @@ def _market_cap_from_shares(
 
 def compute_fcf_yield(
     close: float | None,
-    fcf: float | None,
+    fcf_local: float | None,
     shares_common: float | None,
     *,
+    reported_currency: str | None = "USD",
     payload_market_cap: float | None = None,
     ticker: str | None = None,
 ) -> float | None:
-    """Trailing FCF / market cap. None if any input is missing or insane.
+    """Trailing-twelve-month FCF / today's market cap. USD/USD.
 
-    Denominator preference, most → least trusted:
-      1. `payload_market_cap` from the fundamentals provider (already
-         currency-correct, already ADR-aware on most APIs).
-      2. close × (shares_common / ADR ratio).
+    Denominator preference, most → least trusted (reversed from the v1
+    fix — payload `marketCap` is stale between filings while `close`
+    moves daily; the correct fcf_yield must reflect today's price):
+      1. close × (shares_common / ADR ratio).         ← PRIMARY (fresh)
+      2. payload_market_cap from the provider.        ← fallback (stale)
+
+    Currency handling: `fcf_local` is in `reported_currency`. We convert
+    to USD via FX_TO_USD before dividing. Unknown currency → drop.
 
     Returns None when:
       - any input is missing,
+      - currency is unknown,
       - denominator is non-positive,
       - the result exceeds ±FCF_YIELD_SANITY_BOUND (logged as a data bug).
     """
-    if fcf is None:
+    if fcf_local is None:
         return None
 
-    mcap: float | None = None
-    if payload_market_cap is not None and payload_market_cap > 0:
-        mcap = float(payload_market_cap)
-    else:
-        mcap = _market_cap_from_shares(close, shares_common, ticker=ticker)
+    # FX → USD
+    ccy = (reported_currency or "USD").upper()
+    fx = FX_TO_USD.get(ccy)
+    if fx is None:
+        log.warning("features.fcf_yield.unknown_currency",
+                    ticker=ticker, reported_currency=ccy)
+        return None
+    fcf_usd = float(fcf_local) * fx
 
+    # Market cap — prefer fresh price × shares; fall back to payload
+    mcap = _market_cap_from_shares(close, shares_common, ticker=ticker)
+    if mcap is None or mcap <= 0:
+        if payload_market_cap is not None and payload_market_cap > 0:
+            mcap = float(payload_market_cap)
     if mcap is None or mcap <= 0:
         return None
 
-    yld = float(fcf) / mcap
+    yld = fcf_usd / mcap
     if abs(yld) > FCF_YIELD_SANITY_BOUND:
         log.warning(
             "features.fcf_yield.sanity_drop",
-            ticker=ticker, fcf=fcf, market_cap=mcap, computed=yld,
+            ticker=ticker, fcf_usd=fcf_usd, market_cap=mcap, computed=yld,
+            reported_currency=ccy,
             note="exceeds ±100%; likely units mismatch — dropping",
         )
         return None
     return yld
+
+
+def sum_ttm_fcf(rows: list[dict]) -> float | None:
+    """Trailing-twelve-month FCF, robust to mixed filing cadence.
+
+    `rows` are most-recent first, each with `freeCashFlow` and optional
+    `period` ("Q1"/"Q2"/"Q3"/"Q4"/"FY" or None).
+
+    Strategy:
+      - If the latest row is annual ("FY"), it's already 12-month —
+        return that single value. (Common for issuers that only file
+        annually, e.g. some foreign companies in our DB.)
+      - Otherwise, sum the 4 most-recent rows whose period is NOT "FY"
+        (mixing FY with quarterlies would double-count).
+      - Fewer than 4 quarterlies → return None (partial-year FCF is
+        misleading; we'd rather drop than ship a low-balled yield).
+    """
+    if not rows:
+        return None
+
+    def _fcf(r: dict) -> float | None:
+        v = r.get("freeCashFlow")
+        if v is None:
+            return None
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
+    first_period = (rows[0].get("period") or "").upper()
+    if first_period == "FY":
+        return _fcf(rows[0])
+
+    qs: list[float] = []
+    for r in rows:
+        period = (r.get("period") or "").upper()
+        if period == "FY":
+            continue
+        v = _fcf(r)
+        if v is None:
+            continue
+        qs.append(v)
+        if len(qs) == 4:
+            break
+    if len(qs) < 4:
+        return None
+    return sum(qs)
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -305,47 +394,68 @@ def _f(v) -> float | None:
 # ─────────────────────────────────────────────────────────────────────────
 
 def _load_fundamentals_latest(tickers: list[str]) -> dict[str, dict]:
-    """Latest FCF, share count, and (optional) marketCap per ticker.
+    """Latest 4 quarterly cash_flow rows + latest income row per ticker.
 
-    Pulls one row each from cash_flow + income filings. Joins in Python
-    so a missing filing type doesn't drop the ticker entirely.
+    Cash flow: pulls up to 4 most-recent rows so the caller can compute
+    TTM FCF via `sum_ttm_fcf`. Returns each row's freeCashFlow + period
+    + reportedCurrency so currency conversion can happen downstream.
+
+    Income: pulls one (latest) row for shares outstanding + optional
+    payload marketCap fallback.
     """
-    sql = text("""
-        WITH latest_cash AS (
-            SELECT DISTINCT ON (ticker)
-                   ticker,
-                   payload ->> 'freeCashFlow' AS fcf,
-                   payload ->> 'marketCap'    AS market_cap_cash
-            FROM fundamentals
-            WHERE ticker = ANY(:t) AND filing_type = 'cash_flow'
-            ORDER BY ticker, period_end DESC
-        ),
-        latest_income AS (
-            SELECT DISTINCT ON (ticker)
-                   ticker,
-                   payload ->> 'weightedAverageShsOut' AS shares,
-                   payload ->> 'marketCap'             AS market_cap_inc
-            FROM fundamentals
-            WHERE ticker = ANY(:t) AND filing_type = 'income'
-            ORDER BY ticker, period_end DESC
-        )
-        SELECT
-            COALESCE(c.ticker, i.ticker)                  AS ticker,
-            c.fcf                                         AS fcf,
-            i.shares                                      AS shares,
-            COALESCE(c.market_cap_cash, i.market_cap_inc) AS market_cap
-        FROM latest_cash c
-        FULL OUTER JOIN latest_income i USING (ticker)
+    cash_sql = text("""
+        SELECT ticker, period_end,
+               payload ->> 'freeCashFlow'     AS fcf,
+               payload ->> 'period'           AS period,
+               payload ->> 'reportedCurrency' AS ccy,
+               payload ->> 'marketCap'        AS market_cap
+        FROM fundamentals
+        WHERE ticker = ANY(:t) AND filing_type = 'cash_flow'
+        ORDER BY ticker, period_end DESC
+    """)
+    income_sql = text("""
+        SELECT DISTINCT ON (ticker)
+               ticker,
+               payload ->> 'weightedAverageShsOut' AS shares,
+               payload ->> 'marketCap'             AS market_cap_inc
+        FROM fundamentals
+        WHERE ticker = ANY(:t) AND filing_type = 'income'
+        ORDER BY ticker, period_end DESC
     """)
     with session_scope() as session:
-        rows = session.execute(sql, {"t": tickers}).all()
+        cash_rows = session.execute(cash_sql, {"t": tickers}).all()
+        inc_rows = session.execute(income_sql, {"t": tickers}).all()
+
+    # Group cash rows by ticker, keep top 4 (already sorted DESC by period_end)
+    cash_by_ticker: dict[str, list[dict]] = {}
+    ccy_by_ticker: dict[str, str | None] = {}
+    mcap_payload: dict[str, float | None] = {}
+    for r in cash_rows:
+        bucket = cash_by_ticker.setdefault(r.ticker, [])
+        if len(bucket) < 4:
+            bucket.append({
+                "freeCashFlow": _to_float(r.fcf),
+                "period":       r.period,
+            })
+        # Lock in currency from the newest available row
+        if r.ticker not in ccy_by_ticker:
+            ccy_by_ticker[r.ticker] = (r.ccy or "USD")
+        # First-seen marketCap from cash_flow
+        if r.ticker not in mcap_payload and r.market_cap is not None:
+            mcap_payload[r.ticker] = _to_float(r.market_cap)
+
+    inc_by_ticker = {r.ticker: r for r in inc_rows}
 
     out: dict[str, dict] = {}
-    for r in rows:
-        out[r.ticker] = {
-            "fcf":        _to_float(r.fcf),
-            "shares":     _to_float(r.shares),
-            "market_cap": _to_float(r.market_cap),
+    tickers_seen = set(cash_by_ticker) | set(inc_by_ticker)
+    for ticker in tickers_seen:
+        inc = inc_by_ticker.get(ticker)
+        out[ticker] = {
+            "cash_rows":          cash_by_ticker.get(ticker, []),
+            "reported_currency":  ccy_by_ticker.get(ticker, "USD"),
+            "shares":             _to_float(inc.shares) if inc else None,
+            "market_cap_payload": mcap_payload.get(ticker)
+                                  or (_to_float(inc.market_cap_inc) if inc else None),
         }
     return out
 
@@ -409,10 +519,26 @@ def _upsert_fundamental_features(per_ticker: dict[str, dict]) -> int:
     return written
 
 
-def build(tickers: list[str]) -> FeatureResult:
-    """Recompute features for the given tickers from current ohlcv_1d state."""
+def build(
+    tickers: list[str],
+    *,
+    with_fundamentals: bool = True,
+) -> FeatureResult:
+    """Recompute features for the given tickers from current ohlcv_1d state.
+
+    `with_fundamentals`:
+      True  (default) — also run the fundamentals pass: TTM FCF + ADR-
+                        adjusted, FX-converted, freshly-priced market
+                        cap → today's fcf_yield onto the latest ticker
+                        row. Costs zero external API calls (all SQL).
+      False           — price features only. Useful for: backtest replays
+                        where fundamentals shouldn't move, debug sessions,
+                        or any future cadence split where the fundamentals
+                        pass runs on a different cron.
+    """
     started = datetime.now()
-    log.info("features.build.start", n_tickers=len(tickers))
+    log.info("features.build.start", n_tickers=len(tickers),
+             with_fundamentals=with_fundamentals)
 
     df = _load_ohlcv(tickers)
     if df.empty:
@@ -429,32 +555,33 @@ def build(tickers: list[str]) -> FeatureResult:
 
     written = _upsert_features(frames)
 
-    # ── Fundamentals pass: latest-row fcf_yield per ticker ──
-    # Idempotent: re-runs with the same fundamentals + close produce the
-    # same value. Decoupled from price features so a missing fundamentals
-    # row never blocks price features (and vice versa).
-    fund_per_ticker = _load_fundamentals_latest(tickers)
-    closes = _load_latest_closes(tickers)
-    fund_rows: dict[str, dict] = {}
-    for ticker in tickers:
-        f = fund_per_ticker.get(ticker)
-        c = closes.get(ticker)
-        if not f or not c:
-            continue
-        ts, close = c
-        yld = compute_fcf_yield(
-            close=close,
-            fcf=f.get("fcf"),
-            shares_common=f.get("shares"),
-            payload_market_cap=f.get("market_cap"),
-            ticker=ticker,
-        )
-        if yld is None:
-            continue
-        fund_rows[ticker] = {"ts": ts, "fcf_yield": yld}
-    fund_written = _upsert_fundamental_features(fund_rows)
-    log.info("features.fundamentals.done", tickers_with_fcf_yield=len(fund_rows),
-             rows_written=fund_written)
+    # ── Fundamentals pass — idempotent, no external API calls ──
+    fund_written = 0
+    if with_fundamentals:
+        fund_per_ticker = _load_fundamentals_latest(tickers)
+        closes = _load_latest_closes(tickers)
+        fund_rows: dict[str, dict] = {}
+        for ticker in tickers:
+            f = fund_per_ticker.get(ticker)
+            c = closes.get(ticker)
+            if not f or not c:
+                continue
+            ts, close = c
+            ttm_fcf = sum_ttm_fcf(f["cash_rows"])
+            yld = compute_fcf_yield(
+                close=close,
+                fcf_local=ttm_fcf,
+                shares_common=f.get("shares"),
+                reported_currency=f.get("reported_currency"),
+                payload_market_cap=f.get("market_cap_payload"),
+                ticker=ticker,
+            )
+            if yld is None:
+                continue
+            fund_rows[ticker] = {"ts": ts, "fcf_yield": yld}
+        fund_written = _upsert_fundamental_features(fund_rows)
+        log.info("features.fundamentals.done", tickers_with_fcf_yield=len(fund_rows),
+                 rows_written=fund_written)
 
     all_ts = []
     for df_t in frames.values():

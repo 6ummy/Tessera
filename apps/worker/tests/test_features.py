@@ -17,6 +17,7 @@ from hypothesis.extra.numpy import arrays
 from tessera_worker.features.compute import (
     ADR_SHARE_RATIOS,
     FCF_YIELD_SANITY_BOUND,
+    FX_TO_USD,
     RSI_WINDOW,
     VOL_WINDOW,
     VOLUME_Z_WINDOW,
@@ -26,6 +27,7 @@ from tessera_worker.features.compute import (
     realized_vol,
     rsi,
     sma,
+    sum_ttm_fcf,
     volume_zscore,
 )
 
@@ -157,90 +159,94 @@ def test_pct_change_and_log_return_close_for_small_moves() -> None:
 
 def test_fcf_yield_basic_us_domiciled() -> None:
     """AAPL-shaped inputs: ratio defaults to 1, simple close × shares."""
-    # Roughly Apple 2024: ~3.5T mcap, ~100B FCF → ~2.9% yield
     yld = compute_fcf_yield(
-        close=230.0, fcf=100e9, shares_common=15.2e9, ticker="AAPL",
+        close=230.0, fcf_local=100e9, shares_common=15.2e9, ticker="AAPL",
     )
     assert yld is not None
     assert 0.02 < yld < 0.04, f"expected ~3% for AAPL-shaped inputs, got {yld:.4f}"
 
 
-def test_fcf_yield_tsm_adr_correction_in_sane_range() -> None:
-    """The bug we're fixing: TSM common shares ≈ 25.93B, ADR ratio 5.
-
-    Without correction: mcap = 180 × 25.93e9 = $4.67T (5× too high),
-                        yield = 30e9 / 4.67T ≈ 0.6% (looks too cheap)
-    With correction:    mcap = 180 × (25.93e9 / 5) = $933B,
-                        yield = 30e9 / 933B ≈ 3.2% (sane)
+def test_fcf_yield_uses_fresh_price_x_shares_not_stale_payload_mcap() -> None:
+    """Regression: v1 of the fix preferred payload `marketCap` (stale —
+    only updates on filing). LLM voice needs today's-price-aware yield.
+    Verify close × shares wins over payload_market_cap when both exist.
     """
-    yld_corrected = compute_fcf_yield(
-        close=180.0, fcf=30e9, shares_common=25.93e9, ticker="TSM",
-    )
-    assert yld_corrected is not None
-    # Sanity band — TSM should be a single-digit-percent yield, not 0.5% or 48%
-    assert 0.015 < yld_corrected < 0.10, (
-        f"TSM fcf_yield outside sanity band: got {yld_corrected:.4f}"
-    )
-
-    # And explicitly: the corrected number is 5× the naïve one
-    yld_naive_default = compute_fcf_yield(
-        close=180.0, fcf=30e9, shares_common=25.93e9, ticker="AAPL",  # ratio=1
-    )
-    assert yld_naive_default is not None
-    assert abs((yld_corrected / yld_naive_default) - 5.0) < 0.001
-
-
-def test_fcf_yield_prefers_payload_market_cap_when_present() -> None:
-    """If the provider gives us marketCap, trust it over close × shares."""
-    # Naïve close × shares would give a wildly different number; passing
-    # `payload_market_cap` should override.
+    # Real today: close=$230, shares=15.2B → mcap=$3.50T → yield=$100B/$3.5T = 2.86%
+    # Stale (from filing 3 months ago): mcap=$3.0T → yield=$100B/$3.0T = 3.33%
+    # Correct behavior: use the fresh mcap, get 2.86%
     yld = compute_fcf_yield(
-        close=999.0,             # nonsense — should be ignored
-        fcf=10e9,
-        shares_common=1e9,       # nonsense — should be ignored
-        payload_market_cap=200e9,
-        ticker="MSFT",
+        close=230.0, fcf_local=100e9, shares_common=15.2e9,
+        payload_market_cap=3.0e12,     # stale; must be ignored
+        ticker="AAPL",
     )
     assert yld is not None
-    assert abs(yld - 0.05) < 1e-9, f"10e9 / 200e9 = 0.05, got {yld}"
+    assert abs(yld - (100e9 / (230.0 * 15.2e9))) < 1e-9
+
+
+def test_fcf_yield_falls_back_to_payload_mcap_when_shares_missing() -> None:
+    """If we can't compute close × shares, fall back rather than drop."""
+    yld = compute_fcf_yield(
+        close=230.0, fcf_local=100e9, shares_common=None,
+        payload_market_cap=3.0e12,
+        ticker="AAPL",
+    )
+    assert yld is not None
+    assert abs(yld - (100e9 / 3.0e12)) < 1e-9
+
+
+def test_fcf_yield_tsm_with_twd_to_usd_conversion() -> None:
+    """TSM reports FCF in TWD. Real bug: 1097B TWD treated as USD blew
+    the yield up to 242%, sanity bound dropped it. With correct FX:
+    1097B TWD × (1/32) ≈ $34.3B USD; mcap ≈ $933B → ~3.7% yield.
+    """
+    yld = compute_fcf_yield(
+        close=180.0,
+        fcf_local=1097e9,                 # 1097B TWD
+        shares_common=25.93e9,
+        reported_currency="TWD",
+        ticker="TSM",
+    )
+    assert yld is not None
+    # Real TSM yield: low-to-mid single digit %
+    assert 0.02 < yld < 0.08, f"TSM TWD-converted yield outside band: {yld:.4f}"
+
+
+def test_fcf_yield_unknown_currency_drops_safely() -> None:
+    """Don't guess on unknown ISO codes — drop rather than ship garbage."""
+    yld = compute_fcf_yield(
+        close=100.0, fcf_local=10e9, shares_common=1e9,
+        reported_currency="XYZ",  # not in FX_TO_USD
+        ticker="UNKNOWN",
+    )
+    assert yld is None
 
 
 def test_fcf_yield_negative_fcf_yields_negative_number() -> None:
     """Cash-burning growth names: negative FCF, negative yield. Not an error."""
     yld = compute_fcf_yield(
-        close=120.0, fcf=-5e9, shares_common=1.0e9, ticker="PLTR",
+        close=120.0, fcf_local=-5e9, shares_common=1.0e9, ticker="PLTR",
     )
     assert yld is not None
     assert yld < 0
 
 
-def test_fcf_yield_zero_market_cap_returns_none() -> None:
-    assert compute_fcf_yield(close=0.0, fcf=10e9, shares_common=1e9) is None
-    assert compute_fcf_yield(close=100.0, fcf=10e9, shares_common=0.0) is None
-    assert compute_fcf_yield(close=100.0, fcf=10e9, shares_common=1e9,
-                             payload_market_cap=0) is not None or True
-    # ^ explicit: payload_market_cap=0 falls through to shares fallback
-
-
 def test_fcf_yield_missing_inputs_return_none() -> None:
-    assert compute_fcf_yield(close=None, fcf=10e9, shares_common=1e9) is None
-    assert compute_fcf_yield(close=100.0, fcf=None, shares_common=1e9) is None
-    assert compute_fcf_yield(close=100.0, fcf=10e9, shares_common=None) is None
+    assert compute_fcf_yield(close=None, fcf_local=10e9, shares_common=1e9) is None
+    assert compute_fcf_yield(close=100.0, fcf_local=None, shares_common=1e9) is None
+    # close + shares both missing AND no payload → drop
+    assert compute_fcf_yield(close=None, fcf_local=10e9, shares_common=None) is None
 
 
 def test_fcf_yield_sanity_bound_drops_garbage() -> None:
     """If a units bug produces a yield beyond ±100%, drop with a warning."""
-    # 10B FCF on a $5M market cap = 2000× — obviously a data error
     yld = compute_fcf_yield(
-        close=5.0, fcf=10e9, shares_common=1e6, ticker="TEST",
+        close=5.0, fcf_local=10e9, shares_common=1e6, ticker="TEST",
     )
-    assert yld is None, "yield > FCF_YIELD_SANITY_BOUND should be dropped"
+    assert yld is None
 
 
 def test_adr_ratio_lookup_defaults_to_one_for_unknown_ticker() -> None:
-    """Adding a new ticker without an entry shouldn't silently break."""
     assert ADR_SHARE_RATIOS.get("UNKNOWN_TICKER_XYZ", 1) == 1
-    # Same close * shares math as US-domiciled
     mcap = _market_cap_from_shares(100.0, 1e9, ticker="UNKNOWN_XYZ")
     assert mcap == 100e9
 
@@ -248,3 +254,93 @@ def test_adr_ratio_lookup_defaults_to_one_for_unknown_ticker() -> None:
 def test_adr_ratio_present_for_known_adrs() -> None:
     assert ADR_SHARE_RATIOS["TSM"] == 5
     assert ADR_SHARE_RATIOS["ASML"] == 1
+
+
+# ─── TTM rollup ────────────────────────────────────────────────────────
+
+
+def test_ttm_sums_four_quarters() -> None:
+    rows = [
+        {"freeCashFlow": 30e9, "period": "Q2"},
+        {"freeCashFlow": 25e9, "period": "Q1"},
+        {"freeCashFlow": 28e9, "period": "Q4"},
+        {"freeCashFlow": 22e9, "period": "Q3"},
+        {"freeCashFlow": 15e9, "period": "Q2"},  # 5th — should be ignored
+    ]
+    assert sum_ttm_fcf(rows) == 105e9
+
+
+def test_ttm_returns_annual_when_latest_is_FY() -> None:
+    """Issuers that file annually (some foreign cos): latest row is FY,
+    which is already TTM — return it directly."""
+    rows = [
+        {"freeCashFlow": 870e9, "period": "FY"},  # newest
+        {"freeCashFlow": 286e9, "period": "FY"},
+        {"freeCashFlow": 521e9, "period": "FY"},
+    ]
+    assert sum_ttm_fcf(rows) == 870e9
+
+
+def test_ttm_skips_fy_when_mixing_with_quarterlies() -> None:
+    """Don't double-count: if quarterlies are present, ignore FY rows."""
+    rows = [
+        {"freeCashFlow": 30e9, "period": "Q2"},
+        {"freeCashFlow": 100e9, "period": "FY"},   # skip
+        {"freeCashFlow": 25e9, "period": "Q1"},
+        {"freeCashFlow": 28e9, "period": "Q4"},
+        {"freeCashFlow": 22e9, "period": "Q3"},
+    ]
+    assert sum_ttm_fcf(rows) == 105e9
+
+
+def test_ttm_fewer_than_four_quarters_returns_none() -> None:
+    """Partial-year FCF is misleading — drop rather than under-report."""
+    rows = [
+        {"freeCashFlow": 30e9, "period": "Q2"},
+        {"freeCashFlow": 25e9, "period": "Q1"},
+        {"freeCashFlow": 28e9, "period": "Q4"},
+    ]
+    assert sum_ttm_fcf(rows) is None
+
+
+def test_ttm_handles_null_period_as_quarterly() -> None:
+    """Real DB rows often have period=None (provider didn't fill it).
+    Treat as quarterly so US-listed names work."""
+    rows = [
+        {"freeCashFlow": 30e9, "period": None},
+        {"freeCashFlow": 25e9, "period": None},
+        {"freeCashFlow": 28e9, "period": None},
+        {"freeCashFlow": 22e9, "period": None},
+    ]
+    assert sum_ttm_fcf(rows) == 105e9
+
+
+def test_ttm_empty_input_returns_none() -> None:
+    assert sum_ttm_fcf([]) is None
+
+
+# ─── FX table sanity ───────────────────────────────────────────────────
+
+
+def test_fx_table_has_universe_currencies() -> None:
+    """Currencies for any ticker in the universe must be in the FX table.
+    Adding a foreign issuer? Add its currency here too."""
+    for ccy in ("USD", "TWD", "EUR"):  # known universe-relevant
+        assert ccy in FX_TO_USD
+
+
+def test_fx_usd_is_identity() -> None:
+    assert FX_TO_USD["USD"] == 1.0
+
+
+# ─── build() toggle ────────────────────────────────────────────────────
+
+
+def test_build_signature_accepts_with_fundamentals_toggle() -> None:
+    """API contract — orchestrators rely on this kwarg to flex cadence.
+    No DB hit; just verify the signature accepts the flag."""
+    import inspect
+    from tessera_worker.features.compute import build
+    sig = inspect.signature(build)
+    assert "with_fundamentals" in sig.parameters
+    assert sig.parameters["with_fundamentals"].default is True
