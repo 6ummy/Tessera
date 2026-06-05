@@ -578,8 +578,9 @@ to 5 per persona; defer voice tuning to post-launch iteration.
 ### Acceptance criteria (as of 2026-06-05)
 - 🟡 Open Warren in UI → see real thesis written today, with citations linking to real news rows
   - LLM pipeline ✅ writes real theses with valid citations to `analyst_reports`. UI swap (mock → /api/reports) still pending (Frontend track).
-- 🟡 Open chat with Cathie → real Sonnet response, in her voice
-  - **Backend ✅ shipped 2026-06-05** (`/api/chat/[personaId]` SSE on worker + Edge proxy on Vercel). Voice + ticker-aware RAG live; smoke-tested Warren×AAPL with correct fcf_yield citation. Frontend `analyst-chat.tsx` SSE consumer pending Frontend track.
+- 🟢 Open chat with Cathie → real Sonnet response, in her voice
+  - **Backend ✅ shipped 2026-06-05** (`/api/chat/[personaId]` SSE on worker + Edge proxy on Vercel). Voice + ticker-aware RAG live; smoke-tested Warren × AAPL with correct fcf_yield citation.
+  - **Frontend ✅ shipped 2026-06-05** — `analyst-chat.tsx` SSE consumer via fetch + ReadableStream (EventSource is GET-only). `lib/chat-stream.ts` async generator handles SSE framing + error/abort. `lib/chat-starters.ts` keeps greeting + suggested prompts out of `lib/mock/`. `lib/mock/chat.ts` deleted. AbortController cancels in-flight stream on persona switch / unmount. Footer text updated from "mock-generated" to "Powered by Sonnet 4.6 · not financial advice". Next build clean, all 8 routes pass typecheck.
 - 🟢 Cost dashboard shows < $5/day on average
   - Every call logged to `llm_call_log` with cost. Live backtest (60 cells) ran $4.63. Daily cap (`LLM_MAX_DAILY_COST_USD`) enforced in `_check_daily_budget()`. Grafana export deferred to Phase C.
 - 🟢 Backtest of 30 days × 4 personas shows < 2% schema-validation failure rate
