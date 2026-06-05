@@ -1,26 +1,98 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, Sparkles, Users } from "lucide-react";
 import { PERSONAS, ACCENT_CLASS, type Persona } from "@/lib/mock/personas";
-import { PROPOSALS, CONSENSUS } from "@/lib/mock/proposals";
+import { fetchProposal } from "@/lib/analyst-data";
+import type { Proposal } from "@/lib/thesis-types";
 import { Header } from "@/components/header";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { cn, fmt, signClass } from "@/lib/utils";
+import { cn, fmt } from "@/lib/utils";
 
 const ACCENT_HEX: Record<Persona["accent"], string> = {
-  coral: "#D97757", sage: "#6B8E6B", plum: "#8B6B8E", ink: "#1F1E1B",
+  coral: "#D97757",
+  sage: "#6B8E6B",
+  plum: "#8B6B8E",
+  ink: "#1F1E1B",
+};
+
+type ConsensusRow = {
+  ticker: string;
+  name: string;
+  sector: string;
+  mentions: { personaId: string; weight: number; conviction: number | null }[];
+  avgConviction: number;
 };
 
 export default function ProposalsPage() {
   const [highlight, setHighlight] = useState<string | null>(null);
+  const [proposals, setProposals] = useState<Record<string, Proposal | null>>({});
+  const [loading, setLoading] = useState(true);
 
-  const byPersona = useMemo(() => {
-    const m: Record<string, typeof PROPOSALS[number]> = {};
-    PROPOSALS.forEach((p) => (m[p.personaId] = p));
-    return m;
+  // Fetch all 4 personas in parallel on mount.
+  useEffect(() => {
+    const ctrl = new AbortController();
+    setLoading(true);
+    Promise.all(
+      PERSONAS.map((p) =>
+        fetchProposal(p.id, { signal: ctrl.signal }).then((data) => [p.id, data] as const),
+      ),
+    ).then((entries) => {
+      if (ctrl.signal.aborted) return;
+      setProposals(Object.fromEntries(entries));
+      setLoading(false);
+    });
+    return () => ctrl.abort();
   }, []);
+
+  const consensus = useMemo<ConsensusRow[]>(() => {
+    const byTicker = new Map<string, ConsensusRow>();
+    for (const persona of PERSONAS) {
+      const prop = proposals[persona.id];
+      if (!prop) continue;
+      for (const pos of prop.positions) {
+        const existing = byTicker.get(pos.ticker);
+        if (existing) {
+          existing.mentions.push({
+            personaId: persona.id,
+            weight: pos.weight,
+            conviction: pos.conviction,
+          });
+        } else {
+          byTicker.set(pos.ticker, {
+            ticker: pos.ticker,
+            name: pos.name,
+            sector: pos.sector,
+            mentions: [{
+              personaId: persona.id,
+              weight: pos.weight,
+              conviction: pos.conviction,
+            }],
+            avgConviction: 0,
+          });
+        }
+      }
+    }
+    const rows = Array.from(byTicker.values()).map((row) => {
+      const convs = row.mentions.map((m) => m.conviction).filter((c): c is number => c !== null);
+      row.avgConviction = convs.length ? convs.reduce((a, b) => a + b, 0) / convs.length : 0;
+      return row;
+    });
+    rows.sort(
+      (a, b) => b.mentions.length - a.mentions.length || b.avgConviction - a.avgConviction,
+    );
+    return rows;
+  }, [proposals]);
+
+  // Display "as of" — latest date across all 4 personas.
+  const asOfDisplay = useMemo(() => {
+    const dates = Object.values(proposals)
+      .map((p) => p?.asOf)
+      .filter((d): d is string => !!d)
+      .sort();
+    return dates[dates.length - 1] ?? null;
+  }, [proposals]);
 
   return (
     <main className="min-h-screen">
@@ -46,7 +118,9 @@ export default function ProposalsPage() {
             </div>
             <div className="flex items-center gap-2 text-xs text-ink-500">
               <span>As of</span>
-              <span className="num rounded-full bg-ink-900/[0.05] px-2.5 py-1 text-ink-700">{PROPOSALS[0].asOf}</span>
+              <span className="num rounded-full bg-ink-900/[0.05] px-2.5 py-1 text-ink-700">
+                {loading ? "loading…" : (asOfDisplay ?? "awaiting batch")}
+              </span>
             </div>
           </div>
         </div>
@@ -64,12 +138,11 @@ export default function ProposalsPage() {
               </TabsTrigger>
             </TabsList>
 
-            {/* ───────── BY PERSONA: 4 columns side-by-side ───────── */}
             <TabsContent value="by-persona">
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                 {PERSONAS.map((persona) => {
                   const a = ACCENT_CLASS[persona.accent];
-                  const prop = byPersona[persona.id];
+                  const prop = proposals[persona.id];
                   return (
                     <div
                       key={persona.id}
@@ -88,44 +161,67 @@ export default function ProposalsPage() {
                             {persona.riskLabel}
                           </Badge>
                         </div>
-                        <div className="mt-4 grid grid-cols-3 gap-3 text-[11px]">
-                          <Stat label="E[R] 1y" value={fmt.pct(prop.expectedReturn)} sign={prop.expectedReturn} />
-                          <Stat label="E[Vol]" value={fmt.pctAbs(prop.expectedVol)} />
-                          <Stat label="Cash" value={fmt.pctAbs(prop.cashWeight)} />
+                        <div className="mt-4 grid grid-cols-2 gap-3 text-[11px]">
+                          <Stat label="Horizon" value={prop?.horizon ?? "—"} />
+                          <Stat label="Cash" value={prop ? fmt.pctAbs(prop.cashWeight ?? 0) : "—"} />
                         </div>
                       </div>
 
                       <div className="flex-1 divide-y divide-ink-900/[0.05]">
-                        {prop.positions.map((pos) => (
-                          <button
-                            key={pos.ticker}
-                            onMouseEnter={() => setHighlight(pos.ticker)}
-                            onMouseLeave={() => setHighlight(null)}
-                            className={cn(
-                              "block w-full text-left px-5 py-3 transition-colors",
-                              highlight === pos.ticker ? "bg-coral-50" : "hover:bg-ink-900/[0.025]"
-                            )}
-                          >
-                            <div className="flex items-center justify-between gap-3">
-                              <div className="min-w-0 flex-1">
-                                <div className="flex items-center gap-2">
-                                  <span className="num text-sm font-medium text-ink-900">{pos.ticker}</span>
-                                  <span className="truncate text-xs text-ink-500">{pos.name}</span>
+                        {loading && !prop ? (
+                          <div className="space-y-px">
+                            {[0, 1, 2].map((i) => (
+                              <div key={i} className="h-20 animate-pulse bg-ink-900/[0.02]" />
+                            ))}
+                          </div>
+                        ) : !prop || prop.positions.length === 0 ? (
+                          <div className="px-5 py-6 text-center text-xs text-ink-500">
+                            No positions published yet for {persona.name}.
+                          </div>
+                        ) : (
+                          prop.positions.map((pos) => (
+                            <button
+                              key={pos.ticker}
+                              onMouseEnter={() => setHighlight(pos.ticker)}
+                              onMouseLeave={() => setHighlight(null)}
+                              className={cn(
+                                "block w-full text-left px-5 py-3 transition-colors",
+                                highlight === pos.ticker
+                                  ? "bg-coral-50"
+                                  : "hover:bg-ink-900/[0.025]",
+                              )}
+                            >
+                              <div className="flex items-center justify-between gap-3">
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center gap-2">
+                                    <span className="num text-sm font-medium text-ink-900">
+                                      {pos.ticker}
+                                    </span>
+                                    <span className="truncate text-xs text-ink-500">{pos.name}</span>
+                                  </div>
                                 </div>
+                                <span className="num text-sm font-medium text-ink-800">
+                                  {fmt.pctAbs(pos.weight)}
+                                </span>
                               </div>
-                              <span className="num text-sm font-medium text-ink-800">{fmt.pctAbs(pos.weight)}</span>
-                            </div>
-                            <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-ink-900/[0.05]">
-                              <div
-                                className="h-full rounded-full"
-                                style={{ width: `${pos.weight * 500}%`, maxWidth: "100%", background: ACCENT_HEX[persona.accent], opacity: 0.55 + pos.conviction * 0.45 }}
-                              />
-                            </div>
-                            <p className="mt-2 line-clamp-2 text-[12px] leading-relaxed text-ink-600">
-                              {pos.thesis}
-                            </p>
-                          </button>
-                        ))}
+                              <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-ink-900/[0.05]">
+                                <div
+                                  className="h-full rounded-full"
+                                  style={{
+                                    width: `${pos.weight * 500}%`,
+                                    maxWidth: "100%",
+                                    background: ACCENT_HEX[persona.accent],
+                                    // null conviction (Ray) → midpoint opacity
+                                    opacity: 0.55 + (pos.conviction ?? 0.5) * 0.45,
+                                  }}
+                                />
+                              </div>
+                              <p className="mt-2 line-clamp-2 text-[12px] leading-relaxed text-ink-600">
+                                {pos.thesis}
+                              </p>
+                            </button>
+                          ))
+                        )}
                       </div>
                     </div>
                   );
@@ -133,7 +229,6 @@ export default function ProposalsPage() {
               </div>
             </TabsContent>
 
-            {/* ───────── CONSENSUS: where the desk agrees ───────── */}
             <TabsContent value="consensus">
               <div className="overflow-hidden rounded-3xl border border-ink-900/[0.06] bg-cream-50">
                 <div className="grid grid-cols-[2fr_repeat(4,1fr)_1fr] border-b border-ink-900/[0.06] bg-ink-900/[0.025] px-5 py-3 text-[10px] uppercase tracking-[0.14em] text-ink-500">
@@ -147,50 +242,65 @@ export default function ProposalsPage() {
                   <div className="text-right">Avg conv.</div>
                 </div>
 
-                {CONSENSUS.map((row) => {
-                  const mentionsByPersona: Record<string, { weight: number; conviction: number } | undefined> =
-                    Object.fromEntries(row.mentions.map((m) => [m.personaId, m]));
-                  const mentionCount = row.mentions.length;
-                  return (
-                    <div
-                      key={row.ticker}
-                      className={cn(
-                        "grid grid-cols-[2fr_repeat(4,1fr)_1fr] border-b border-ink-900/[0.05] px-5 py-3.5 last:border-b-0 transition-colors hover:bg-ink-900/[0.02]",
-                        mentionCount >= 3 && "bg-coral-50/40"
-                      )}
-                    >
-                      <div className="flex items-center gap-3 min-w-0">
-                        <div className="num text-sm font-medium text-ink-900">{row.ticker}</div>
-                        <div className="truncate text-xs text-ink-500">{row.name}</div>
-                        {mentionCount >= 3 && (
-                          <Badge tone="coral" className="ml-auto sm:ml-0">Consensus</Badge>
+                {loading ? (
+                  <div className="space-y-px">
+                    {[0, 1, 2, 3, 4].map((i) => (
+                      <div key={i} className="h-12 animate-pulse bg-ink-900/[0.02]" />
+                    ))}
+                  </div>
+                ) : consensus.length === 0 ? (
+                  <div className="px-5 py-8 text-center text-sm text-ink-500">
+                    No proposals published yet. Cron runs Friday close.
+                  </div>
+                ) : (
+                  consensus.map((row) => {
+                    const mentionsByPersona = Object.fromEntries(
+                      row.mentions.map((m) => [m.personaId, m]),
+                    );
+                    const mentionCount = row.mentions.length;
+                    return (
+                      <div
+                        key={row.ticker}
+                        className={cn(
+                          "grid grid-cols-[2fr_repeat(4,1fr)_1fr] border-b border-ink-900/[0.05] px-5 py-3.5 last:border-b-0 transition-colors hover:bg-ink-900/[0.02]",
+                          mentionCount >= 3 && "bg-coral-50/40",
                         )}
-                      </div>
-                      {PERSONAS.map((p) => {
-                        const m = mentionsByPersona[p.id];
-                        if (!m) return <div key={p.id} className="text-xs text-ink-300">—</div>;
-                        return (
-                          <div key={p.id} className="num text-xs text-ink-700">
-                            {fmt.pctAbs(m.weight)}
-                            <div className="mt-1 h-[3px] overflow-hidden rounded-full bg-ink-900/[0.06]">
-                              <div
-                                className="h-full rounded-full"
-                                style={{
-                                  width: `${Math.min(m.weight * 400, 100)}%`,
-                                  background: ACCENT_HEX[p.accent],
-                                  opacity: 0.5 + m.conviction * 0.5,
-                                }}
-                              />
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="num text-sm font-medium text-ink-900">{row.ticker}</div>
+                          <div className="truncate text-xs text-ink-500">{row.name}</div>
+                          {mentionCount >= 3 && (
+                            <Badge tone="coral" className="ml-auto sm:ml-0">
+                              Consensus
+                            </Badge>
+                          )}
+                        </div>
+                        {PERSONAS.map((p) => {
+                          const m = mentionsByPersona[p.id];
+                          if (!m) return <div key={p.id} className="text-xs text-ink-300">—</div>;
+                          return (
+                            <div key={p.id} className="num text-xs text-ink-700">
+                              {fmt.pctAbs(m.weight)}
+                              <div className="mt-1 h-[3px] overflow-hidden rounded-full bg-ink-900/[0.06]">
+                                <div
+                                  className="h-full rounded-full"
+                                  style={{
+                                    width: `${Math.min(m.weight * 400, 100)}%`,
+                                    background: ACCENT_HEX[p.accent],
+                                    opacity: 0.5 + (m.conviction ?? 0.5) * 0.5,
+                                  }}
+                                />
+                              </div>
                             </div>
-                          </div>
-                        );
-                      })}
-                      <div className="num text-right text-xs font-medium text-ink-800">
-                        {fmt.num(row.avgConviction, 2)}
+                          );
+                        })}
+                        <div className="num text-right text-xs font-medium text-ink-800">
+                          {row.avgConviction > 0 ? fmt.num(row.avgConviction, 2) : "—"}
+                        </div>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })
+                )}
               </div>
 
               <p className="mt-4 text-xs text-ink-500">
@@ -204,13 +314,11 @@ export default function ProposalsPage() {
   );
 }
 
-function Stat({ label, value, sign }: { label: string; value: string; sign?: number }) {
+function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div>
       <div className="text-[10px] uppercase tracking-[0.14em] text-ink-500">{label}</div>
-      <div className={cn("num mt-0.5 text-sm font-medium", sign !== undefined ? signClass(sign) : "text-ink-900")}>
-        {value}
-      </div>
+      <div className="num mt-0.5 text-sm font-medium text-ink-900">{value}</div>
     </div>
   );
 }

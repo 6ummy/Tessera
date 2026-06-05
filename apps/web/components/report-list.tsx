@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import { ChevronDown, FileText } from "lucide-react";
-import type { Report } from "@/lib/mock/reports";
+import type { Report } from "@/lib/thesis-types";
 import type { Persona } from "@/lib/mock/personas";
 import { ACCENT_CLASS } from "@/lib/mock/personas";
 import { Badge } from "./ui/badge";

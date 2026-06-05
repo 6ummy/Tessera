@@ -203,6 +203,183 @@ async def chat_stream(
     )
 
 
+@app.get("/api/reports/{persona_id}")
+async def get_persona_reports(
+    persona_id: str,
+    limit: int = 5,
+    authorization: str | None = Header(default=None),
+) -> dict:
+    """Latest N analyst_reports for a persona, reshaped for the Vercel UI.
+
+    Each report's `parsed` JSONB (AnalystReport for stock-pickers,
+    RegimeReport for Ray) is unpacked into UI-friendly shape: title,
+    body paragraphs, tickers, numerics, what_would_make_me_wrong list.
+    """
+    _require_webhook_auth(authorization)
+    if persona_id not in ("warren", "cathie", "ray", "peter"):
+        raise HTTPException(400, f"unknown persona: {persona_id}")
+    limit = max(1, min(limit, 20))
+
+    from tessera_worker.db import session_scope
+    from sqlalchemy import text as _sql
+
+    rows = []
+    with session_scope() as session:
+        result = session.execute(
+            _sql("""
+                SELECT id::text AS id, as_of_date, parsed
+                FROM analyst_reports
+                WHERE persona_id = :p AND rejected = false
+                ORDER BY as_of_date DESC, ts DESC
+                LIMIT :n
+            """),
+            {"p": persona_id, "n": limit},
+        ).all()
+        for r in result:
+            parsed = r.parsed if isinstance(r.parsed, dict) else {}
+            rows.append(_reshape_report_row(
+                r.id, persona_id, r.as_of_date.isoformat(), parsed,
+            ))
+    return {"reports": rows}
+
+
+@app.get("/api/proposals/{persona_id}")
+async def get_persona_proposal(
+    persona_id: str,
+    authorization: str | None = Header(default=None),
+) -> dict:
+    """Persona's most-recent thesis, reshaped as a Proposal-like object
+    for the UI's persona book view. Ray gets RegimeReport-derived
+    allocations mapped into the same positions[] shape (uniform
+    consumption on the frontend)."""
+    _require_webhook_auth(authorization)
+    if persona_id not in ("warren", "cathie", "ray", "peter"):
+        raise HTTPException(400, f"unknown persona: {persona_id}")
+
+    from tessera_worker.db import session_scope
+    from sqlalchemy import text as _sql
+    from tessera_worker.universe import META_BY_TICKER
+
+    with session_scope() as session:
+        row = session.execute(
+            _sql("""
+                SELECT as_of_date, parsed
+                FROM analyst_reports
+                WHERE persona_id = :p AND rejected = false
+                ORDER BY as_of_date DESC, ts DESC
+                LIMIT 1
+            """),
+            {"p": persona_id},
+        ).first()
+
+    if not row:
+        return {"personaId": persona_id, "asOf": None, "positions": [],
+                "cashWeight": None, "regime": None,
+                "horizon": _persona_horizon(persona_id)}
+
+    parsed = row.parsed if isinstance(row.parsed, dict) else {}
+    positions: list[dict] = []
+    # Stock-picker shape (Warren / Cathie / Peter): parsed.proposals
+    for p in (parsed.get("proposals") or []):
+        ticker = p.get("ticker", "?")
+        meta = META_BY_TICKER.get(ticker)
+        positions.append({
+            "ticker": ticker,
+            "name": meta.name if meta else ticker,
+            "sector": meta.sector if meta else "Unknown",
+            "weight": float(p.get("target_weight", 0)),
+            "side": p.get("side", "hold"),
+            "conviction": float(p.get("conviction", 0)),
+            "thesis": (p.get("thesis_md") or "")[:240].strip(),
+        })
+    # Ray shape: parsed.allocations (instrument-keyed)
+    for a in (parsed.get("allocations") or []):
+        inst = a.get("instrument", "?")
+        meta = META_BY_TICKER.get(inst)
+        positions.append({
+            "ticker": inst,
+            "name": meta.name if meta else (a.get("asset_class") or inst),
+            "sector": meta.sector if meta else (a.get("asset_class") or "Unknown"),
+            "weight": float(a.get("target_weight", 0)),
+            "side": "long",
+            # RegimeAllocation has no per-slice conviction; surface as null
+            # so the UI can choose not to display the dot.
+            "conviction": None,
+            "thesis": (a.get("thesis_md") or "")[:240].strip(),
+        })
+    regime = parsed.get("regime")
+    return {
+        "personaId": persona_id,
+        "asOf": row.as_of_date.isoformat(),
+        "horizon": _persona_horizon(persona_id),
+        "cashWeight": float(parsed.get("cash_target", 0)),
+        "positions": positions,
+        "regime": regime,  # null for non-Ray
+        "notesToManager": parsed.get("notes_to_manager") or "",
+    }
+
+
+def _reshape_report_row(
+    row_id: str, persona_id: str, date_iso: str, parsed: dict,
+) -> dict:
+    """Turn a raw analyst_reports row into the {title, body, tickers, …}
+    shape the UI's report card expects."""
+    # Pick the first proposal/allocation to title the report card.
+    first_pos = (parsed.get("proposals") or [None])[0] \
+        or (parsed.get("allocations") or [None])[0]
+    if first_pos:
+        ticker = first_pos.get("ticker") or first_pos.get("instrument") or "?"
+        side = first_pos.get("side") or "allocate"
+        conv = first_pos.get("conviction")
+        conv_str = f"conv {conv:.2f}" if isinstance(conv, (int, float)) else ""
+        title = f"{persona_id.title()} · {ticker} · {side}"
+        if conv_str:
+            title += f" ({conv_str})"
+        thesis_md = first_pos.get("thesis_md") or ""
+    else:
+        title = f"{persona_id.title()} · {date_iso}"
+        thesis_md = parsed.get("notes_to_manager") or ""
+
+    body_paragraphs = [p.strip() for p in (thesis_md or "").split("\n\n") if p.strip()]
+    summary = body_paragraphs[0][:240] if body_paragraphs else ""
+    if len(summary) >= 240:
+        summary = summary.rstrip() + "…"
+
+    tickers: list[str] = []
+    for p in (parsed.get("proposals") or []):
+        if p.get("ticker"):
+            tickers.append(p["ticker"])
+    for a in (parsed.get("allocations") or []):
+        if a.get("instrument"):
+            tickers.append(a["instrument"])
+
+    return {
+        "id": row_id,
+        "personaId": persona_id,
+        "date": date_iso,
+        "title": title,
+        "tickers": tickers,
+        "type": "macro" if persona_id == "ray" else "thesis",
+        "summary": summary,
+        "body": body_paragraphs,
+        "whatWouldMakeMeWrong": (
+            (parsed.get("proposals") or [{}])[0].get("what_would_make_me_wrong") or []
+            if parsed.get("proposals") else []
+        ),
+        "cashTarget": parsed.get("cash_target"),
+        "notesToManager": parsed.get("notes_to_manager") or "",
+    }
+
+
+def _persona_horizon(persona_id: str) -> str:
+    return {
+        "warren": "5+ years",
+        "cathie": "3–5 years",
+        "ray": "Continuous",
+        "peter": "2–4 years",
+    }.get(persona_id, "—")
+
+
 if __name__ == "__main__":
     import uvicorn
 
