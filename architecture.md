@@ -445,7 +445,7 @@ plane is shipped; the LLM pipeline is the Week 2 / Week 3 work.
 | `agents/citation_validator.py` | LLM Pipeline | ✅ shipped |
 | `agents/models.py` (`AnalystReport`, `Proposal`) | LLM Pipeline | ✅ shipped (re-export from `tessera_shared`) |
 | `features/compute.py` — `fcf_yield` (TTM-decomposed cumulative-YTD, FX-converted, cross-validated mcap) | Quant | ✅ shipped 2026-06-04 |
-| `features/compute.py` — `peg`, `eps_cagr_3y`, `debt_to_equity`, `gross_margin_trend` | Quant | ⏳ Week 2–3 (reuses `cross_validated()` primitive) |
+| `features/compute.py` — `peg`, `eps_cagr_3y`, `debt_to_equity`, `gross_margin_trend` | Quant | ⏳ **Phase C Week 4** (moved from Phase B 2026-06-05 — voice differentiation verified with `fcf_yield` alone; remaining four are precision-tuning for the risk gateway). Reuses the `cross_validated()` primitive. |
 | `apps/web/app/api/reports/route.ts` + UI swap | Frontend | ⏳ Week 3 |
 | `agents/anthropic_runner.py` Ray-specific (`run_regime_thesis`, `RegimeReport`) | LLM Pipeline | ✅ shipped 2026-06-03 (parallel schema, `persona_id='ray'` discriminator in `analyst_reports`) |
 | `agents/embeddings.py` + `prompt_assembler.fetch_memory_recall` (Voyage similarity, recency fallback) | LLM Pipeline | ✅ shipped 2026-06-05 (PR #44) |

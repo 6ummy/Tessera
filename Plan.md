@@ -47,11 +47,14 @@
 | `persona_memory` | ~30 | one row per proposal, embedded best-effort |
 
 **Still missing (Phase B Week 3 end → Phase C):**
-- **`persona_batch.py`** — cron auto-trigger; FEATURE_REAL_LLM=true is set but nothing in the orchestrator yet loops personas. Until shipped, weekly theses are manual CLI only. **Critical path to Phase D.**
-- **Chat backend** (`/api/chat/[personaId]` SSE) — not started
-- **Frontend swap** (mock → /api/reports) — Frontend track; backend ready
-- **More Quant features** (PEG, EPS CAGR 3y, debt/equity, gross margin trend) — same `cross_validated()` scaffold as fcf_yield
+- ~~`persona_batch.py`~~ ✅ shipped 2026-06-05
+- ~~Chat backend~~ ✅ shipped 2026-06-05 (backend + frontend SSE consumer)
+- ~~Frontend swap (reports + proposals)~~ ✅ shipped 2026-06-05
+- ~~More Quant features (PEG / EPS CAGR / D-E / gross margin)~~ → **moved to Phase C Week 4** (2026-06-05). Voice differentiation already verified with fcf_yield alone; remaining features are precision-tuning for the risk gateway, which is itself Phase C.
 - **No paper-trading engine, no risk gateway** — Phase C Week 4
+- **performance.ts + portfolio.ts mocks** — blocked on Phase C paper engine populating `persona_performance`
+
+**🏁 Phase B ENDED 2026-06-05.** All §4 acceptance criteria 🟢. Next: Phase C (paper execution + risk gateway).
 - **No real auth** (assumes `jshin`) — Phase D
 - **Grafana cost dashboard** — `llm_call_log` table is the source of truth; visualization deferred to Phase C observability work
 
@@ -465,9 +468,9 @@ You should see:
     - **Live verification (31/42 tickers write)**: AAPL 2.83%, COST 2.06%, META 3.38%, TSM 1.51% — all within ±10% of independently-computed real values. Ranking is Warren-correct: XOM/MA/JNJ at top, mega-cap tech mid, cash-burning growth at bottom.
     - **50 tests**. Includes worked-example tests for AAPL Q2 FY26 and COST Q3 FY26 TTM math.
     - **Deferred to Phase C** (data quality work): UNH/NVDA/AMZN/COIN edge cases (sparse FY anchors, alternating null filings, one-time spikes). Sanity bound keeps these from polluting the LLM prompt; precision fix waits for a dedicated daily mcap source (FMP `key_metrics`) and FY-aware ingestion.
-- Day 3: `peg_ratio` (forward P/E ÷ EPS growth — needs FMP analyst estimates, else trailing proxy)
-- Day 4: `eps_cagr_3y` (3 consecutive annual income rows)
-- Day 5: `debt_to_equity` + start sketching the Phase C precursors (correlation matrix, sector exposure)
+- ~~Day 3: `peg_ratio` (forward P/E ÷ EPS growth — needs FMP analyst estimates, else trailing proxy)~~ — **deferred to Phase C Week 4** (2026-06-05). See Phase C entry.
+- ~~Day 4: `eps_cagr_3y` (3 consecutive annual income rows)~~ — deferred to Phase C Week 4.
+- ~~Day 5: `debt_to_equity`~~ — deferred to Phase C Week 4. Correlation matrix / sector exposure (Phase C precursor) remains Phase C Week 4 risk-gateway scope.
 
 **You will not need to touch**: `agents/*`, `ingestors/*` (mostly), `risk/*`. Those are owned by LLM Pipeline + Infra.
 
@@ -569,7 +572,8 @@ Pick one as your first PR. They're all real, small, and improve the downstream s
   - Exit 0 = pass, 1 = fail (Sentry capture on failure). Weekly cron should run canary as the LAST step after `persona_batch.py` and treat exit 1 as stop-the-world (skip next batch + page on-call).
   - First live run against the 18-cell backtest: **0 violations, PASS**. 23 unit tests cover each check independently + the result/threshold sanity.
 - [→] **Cost cap** — **functional component shipped 2026-06-02** (`check_daily_budget()` hard-pauses on cap breach; cost logged per call to `llm_call_log`). Grafana visualization + Slack alerts moved to Phase C Week 4 observability work (rolled forward; same data source, just unwired alerts).
-- [ ] **Frontend swap** (Frontend track, carried over from Phase A): `lib/mock/performance.ts` → `/api/performance`; same for thesis + portfolio reads. Now safe because real theses exist.
+- [x] **Frontend swap — thesis half** (Frontend track) — **shipped 2026-06-05**. `lib/mock/reports.ts` + `lib/mock/proposals.ts` deleted; `/api/reports/[personaId]` + `/api/proposals/[personaId]` Edge proxies pipe Cloud Run worker endpoints (`GET /api/reports/{persona}` + `GET /api/proposals/{persona}` in `main.py`) into the persona detail sheet + `/proposals` page. Worker reshapes `analyst_reports.parsed` — AnalystReport for stock-pickers, RegimeReport for Ray — into a uniform `{positions, cashWeight, regime?, asOf}` shape so the UI consumes both schemas without branching. Types in `lib/thesis-types.ts`; client fetcher with AbortController + skeleton + empty states in `lib/analyst-data.ts`. Edge cache 60s s-maxage matches the weekly cron cadence. Live verified — Warren MCO/JNJ from yesterday's batch + Ray's 8 ETF regime allocations render correctly.
+- [→] **Frontend swap — performance + portfolio half** — **deferred to Phase C Week 5**, blocked on the paper-trading engine populating `persona_performance` + `persona_portfolios`. Showing mock until then is more honest than synthesizing fake P&L. `lib/mock/performance.ts` + `lib/mock/portfolio.ts` intentionally retained.
 
 **Compression note**: previously three weeks (runner / desk / chat). Now two
 weeks. Risk: backtest review is rushed. Mitigation: review sample size from 10
@@ -591,7 +595,23 @@ to 5 per persona; defer voice tuning to post-launch iteration.
   - `citation_validator` rejected 0 cells on bad news IDs across the 60-cell run. `assemble_prompt` only emits tickers from `tessera_worker.universe` so the schema cannot produce a non-universe `ticker`.
 
 ### Open decisions to resolve here
-- **Chat model**: Sonnet 4.6 always (simpler, ~$0.012/msg) vs. fine-tuned Haiku per persona (more expensive to set up, ~$0.001/msg, stronger voice). **Recommendation: Sonnet 4.6 for pilot, revisit when chat volume justifies fine-tune.**
+- ~~**Chat model**: Sonnet 4.6 always vs. fine-tuned Haiku per persona~~ — **Decided 2026-06-05: Sonnet 4.6 always.** Live chat backend shipped on Sonnet; voice quality + cost both acceptable (~$0.003/msg with system-block caching). Revisit if chat volume crosses 500 msg/day per persona.
+
+### 🏁 Phase B END — 2026-06-05
+
+All five §4 acceptance criteria 🟢:
+- 🟢 Open Warren in UI → real thesis with citations
+- 🟢 Open chat with Cathie → real Sonnet response in voice
+- 🟢 Cost < $5/day average (live: ~$1.35/weekly run = $5-7/mo)
+- 🟢 Backtest < 2% schema-fail (60-cell: 1.67%, 18-cell follow: 0%)
+- 🟢 0 hallucinated tickers reached UI (canary 0 violations across 18 rows)
+
+**Deferred to Phase C** with documented rationale:
+- Hard rule per-persona caps → merged into Risk Gateway (single home, single code path)
+- Cost-cap Grafana viz → joins observability work in Phase C Week 4 (functional hard-pause already shipped)
+- 4 remaining Quant features (PEG / EPS CAGR 3y / debt-to-equity / gross margin) → precision-tuning for risk-gated backtests, not for voice differentiation (already verified)
+- Performance + portfolio frontend swap → blocked on Phase C paper engine populating `persona_performance`
+- fcf_yield precision edge cases (UNH/NVDA/AMZN/COIN) → needs dedicated daily mcap source (Phase C ingest plane work)
 
 ---
 
@@ -612,6 +632,7 @@ to 5 per persona; defer voice tuning to post-launch iteration.
 - [ ] **EOD mark-to-market**: recompute `persona_portfolios.total_value` daily
 - [ ] **Persona performance writer**: nightly pnl_day, pnl_cum, sharpe_30d, mdd_30d, hit_rate
 - [ ] **Cost observability — Grafana visualization + Slack alerts** (rolled forward from Phase B Week 2 plan). Source data already populated in `llm_call_log`; this is dashboard + webhook wiring. Alert thresholds: $5/day (info), $10/day (warning), $20/day (page). The hard pause (`check_daily_budget`) stays as the safety net — alerts give earlier warning.
+- [ ] **Quant fundamentals features — PEG / EPS CAGR 3y / debt-to-equity / gross margin trend** (rolled forward from Phase B Week 2; deferred 2026-06-05 with Phase B closure). All four follow the same `cross_validated()` scaffold as `fcf_yield` (already shipped), so this is incremental work, not new infrastructure. Why Phase C rather than Phase B: voice differentiation was already verified live with `fcf_yield` alone (Cathie 0.38–0.82, Warren 0.55–0.62, Peter 0.45–0.72 — Phase B acceptance PASS), so the additional features are about precision-tuning for the risk gateway + backtest harness, both of which are Phase C work. Each is a small pandas function + property test + loader extension on top of the existing `_load_fundamentals_latest`. Order suggested by persona need: PEG (Peter primary screen) → EPS CAGR 3y (Warren + Peter both want) → debt/equity (every persona uses as a gate) → gross margin trend (Cathie + Peter trend signal).
 
 ### Week 5 — Frontend wire-up + baseline backtest + weight-distribution telemetry
 - [ ] **Leaderboard tab** reads from `persona_performance` (delete mock)
