@@ -69,3 +69,51 @@ def test_build_user_message_includes_ticker() -> None:
     )
     assert "AAPL" in msg
     assert "AnalystReport" in msg
+
+
+# ─── pgvector recall (PR #41) ──────────────────────────────────────────
+
+
+def test_fetch_memory_recall_falls_back_to_recency_when_no_query() -> None:
+    """No query_text → similarity path bypassed → recency query runs."""
+    from unittest.mock import MagicMock
+    from tessera_worker.agents.prompt_assembler import fetch_memory_recall
+
+    session = MagicMock()
+    session.execute.return_value.all.return_value = []  # empty DB
+    result = fetch_memory_recall(session, "warren", "AAPL")
+    # Should have executed exactly one query (recency only), not similarity.
+    assert session.execute.call_count == 1
+    assert result == ""
+
+
+def test_fetch_memory_recall_falls_back_when_voyage_unconfigured(monkeypatch) -> None:
+    """query_text provided but VOYAGE_API_KEY blank → recency fallback."""
+    from unittest.mock import MagicMock
+    from tessera_worker.agents.prompt_assembler import fetch_memory_recall
+
+    # Ensure voyage key is blank
+    monkeypatch.setenv("VOYAGE_API_KEY", "")
+    # Clear cached settings so blank key takes effect
+    from tessera_worker.config import get_settings
+    get_settings.cache_clear()
+
+    session = MagicMock()
+    session.execute.return_value.all.return_value = []
+    fetch_memory_recall(session, "warren", "AAPL", query_text="earnings beat")
+    # Similarity check exits early (empty list) → recency runs as fallback.
+    assert session.execute.call_count == 1
+
+
+def test_embed_thesis_returns_none_when_no_key(monkeypatch) -> None:
+    monkeypatch.setenv("VOYAGE_API_KEY", "")
+    from tessera_worker.config import get_settings
+    get_settings.cache_clear()
+    from tessera_worker.agents.embeddings import embed_thesis
+    assert embed_thesis("anything") is None
+
+
+def test_to_pgvector_literal_format() -> None:
+    from tessera_worker.agents.embeddings import to_pgvector_literal
+    s = to_pgvector_literal([0.1, -0.5, 1.0])
+    assert s == "[0.100000,-0.500000,1.000000]"

@@ -256,7 +256,29 @@ def fetch_inputs(
     else:
         out["filing"] = None
 
-    out["memory"] = fetch_memory_recall(session, persona, ticker)
+    # Build a similarity query from the freshest signals — news headlines
+    # + a short feature line — so the embedding picks up the current
+    # narrative (earnings event, regulatory issue, etc.) and surfaces
+    # analogous past theses. Falls back to recency-only when Voyage is
+    # unconfigured or the embedding call fails.
+    query_seeds: list[str] = []
+    for n in (out.get("news") or [])[:3]:
+        title = n.get("title") if isinstance(n, dict) else None
+        if title:
+            query_seeds.append(str(title))
+    if out.get("features"):
+        # A few highest-signal numbers, formatted compactly. fcf_yield is the
+        # one persona memory most often turns on.
+        feat = out["features"]
+        for k in ("fcf_yield", "rsi_14", "vol_30d"):
+            v = feat.get(k) if isinstance(feat, dict) else None
+            if v is not None:
+                query_seeds.append(f"{k}={v}")
+    query_text = " | ".join(query_seeds) if query_seeds else f"{persona} {ticker}"
+
+    out["memory"] = fetch_memory_recall(
+        session, persona, ticker, query_text=query_text,
+    )
     return out
 
 
@@ -265,7 +287,79 @@ def fetch_memory_recall(
     persona: PersonaId,
     ticker: str,
     limit: int = 3,
+    *,
+    query_text: str | None = None,
 ) -> str:
+    """Recall up to `limit` prior thesis snippets for this (persona, ticker).
+
+    Two strategies, picked at runtime:
+
+      1. **Embedding similarity** — preferred. If a Voyage embedding can
+         be produced for `query_text` (the current feature snapshot or
+         seed prompt), rows are ordered by cosine distance to that vector
+         against rows that have embeddings populated. This surfaces
+         analogues from history rather than just the most recent reports.
+
+      2. **Recency** — fallback. Triggers when:
+           - no `query_text` provided,
+           - Voyage key blank / library missing / embedding call failed,
+           - no rows have embeddings yet (clean DB).
+
+    Cross-ticker note: similarity restricted to same (persona, ticker)
+    for now. Cross-ticker analogy retrieval is a Phase C task — it
+    requires careful citation discipline so the LLM doesn't quote a
+    different stock's thesis.
+    """
+    rows = _fetch_by_similarity(session, persona, ticker, limit, query_text) \
+        or _fetch_by_recency(session, persona, ticker, limit)
+    if not rows:
+        return ""
+    lines = [f'<memory count="{len(rows)}">']
+    for r in rows:
+        snippet = shorten(r.thesis_md or "", width=400, placeholder="...")
+        # Tag the line with how it was found so prompt audits can tell.
+        tag = getattr(r, "_recall_tag", "recency")
+        lines.append(f"  [{r.ts.date()} · {tag}] {snippet}")
+    lines.append("</memory>")
+    return "\n".join(lines)
+
+
+def _fetch_by_similarity(
+    session: Session, persona: PersonaId, ticker: str, limit: int,
+    query_text: str | None,
+) -> list:
+    """Try Voyage embedding + pgvector cosine search. Empty list on any miss."""
+    if not query_text:
+        return []
+    # Lazy import — keeps prompt_assembler usable in tests without voyage.
+    from tessera_worker.agents.embeddings import embed_query, to_pgvector_literal
+    vec = embed_query(query_text)
+    if vec is None:
+        return []
+    rows = session.execute(
+        text("""
+            SELECT thesis_md, ts,
+                   (embedding <=> CAST(:q AS vector)) AS distance
+            FROM persona_memory
+            WHERE persona_id = :p AND ticker = :t
+              AND embedding IS NOT NULL
+            ORDER BY embedding <=> CAST(:q AS vector)
+            LIMIT :n
+        """),
+        {"p": persona, "t": ticker, "n": limit, "q": to_pgvector_literal(vec)},
+    ).all()
+    for r in rows:
+        # mark for the prompt audit tag
+        try:
+            r._recall_tag = f"sim={float(r.distance):.3f}"
+        except (AttributeError, TypeError):
+            pass
+    return list(rows)
+
+
+def _fetch_by_recency(
+    session: Session, persona: PersonaId, ticker: str, limit: int,
+) -> list:
     rows = session.execute(
         text("""
             SELECT thesis_md, ts FROM persona_memory
@@ -274,14 +368,12 @@ def fetch_memory_recall(
         """),
         {"p": persona, "t": ticker, "n": limit},
     ).all()
-    if not rows:
-        return ""
-    lines = [f'<memory count="{len(rows)}">']
     for r in rows:
-        snippet = shorten(r.thesis_md or "", width=400, placeholder="...")
-        lines.append(f"  [{r.ts.date()}] {snippet}")
-    lines.append("</memory>")
-    return "\n".join(lines)
+        try:
+            r._recall_tag = "recency"
+        except (AttributeError, TypeError):
+            pass
+    return list(rows)
 
 
 def _fmt_money(v: Any) -> str:
