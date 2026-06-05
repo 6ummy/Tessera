@@ -101,3 +101,79 @@ def get_persona_spec(persona_id: PersonaId, path: str | Path | None = None) -> s
 def clear_cache() -> None:
     """Test helper: invalidate cached personalities.md parse."""
     load_persona_specs.cache_clear()
+    load_chat_specs.cache_clear()
+    load_universal_chat_policies.cache_clear()
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Chat fine-tuning sections (separate from the operational prompt).
+# Used by /api/chat/{persona_id} to inject voice + format rules into the
+# system block. The operational prompt produces structured JSON; the chat
+# spec produces prose in the persona's voice.
+# ─────────────────────────────────────────────────────────────────────────
+
+_CHAT_HEADER = re.compile(
+    r"^##\s+\d+\.\s+(Warren|Cathie|Ray|Peter)\s+—\s+Chat fine-tuning spec\s*$",
+    re.MULTILINE,
+)
+
+_UNIVERSAL_CHAT_HEADER = re.compile(
+    r"^##\s+Universal chat policies[^\n]*$",
+    re.MULTILINE,
+)
+
+
+def _split_chat_sections(text: str) -> dict[PersonaId, str]:
+    matches = list(_CHAT_HEADER.finditer(text))
+    if len(matches) != len(_PERSONA_IDS):
+        raise ValueError(
+            f"expected {len(_PERSONA_IDS)} chat fine-tuning specs, "
+            f"found {len(matches)}"
+        )
+    out: dict[PersonaId, str] = {}
+    for i, match in enumerate(matches):
+        name = match.group(1)
+        pid = _ID_BY_NAME[name]
+        start = match.end()
+        if i + 1 < len(matches):
+            end = matches[i + 1].start()
+        else:
+            next_top = _ANY_TOP_HEADER.search(text, start)
+            end = next_top.start() if next_top else len(text)
+        body = text[start:end].strip()
+        body = re.sub(r"\n---\s*$", "", body).strip()
+        out[pid] = body
+    return out
+
+
+def _extract_universal_chat(text: str) -> str:
+    match = _UNIVERSAL_CHAT_HEADER.search(text)
+    if not match:
+        raise ValueError("'## Universal chat policies' section not found")
+    start = match.end()
+    next_top = _ANY_TOP_HEADER.search(text, start)
+    end = next_top.start() if next_top else len(text)
+    body = text[start:end].strip()
+    body = re.sub(r"\n---\s*$", "", body).strip()
+    return body
+
+
+@lru_cache(maxsize=1)
+def load_chat_specs(path: str | Path | None = None) -> dict[PersonaId, str]:
+    """Per-persona chat fine-tuning spec (response shape, voice, forbidden phrases)."""
+    md_path = Path(path) if path is not None else personalities_path()
+    text = md_path.read_text(encoding="utf-8")
+    return _split_chat_sections(text)
+
+
+@lru_cache(maxsize=1)
+def load_universal_chat_policies(path: str | Path | None = None) -> str:
+    """Universal chat policies (compliance, no personalized advice, identity, …)."""
+    md_path = Path(path) if path is not None else personalities_path()
+    text = md_path.read_text(encoding="utf-8")
+    return _extract_universal_chat(text)
+
+
+def get_chat_spec(persona_id: PersonaId, path: str | Path | None = None) -> str:
+    """Single persona chat fine-tuning spec."""
+    return load_chat_specs(path)[persona_id]

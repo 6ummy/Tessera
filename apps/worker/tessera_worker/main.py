@@ -14,7 +14,8 @@ Auth model:
 
 from __future__ import annotations
 
-from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, status
+from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request, status
+from fastapi.responses import StreamingResponse
 
 from tessera_worker.config import get_settings
 from tessera_worker.logging import configure_logging, get_logger
@@ -139,6 +140,67 @@ async def trigger_persona_batch(
     background.add_task(_job)
     log.info("persona_batch.queued")
     return {"status": "queued", "job": "persona_batch"}
+
+
+@app.post("/api/chat/{persona_id}")
+async def chat_stream(
+    persona_id: str,
+    request: Request,
+    authorization: str | None = Header(default=None),
+) -> StreamingResponse:
+    """SSE-stream a Sonnet 4.6 response in the persona's chat voice.
+
+    Body JSON:
+      { "message": "...user input...",
+        "history": [{"role": "user"|"assistant", "content": "..."}, ...] }
+
+    Response: `text/event-stream`. Each token arrives as
+      data: <text-delta>\\n\\n
+    The stream ends with
+      data: [DONE]\\n\\n
+
+    Cost / safety: shares `check_daily_budget()` with the thesis path, so
+    chat cannot blow the daily LLM cap. Also gated by `FEATURE_REAL_LLM`.
+    """
+    _require_webhook_auth(authorization)
+    if persona_id not in ("warren", "cathie", "ray", "peter"):
+        raise HTTPException(status_code=400, detail=f"unknown persona: {persona_id}")
+
+    body = await request.json()
+    message = body.get("message")
+    history = body.get("history") or []
+    if not message or not isinstance(message, str):
+        raise HTTPException(status_code=400, detail="missing 'message'")
+
+    from tessera_worker.agents.chat import (
+        ChatBudgetExceeded, ChatDisabledError, run_chat_stream,
+    )
+
+    async def _event_stream():
+        # SSE: 'data: <text>\\n\\n' chunks then 'data: [DONE]\\n\\n'.
+        try:
+            async for delta in run_chat_stream(persona_id, message, history):  # type: ignore[arg-type]
+                # Replace newlines so SSE event boundaries don't split mid-message
+                safe = delta.replace("\n", "\\n")
+                yield f"data: {safe}\n\n"
+            yield "data: [DONE]\n\n"
+        except ChatDisabledError as e:
+            yield f"event: error\ndata: chat_disabled: {e}\n\n"
+        except ChatBudgetExceeded as e:
+            yield f"event: error\ndata: budget_exceeded: {e}\n\n"
+        except Exception as e:
+            log.exception("chat.endpoint_failed", persona=persona_id)
+            yield f"event: error\ndata: {type(e).__name__}: {e}\n\n"
+
+    return StreamingResponse(
+        _event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # disables proxy buffering (nginx, etc.)
+        },
+    )
 
 
 if __name__ == "__main__":
