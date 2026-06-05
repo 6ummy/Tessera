@@ -451,7 +451,7 @@ plane is shipped; the LLM pipeline is the Week 2 / Week 3 work.
 | `agents/embeddings.py` + `prompt_assembler.fetch_memory_recall` (Voyage similarity, recency fallback) | LLM Pipeline | ✅ shipped 2026-06-05 (PR #44) |
 | `jobs/backtest_harness.py` (point-in-time replay, separate `backtest_reports` table, retry + persist-unparseable) | LLM Pipeline | ✅ shipped 2026-06-05 (live verified 1.67% then 0% schema-fail rate) |
 | `jobs/hallucination_canary.py` (5 invariant checks against most-recent batch; Sentry alert on fail) | LLM Pipeline | ✅ shipped 2026-06-05 |
-| `jobs/persona_batch.py` (weekly Fri cron — loops personas × shortlist → calls runner) | LLM Pipeline | ⏳ next (Phase B Week 3 → 4 closing task) |
+| `jobs/persona_batch.py` (weekly Fri cron — loops personas × shortlist → calls runner) | LLM Pipeline | ✅ shipped 2026-06-05 (Vercel cron `0 22 * * 5` → `/jobs/persona-batch` → 31-cell batch + chained canary; replaces the prior TODO stub in `main.py`) |
 | `/api/chat/[personaId]` SSE chat backend | LLM Pipeline + Frontend | ⏳ Phase B/D boundary (MVP ~5h on Vercel; production-grade ~10h on Cloud Run streaming endpoint) |
 
 **Cost model** (Plan.md §4 acceptance: < $5/day average):
