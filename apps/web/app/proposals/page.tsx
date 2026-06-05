@@ -105,7 +105,7 @@ export default function ProposalsPage() {
           </Link>
           <div className="mt-4 flex flex-col items-start justify-between gap-6 lg:flex-row lg:items-end">
             <div>
-              <div className="text-xs font-medium uppercase tracking-[0.18em] text-coral-600">Today's research</div>
+              <div className="text-xs font-medium uppercase tracking-[0.18em] text-coral-600">This week's research</div>
               <h1 className="display-serif mt-3 text-5xl tracking-tightest text-ink-900 sm:text-6xl">
                 Four portfolios.
                 <br />

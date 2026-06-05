@@ -248,10 +248,16 @@ async def get_persona_proposal(
     persona_id: str,
     authorization: str | None = Header(default=None),
 ) -> dict:
-    """Persona's most-recent thesis, reshaped as a Proposal-like object
-    for the UI's persona book view. Ray gets RegimeReport-derived
-    allocations mapped into the same positions[] shape (uniform
-    consumption on the frontend)."""
+    """Persona's CURRENT BOOK — aggregates the last week's batch into a
+    single Proposal-like view.
+
+    `persona_batch.py` writes ONE analyst_reports row per (persona, ticker)
+    cell, so Warren's weekly batch produces ~10 rows each containing 1
+    proposal. Querying only the latest row would show just the last
+    ticker the runner processed. Instead, aggregate the most-recent row
+    per ticker (DISTINCT-ON-ish via Python dedup) from the last 20
+    rows. Ray's RegimeReport is single-row by design (all 8 allocations
+    in one cell) and is handled by the same code path."""
     _require_webhook_auth(authorization)
     if persona_id not in ("warren", "cathie", "ray", "peter"):
         raise HTTPException(400, f"unknown persona: {persona_id}")
@@ -260,62 +266,95 @@ async def get_persona_proposal(
     from sqlalchemy import text as _sql
     from tessera_worker.universe import META_BY_TICKER
 
+    # 20 rows covers two consecutive batches for the largest shortlist
+    # (Cathie/Peter 10 each) — enough to assemble a full week's book
+    # without limiting to a calendar window (stale Ray runs would
+    # otherwise vanish silently until the next regime call).
     with session_scope() as session:
-        row = session.execute(
+        rows = session.execute(
             _sql("""
-                SELECT as_of_date, parsed
+                SELECT as_of_date, ts, parsed
                 FROM analyst_reports
                 WHERE persona_id = :p AND rejected = false
                 ORDER BY as_of_date DESC, ts DESC
-                LIMIT 1
+                LIMIT 20
             """),
             {"p": persona_id},
-        ).first()
+        ).all()
 
-    if not row:
+    if not rows:
         return {"personaId": persona_id, "asOf": None, "positions": [],
                 "cashWeight": None, "regime": None,
                 "horizon": _persona_horizon(persona_id)}
 
-    parsed = row.parsed if isinstance(row.parsed, dict) else {}
-    positions: list[dict] = []
-    # Stock-picker shape (Warren / Cathie / Peter): parsed.proposals
-    for p in (parsed.get("proposals") or []):
-        ticker = p.get("ticker", "?")
-        meta = META_BY_TICKER.get(ticker)
-        positions.append({
-            "ticker": ticker,
-            "name": meta.name if meta else ticker,
-            "sector": meta.sector if meta else "Unknown",
-            "weight": float(p.get("target_weight", 0)),
-            "side": p.get("side", "hold"),
-            "conviction": float(p.get("conviction", 0)),
-            "thesis": (p.get("thesis_md") or "")[:240].strip(),
-        })
-    # Ray shape: parsed.allocations (instrument-keyed)
-    for a in (parsed.get("allocations") or []):
-        inst = a.get("instrument", "?")
-        meta = META_BY_TICKER.get(inst)
-        positions.append({
-            "ticker": inst,
-            "name": meta.name if meta else (a.get("asset_class") or inst),
-            "sector": meta.sector if meta else (a.get("asset_class") or "Unknown"),
-            "weight": float(a.get("target_weight", 0)),
-            "side": "long",
-            # RegimeAllocation has no per-slice conviction; surface as null
-            # so the UI can choose not to display the dot.
-            "conviction": None,
-            "thesis": (a.get("thesis_md") or "")[:240].strip(),
-        })
-    regime = parsed.get("regime")
+    # Aggregate: most-recent row per ticker wins. DESC order means the
+    # first time we see a ticker, that's the freshest write.
+    positions_by_ticker: dict[str, dict] = {}
+    cash_targets: list[float] = []
+    regime: dict | None = None
+    latest_as_of = rows[0].as_of_date.isoformat()
+
+    for row in rows:
+        parsed = row.parsed if isinstance(row.parsed, dict) else {}
+        cash = parsed.get("cash_target")
+        if cash is not None:
+            try:
+                cash_targets.append(float(cash))
+            except (TypeError, ValueError):
+                pass
+        if regime is None and parsed.get("regime"):
+            regime = parsed["regime"]
+
+        # Stock-picker shape (Warren / Cathie / Peter)
+        for p in (parsed.get("proposals") or []):
+            ticker = p.get("ticker")
+            if not ticker or ticker in positions_by_ticker:
+                continue
+            meta = META_BY_TICKER.get(ticker)
+            positions_by_ticker[ticker] = {
+                "ticker": ticker,
+                "name": meta.name if meta else ticker,
+                "sector": meta.sector if meta else "Unknown",
+                "weight": float(p.get("target_weight", 0)),
+                "side": p.get("side", "hold"),
+                "conviction": float(p.get("conviction", 0)),
+                "thesis": (p.get("thesis_md") or "")[:240].strip(),
+            }
+        # Ray shape (parsed.allocations) — single-row but iterate anyway
+        for a in (parsed.get("allocations") or []):
+            inst = a.get("instrument")
+            if not inst or inst in positions_by_ticker:
+                continue
+            meta = META_BY_TICKER.get(inst)
+            positions_by_ticker[inst] = {
+                "ticker": inst,
+                "name": meta.name if meta else (a.get("asset_class") or inst),
+                "sector": meta.sector if meta else (a.get("asset_class") or "Unknown"),
+                "weight": float(a.get("target_weight", 0)),
+                "side": "long",
+                # RegimeAllocation has no per-slice conviction.
+                "conviction": None,
+                "thesis": (a.get("thesis_md") or "")[:240].strip(),
+            }
+
+    # Cash target — average across the batch's cells (each cell's view
+    # of "what fraction of NAV should be cash" varies; averaging is the
+    # least-bad summary).
+    cash_weight = sum(cash_targets) / len(cash_targets) if cash_targets else 0.0
+
+    positions = sorted(
+        positions_by_ticker.values(),
+        key=lambda p: -p["weight"],  # heaviest first
+    )
+
     return {
         "personaId": persona_id,
-        "asOf": row.as_of_date.isoformat(),
+        "asOf": latest_as_of,
         "horizon": _persona_horizon(persona_id),
-        "cashWeight": float(parsed.get("cash_target", 0)),
+        "cashWeight": cash_weight,
         "positions": positions,
-        "regime": regime,  # null for non-Ray
-        "notesToManager": parsed.get("notes_to_manager") or "",
+        "regime": regime,
+        "notesToManager": "",  # per-cell notes are too noisy to aggregate
     }
 
 
