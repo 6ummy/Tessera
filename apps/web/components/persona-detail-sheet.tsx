@@ -4,8 +4,8 @@ import Link from "next/link";
 import { ArrowUpRight, Briefcase, MessageCircle, Sparkles, Target, TrendingUp } from "lucide-react";
 import { ACCENT_CLASS, type Persona } from "@/lib/mock/personas";
 import { SERIES, BENCHMARK } from "@/lib/mock/performance";
-import { PROPOSAL_BY_PERSONA } from "@/lib/mock/proposals";
-import { REPORTS_BY_PERSONA } from "@/lib/mock/reports";
+import { fetchProposal, fetchReports } from "@/lib/analyst-data";
+import type { Proposal, Report } from "@/lib/thesis-types";
 import { Sheet, SheetContent } from "./ui/sheet";
 import { CumulativeChart } from "./cumulative-chart";
 import { Badge } from "./ui/badge";
@@ -34,16 +34,41 @@ export function PersonaDetailSheet({
   onOpenChange: (o: boolean) => void;
 }) {
   const [view, setView] = useState<ViewMode>("thesis");
+  const [proposal, setProposal] = useState<Proposal | null>(null);
+  const [reports, setReports] = useState<Report[]>([]);
+  const [loadingData, setLoadingData] = useState(false);
 
   // Reset to thesis view whenever a new persona opens
   useEffect(() => {
     if (persona) setView("thesis");
   }, [persona?.id]);
 
+  // Fetch live reports + proposal whenever the sheet opens for a persona.
+  // Uses AbortController so a rapid persona switch cancels the in-flight
+  // request rather than racing two responses into state.
+  useEffect(() => {
+    if (!persona || !open) return;
+    const ctrl = new AbortController();
+    setLoadingData(true);
+    setProposal(null);
+    setReports([]);
+    Promise.all([
+      fetchProposal(persona.id, { signal: ctrl.signal }),
+      fetchReports(persona.id, { limit: 5, signal: ctrl.signal }),
+    ])
+      .then(([p, r]) => {
+        if (ctrl.signal.aborted) return;
+        setProposal(p);
+        setReports(r);
+      })
+      .finally(() => {
+        if (!ctrl.signal.aborted) setLoadingData(false);
+      });
+    return () => ctrl.abort();
+  }, [persona?.id, open]);
+
   if (!persona) return null;
   const a = ACCENT_CLASS[persona.accent];
-  const proposal = PROPOSAL_BY_PERSONA[persona.id];
-  const reports = REPORTS_BY_PERSONA[persona.id] ?? [];
   const m = persona.metrics;
 
   return (
@@ -140,48 +165,79 @@ export function PersonaDetailSheet({
             </ul>
           </div>
 
-          {reports.length > 0 && (
-            <div className="border-t border-ink-900/[0.06] bg-cream-100/40 px-8 py-8">
-              <div className="mb-4 flex items-baseline justify-between">
-                <div>
-                  <h3 className="text-sm font-medium text-ink-900">Recent reports</h3>
-                  <p className="mt-0.5 text-xs text-ink-500">
-                    How {persona.name} writes, what {persona.name} watches.
-                  </p>
-                </div>
-                <span className="num text-[11px] text-ink-500">{reports.length} on file</span>
+          <div className="border-t border-ink-900/[0.06] bg-cream-100/40 px-8 py-8">
+            <div className="mb-4 flex items-baseline justify-between">
+              <div>
+                <h3 className="text-sm font-medium text-ink-900">Recent reports</h3>
+                <p className="mt-0.5 text-xs text-ink-500">
+                  How {persona.name} writes, what {persona.name} watches.
+                </p>
               </div>
-              <ReportList reports={reports} persona={persona} />
+              <span className="num text-[11px] text-ink-500">
+                {loadingData ? "loading…" : `${reports.length} on file`}
+              </span>
             </div>
-          )}
+            {loadingData ? (
+              <div className="space-y-2">
+                <div className="h-16 animate-pulse rounded-xl bg-ink-900/[0.04]" />
+                <div className="h-16 animate-pulse rounded-xl bg-ink-900/[0.04]" />
+              </div>
+            ) : reports.length === 0 ? (
+              <p className="rounded-xl border border-dashed border-ink-900/10 bg-cream-50 px-4 py-6 text-center text-xs text-ink-500">
+                No published reports yet. {persona.name}'s next batch runs Friday close.
+              </p>
+            ) : (
+              <ReportList reports={reports} persona={persona} />
+            )}
+          </div>
 
           <div className="px-8 pb-8 pt-8">
             <h3 className="mb-3 text-sm font-medium text-ink-900">
-              Latest portfolio · {proposal.positions.length} positions
+              Latest portfolio · {proposal?.positions.length ?? 0} positions
             </h3>
-            <div className="overflow-hidden rounded-2xl border border-ink-900/[0.06] bg-cream-50">
-              {proposal.positions.slice(0, 5).map((pos) => (
-                <div key={pos.ticker} className="flex items-center justify-between gap-4 border-b border-ink-900/[0.05] px-4 py-3 last:border-b-0">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="num text-sm font-medium text-ink-900">{pos.ticker}</span>
-                      <span className="truncate text-xs text-ink-500">{pos.name}</span>
+            {loadingData ? (
+              <div className="space-y-2">
+                <div className="h-14 animate-pulse rounded-xl bg-ink-900/[0.04]" />
+                <div className="h-14 animate-pulse rounded-xl bg-ink-900/[0.04]" />
+                <div className="h-14 animate-pulse rounded-xl bg-ink-900/[0.04]" />
+              </div>
+            ) : !proposal || proposal.positions.length === 0 ? (
+              <p className="rounded-xl border border-dashed border-ink-900/10 bg-cream-50 px-4 py-6 text-center text-xs text-ink-500">
+                Portfolio not yet published. Comes online with the next cron.
+              </p>
+            ) : (
+              <div className="overflow-hidden rounded-2xl border border-ink-900/[0.06] bg-cream-50">
+                {proposal.positions.slice(0, 5).map((pos) => (
+                  <div key={pos.ticker} className="flex items-center justify-between gap-4 border-b border-ink-900/[0.05] px-4 py-3 last:border-b-0">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="num text-sm font-medium text-ink-900">{pos.ticker}</span>
+                        <span className="truncate text-xs text-ink-500">{pos.name}</span>
+                      </div>
+                      <p className="mt-0.5 line-clamp-1 text-xs text-ink-500">{pos.sector}</p>
                     </div>
-                    <p className="mt-0.5 line-clamp-1 text-xs text-ink-500">{pos.sector}</p>
+                    <div className="text-right">
+                      <div className="num text-sm font-medium text-ink-900">{fmt.pctAbs(pos.weight)}</div>
+                      {pos.conviction !== null && (
+                        <div className="num text-[10px] text-ink-500">
+                          conv {fmt.num(pos.conviction, 2)}
+                        </div>
+                      )}
+                    </div>
                   </div>
-                  <div className="text-right">
-                    <div className="num text-sm font-medium text-ink-900">{fmt.pctAbs(pos.weight)}</div>
-                    <div className="num text-[10px] text-ink-500">conv {fmt.num(pos.conviction, 2)}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="sticky bottom-0 mt-auto border-t border-ink-900/[0.06] bg-cream-50/95 px-8 py-4 backdrop-blur">
             <div className="flex items-center justify-between gap-3">
               <span className="text-xs text-ink-500">
-                As of <span className="num text-ink-700">{proposal.asOf}</span>
+                {proposal?.asOf ? (
+                  <>As of <span className="num text-ink-700">{proposal.asOf}</span></>
+                ) : (
+                  "Awaiting next batch"
+                )}
               </span>
               <Link href={`/proposals?focus=${persona.id}`}>
                 <Button variant="primary" size="md">
