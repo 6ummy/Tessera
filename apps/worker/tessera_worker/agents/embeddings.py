@@ -90,7 +90,14 @@ def embed_query(text: str) -> list[float] | None:
             return None
         return list(vec)
     except Exception as e:
-        log.warning("embeddings.query_failed", error=str(e))
+        # Common case: free-tier rate limit hit (3 RPM, 10K TPM) before
+        # the user adds a billing method. Drop to debug-level so backtest
+        # runs don't get a wall of warnings; recall falls back to recency.
+        msg = str(e)
+        if "rate limit" in msg.lower() or "RPM" in msg or "TPM" in msg:
+            log.debug("embeddings.query_rate_limited", error=msg[:200])
+        else:
+            log.warning("embeddings.query_failed", error=msg)
         return None
 
 

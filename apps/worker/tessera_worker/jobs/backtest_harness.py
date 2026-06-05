@@ -88,25 +88,32 @@ def trading_days(end: date, n: int) -> list[date]:
 def persist_backtest_row(
     session, *, run_id: UUID, replay_as_of: date,
     persona_id: str, as_of_date: date, inputs_hash: str,
-    raw_response: str, parsed_json: str, model: str,
+    raw_response: str, parsed_json: str | None, model: str,
     tokens_in: int, tokens_out: int, cost_usd: float,
     rejected: bool, reject_reasons: list[str],
 ) -> None:
+    """parsed_json may be None (e.g. both LLM attempts failed validation —
+    we still want the raw text + reject reason in the table for review)."""
+    # NULL → CAST(NULL AS jsonb) is fine; only build the CAST when we
+    # have a real JSON string so we don't accidentally insert literal "null".
+    parsed_sql = "CAST(:parsed AS jsonb)" if parsed_json is not None else "NULL"
     session.execute(
-        text("""
+        text(f"""
             INSERT INTO backtest_reports
                 (run_id, replay_as_of, persona_id, as_of_date, inputs_hash,
                  raw_response, parsed, model, tokens_in, tokens_out, cost_usd,
                  rejected, reject_reasons)
             VALUES
                 (:rid, :replay, :p, :asof, :hash,
-                 :raw, CAST(:parsed AS jsonb), :model, :ti, :to, :cost,
+                 :raw, {parsed_sql}, :model, :ti, :to, :cost,
                  :rej, :reasons)
         """),
         {
             "rid": str(run_id), "replay": replay_as_of,
             "p": persona_id, "asof": as_of_date, "hash": inputs_hash,
-            "raw": raw_response, "parsed": parsed_json, "model": model,
+            "raw": raw_response,
+            **({"parsed": parsed_json} if parsed_json is not None else {}),
+            "model": model,
             "ti": tokens_in, "to": tokens_out, "cost": cost_usd,
             "rej": rejected, "reasons": reject_reasons,
         },
@@ -119,80 +126,115 @@ def run_one(
     result: RunResult,
 ) -> None:
     """One (replay_as_of, persona, ticker) attempt. Errors are logged + counted,
-    never raised — harness must complete all cells."""
-    from tessera_worker.agents.prompt_assembler import build_user_message, fetch_inputs
-    from tessera_worker.agents.persona_loader import load_persona_specs
+    never raised — harness must complete all cells.
+
+    Uses `assemble_prompt` (the same entry point production `run_thesis`
+    uses) so the prompt + system block + inputs_hash + news_ids are
+    constructed identically. point-in-time correctness is enforced inside
+    `fetch_inputs` via the `as_of` upper-bound.
+    """
+    from tessera_worker.agents.prompt_assembler import assemble_prompt
 
     result.attempted += 1
     result.bump(persona, "attempted")
 
     try:
-        inputs = fetch_inputs(session, persona, ticker, as_of=replay_as_of)  # type: ignore[arg-type]
-        spec = load_persona_specs()[persona]
-        assembled = build_user_message(
-            persona=persona,  # type: ignore[arg-type]
-            ticker=ticker,
-            as_of=replay_as_of,
-            inputs=inputs,
-            persona_spec=spec,
-        )
+        assembled = assemble_prompt(persona, ticker, as_of=replay_as_of)  # type: ignore[arg-type]
     except Exception as e:
         log.warning("backtest.assemble_failed",
                     persona=persona, ticker=ticker, replay_as_of=str(replay_as_of),
-                    error=str(e))
+                    error=str(e), error_type=type(e).__name__)
         result.errors += 1
         result.bump(persona, "errors")
         return
 
     if dry_run:
-        # Verify assembly path worked; don't call LLM.
+        # Assembly succeeded — that's the full check for --dry-run.
         result.persisted += 1
         result.bump(persona, "persisted")
         return
 
-    # Real path: LLM call + validation + persist.
+    # Real path: 2-attempt retry with feedback (mirrors prod `run_thesis`).
+    # First attempt fails Pydantic / citations → we feed the error back
+    # in attempt 2 ("Fix JSON only"). Both fail → persist with parsed=NULL
+    # + raw text + reject_reasons so the row exists for manual review.
     from tessera_worker.agents.anthropic_runner import (
-        build_analyst_report, call_anthropic_thesis, parse_llm_json,
+        build_analyst_report, call_anthropic_thesis, estimate_cost_usd, parse_llm_json,
     )
     from tessera_worker.agents.citation_validator import validate_citations
 
-    try:
-        raw, ti, to_, _cached, _ms = call_anthropic_thesis(assembled)
-        parsed = parse_llm_json(raw)
-        allowed_news_ids = {str(n["id"]) for n in (inputs.get("news") or [])}
-        from tessera_worker.agents.anthropic_runner import estimate_cost_usd
-        cost = estimate_cost_usd("claude-sonnet-4-6", ti, to_)
-        result.total_cost_usd += cost
+    model_name = "claude-sonnet-4-6"
+    last_error: str | None = None
+    last_raw = ""
+    last_ti = last_to = 0
+    last_cost = 0.0
+    report = None
+    cite_problems: list[str] = []
 
-        report = build_analyst_report(
-            parsed, persona_id=persona, as_of=replay_as_of,  # type: ignore[arg-type]
-            inputs_hash=assembled.inputs_hash, model="claude-sonnet-4-6",
-            tokens_in=ti, tokens_out=to_, cost_usd=cost,
-            allowed_news_ids={UUID(s) for s in allowed_news_ids},  # type: ignore[arg-type]
-        )
-        cite_problems = validate_citations(report, {UUID(s) for s in allowed_news_ids})  # type: ignore[arg-type]
-        rejected = bool(cite_problems)
-        persist_backtest_row(
-            session, run_id=run_id, replay_as_of=replay_as_of,
-            persona_id=persona, as_of_date=replay_as_of,
-            inputs_hash=assembled.inputs_hash, raw_response=raw,
-            parsed_json=report.model_dump_json(),
-            model="claude-sonnet-4-6", tokens_in=ti, tokens_out=to_,
-            cost_usd=cost, rejected=rejected,
-            reject_reasons=cite_problems,
-        )
-        if rejected:
+    for attempt in range(2):
+        feedback = last_error if attempt > 0 else None
+        try:
+            raw, ti, to_, _cached, _ms = call_anthropic_thesis(assembled, feedback=feedback)
+            last_raw, last_ti, last_to = raw, ti, to_
+            last_cost = estimate_cost_usd(model_name, ti, to_)
+            result.total_cost_usd += last_cost  # count both attempts toward cap
+
+            parsed = parse_llm_json(raw)
+            report = build_analyst_report(
+                parsed, persona_id=persona, as_of=replay_as_of,  # type: ignore[arg-type]
+                inputs_hash=assembled.inputs_hash, model=model_name,
+                tokens_in=ti, tokens_out=to_, cost_usd=last_cost,
+                allowed_news_ids=set(assembled.news_ids),
+            )
+            cite_problems = validate_citations(report, set(assembled.news_ids))
+            if cite_problems:
+                last_error = f"Invalid cited_news_ids: {cite_problems}"
+                if attempt == 0:
+                    continue
+            break  # success (or final attempt with citation problems we accept as "rejected")
+        except Exception as e:
+            last_error = f"{type(e).__name__}: {str(e)[:300]}"
+            if attempt == 0:
+                continue
+            # Second attempt also raised — persist a rejected row with raw text only.
+            log.warning("backtest.persist_unparseable",
+                        persona=persona, ticker=ticker, replay_as_of=str(replay_as_of),
+                        error=last_error)
+            try:
+                persist_backtest_row(
+                    session, run_id=run_id, replay_as_of=replay_as_of,
+                    persona_id=persona, as_of_date=replay_as_of,
+                    inputs_hash=assembled.inputs_hash,
+                    raw_response=last_raw or "",
+                    parsed_json=None,  # nullable column
+                    model=model_name, tokens_in=last_ti, tokens_out=last_to,
+                    cost_usd=last_cost,
+                    rejected=True, reject_reasons=[last_error],
+                )
+            except Exception as persist_err:
+                log.warning("backtest.persist_failed", error=str(persist_err))
             result.rejected += 1
             result.bump(persona, "rejected")
-        else:
-            result.persisted += 1
-            result.bump(persona, "persisted")
-    except Exception as e:
-        log.warning("backtest.llm_or_validate_failed",
-                    persona=persona, ticker=ticker, replay_as_of=str(replay_as_of),
-                    error=str(e), error_type=type(e).__name__)
-        result.errors += 1
-        result.bump(persona, "errors")
+            return
+
+    # If we get here, at least one attempt produced a buildable report.
+    assert report is not None
+    rejected = bool(cite_problems)
+    persist_backtest_row(
+        session, run_id=run_id, replay_as_of=replay_as_of,
+        persona_id=persona, as_of_date=replay_as_of,
+        inputs_hash=assembled.inputs_hash, raw_response=last_raw,
+        parsed_json=report.model_dump_json(),
+        model=model_name, tokens_in=last_ti, tokens_out=last_to,
+        cost_usd=last_cost, rejected=rejected,
+        reject_reasons=cite_problems,
+    )
+    if rejected:
+        result.rejected += 1
+        result.bump(persona, "rejected")
+    else:
+        result.persisted += 1
+        result.bump(persona, "persisted")
 
 
 def print_summary(result: RunResult) -> None:

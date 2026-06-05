@@ -53,7 +53,12 @@ class Proposal(BaseModel):
     horizon_days: int = Field(ge=1, le=3650)
     conviction: float = Field(ge=0, le=1)
     thesis_md: str = Field(min_length=20, max_length=2500)
-    what_would_make_me_wrong: list[str] = Field(default_factory=list, max_length=5)
+    # max_length 8: Cathie's voice naturally enumerates 6-7 distinct risks
+    # (scenario-structured personality). Cap at 8 stays manageable for the
+    # UI cards while not chopping a meaningful enumerated thought in half.
+    # Bumped 5→8 after 2026-06-04 backtest: 3 of 4 schema failures were
+    # Cathie outputting exactly 6 well-formed risks.
+    what_would_make_me_wrong: list[str] = Field(default_factory=list, max_length=8)
     cited_news_ids: list[UUID] = Field(default_factory=list, max_length=10)
     add_trigger: str | None = Field(default=None, description="Peter requires this; others optional")
     trim_trigger: str | None = Field(default=None, description="Peter requires this; others optional")
