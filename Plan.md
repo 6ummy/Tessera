@@ -640,6 +640,7 @@ All five §4 acceptance criteria 🟢:
 - [ ] **Attribution breakdown**: ticker-level contribution to each persona's MTD return
 - [ ] **Backtest mode**: replay 90 days → simulate 90 days of paper trades → baseline Sharpe/MDD
 - [ ] **Weight distribution telemetry**: weekly histogram per persona — alert on bimodal distribution at cap (see risk: *mode collapse*); decide by end of week whether to refactor to conviction-only schema
+- [ ] **Enable Voyage embeddings on prod chat memory** (rolled forward from Phase B 2026-06-05). Decision was to ship chat with `VOYAGE_API_KEY` absent on Cloud Run; `fetch_memory_recall` falls back to recency. By Phase C Week 5 `persona_memory` should have ~100+ rows (4 personas × 10 tickers × 3-5 weekly batches), at which point similarity-based recall starts surfacing meaningfully more relevant past theses than recency. Steps: (1) `gcloud secrets create VOYAGE_API_KEY` + populate, (2) add `,VOYAGE_API_KEY=VOYAGE_API_KEY:latest` to `deploy_cloud_run.ps1` --set-secrets, (3) redeploy worker, (4) compare a chat sample with vs without — confirm the 'sim=X' recall-tag actually fires + that the surfaced past theses are more topical than what recency picked. Cost stays $0 (Voyage free tier 200M tokens/month; pilot uses ~500K).
 - [ ] **Push notification on rebalance**: FCM → browser
 - [ ] **Sentry alert**: paper engine error → page within 5 min
 - [ ] **Skeleton/error states**: all frontend reads have loading + error UIs
