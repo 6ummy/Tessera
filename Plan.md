@@ -9,44 +9,53 @@
 
 ## 0. Where we are today (baseline)
 
-**Phase A is complete.** ✅ Updated 2026-05-18.
+**Phase A complete + Phase B Weeks 2–3 complete.** ✅ Updated 2026-06-05.
 
-**Built and shipped:**
+**Phase A — shipped 2026-05-18:**
 - Next.js 14 frontend with 4 routes (`/`, `/proposals`, `/dashboard`, `/how-it-works`) + Vercel-Cron-ready
-- Claude-design system (cream + coral + ink palette, Fraunces serif, JetBrains Mono) + inline mosaic SVG mark
-- 4 persona personas (Warren, Cathie, Ray, Peter) with photos, bios, and `personalities.md` system prompts
-- Slide-over persona detail with Thesis ↔ Chat toggle
-- Mock chat engine (keyword-matched response banks per persona) — frontend still reads this
-- Mock performance series, proposals, reports — frontend still reads this
-- **Python worker** (apps/worker) — FastAPI skeleton, SQLAlchemy + psycopg3, structlog
-- **Neon Postgres** live with TimescaleDB + pgvector, 14 tables, 001_init.sql applied
-- **7 production ingestors**: Alpaca EOD, Coinbase EOD, FRED macro (37 series), FMP fundamentals, NewsAPI, SEC EDGAR (10-K + 10-Q with GCS raw HTML), SEC XBRL companyfacts (structured fundamentals, fills FMP gap)
-- **51-ticker universe** spanning sectors each persona cares about
-- **Deterministic feature builder** — ret_*, vol_30d, rsi_14, sma_{20,50}, volume_z. 13/13 hypothesis tests pass.
-- **Daily orchestrator** (`ingest_daily.py`) — 8 sequential steps, idempotent, CLI flags
-- **Phase C historical backfill** (`backfill_history.py`) — pre-shipped 2026-06-02: 6yr Alpaca + 11yr Coinbase + full FRED depth (~325K rows total) so backtest harness has multi-year input from day one
-- **Vercel Cron endpoint** (`/api/cron/daily`) — edge runtime, Bearer-auth via `CRON_SECRET`, schedule `30 21 * * 1-5`
-- **Connection smoke test** + **SPY canary** (0.49 bps vs Yahoo)
+- Claude-design system + 4 persona personas (Warren / Cathie / Ray / Peter) with photos, bios, `personalities.md` system prompts
+- **Python worker** + **Neon Postgres** (TimescaleDB + pgvector), 14 tables
+- **7 production ingestors**: Alpaca, Coinbase, FRED (37 series), FMP, NewsAPI, SEC EDGAR (10-K/10-Q + GCS HTML), SEC XBRL companyfacts
+- **51-ticker universe** + deterministic price feature builder (ret_*, vol_30d, rsi_14, sma_*, volume_z)
+- **Daily orchestrator** + **Vercel Cron** endpoint (Bearer-auth, `30 21 * * 1-5`)
+- **Historical backfill** (`backfill_history.py`) — ~325K rows pre-shipped so backtest harness has 6yr equities / 11yr crypto / 9yr SEC fundamentals from day one
 
-**Production Neon state:**
-| Table | Rows |
-|---|---|
-| `ohlcv_1d` | ~14,000 |
-| `ticker_features` | 13,983 |
-| `macro_series` | 566 |
-| `fundamentals` | 255 |
-| `news` | 555 |
+**Phase B Week 2 — shipped 2026-06-02 / -03:**
+- **Cloud Run worker deployed** (Dockerfile + cloudbuild.yaml at repo root, prod cron live)
+- **Sentry DSN** registered on web + worker (errors-only)
+- **LLM pipeline end-to-end**: `persona_loader` + `prompt_assembler` + `anthropic_runner` + `citation_validator` + Pydantic `AnalystReport`/`Proposal` schemas — Sonnet 4.6 deep thesis, prompt caching on persona spec, 2-attempt retry with feedback, cost logged per call to `llm_call_log` + hard daily cap via `check_daily_budget()`
+- **Ray RegimeProbabilities runner** — parallel `RegimeReport` schema (ETF allocations, regime probabilities), discriminated-union persistence into same `analyst_reports` table via `persona_id='ray'`
+- **All 4 personas writing real Sonnet 4.6 theses verified** (manual CLI; cron auto-trigger pending `persona_batch.py`)
+- **Quant `fcf_yield`** shipped — TTM cumulative-YTD decomposition + FX (TWD/EUR/etc.) + cross-validated market cap; 31/42 tickers writing fcf_yield in band of independently-computed real values
 
-**Still missing (Phase B onwards):**
-- No LLM calls yet (chat + theses both mocked)
-- No real auth (assumes `jshin`)
-- No broker integration (Alpaca only used for market data, no trading client)
-- No paper-trading engine
-- No risk gateway
-- Cloud Run worker not yet deployed (laptop runs the orchestrator; Vercel Cron returns noop)
-- Frontend still reads mock data (deferred — Phase B will inject real theses first)
+**Phase B Week 3 — shipped 2026-06-04 / -05:**
+- **Backtest harness** (`jobs/backtest_harness.py`) — point-in-time replay over N days × M personas × K tickers, all `fetch_inputs` queries upper-bound on `as_of`, persists to separate `backtest_reports` table, schema-fail rate vs. 2% acceptance gate, honors daily cap + per-run `--max-cost`. **Live 60-cell + 18-cell runs both PASSed** (1.67% then 0% fail rate after follow-ups)
+- **pgvector recall** — Voyage AI embeddings (1024-dim), `persist_analyst_report` writes `persona_memory` rows best-effort, `fetch_memory_recall` switches between similarity (`<=>` cosine) and recency at runtime
+- **LLM robustness pass** — `personalities.md` `confidence`→`conviction` rename (silent-signal-loss fix), `JSONDecoder.raw_decode` parser absorbs trailing chatter (Cathie scenario narration), `_retry_guidance_for` pattern-matches the validation error and gives the LLM a SPECIFIC corrective instruction
+- **Leakage tests** for backtest mode — mock-session unit tests prove `fetch_inputs(as_of=X)` never emits a query without an `as_of` upper-bound
 
-This plan takes the project from **demo → Phase A done → operational pilot**.
+**Production Neon state (approx, 2026-06-05):**
+| Table | Rows | Note |
+|---|---|---|
+| `ohlcv_1d` | ~250K | 20-yr depth via yfinance backfill |
+| `ticker_features` | ~240K | 6yr × 42 equities, now with `fcf_yield` populated |
+| `macro_series` | ~237K | full FRED history |
+| `fundamentals` | ~7,400 | FMP + SEC XBRL merged, 39/42 ticker coverage |
+| `news` | ~2.5K+ | growing daily |
+| `analyst_reports` | ~30 | live + smoke runs |
+| `backtest_reports` | ~80 | from 60+18+1 cell runs |
+| `persona_memory` | ~30 | one row per proposal, embedded best-effort |
+
+**Still missing (Phase B Week 3 end → Phase C):**
+- **`persona_batch.py`** — cron auto-trigger; FEATURE_REAL_LLM=true is set but nothing in the orchestrator yet loops personas. Until shipped, weekly theses are manual CLI only. **Critical path to Phase D.**
+- **Chat backend** (`/api/chat/[personaId]` SSE) — not started
+- **Frontend swap** (mock → /api/reports) — Frontend track; backend ready
+- **More Quant features** (PEG, EPS CAGR 3y, debt/equity, gross margin trend) — same `cross_validated()` scaffold as fcf_yield
+- **No paper-trading engine, no risk gateway** — Phase C Week 4
+- **No real auth** (assumes `jshin`) — Phase D
+- **Grafana cost dashboard** — `llm_call_log` table is the source of truth; visualization deferred to Phase C observability work
+
+This plan takes the project from **demo → Phase A done → Phase B done → Phase C paper engine + risk gateway**.
 
 ---
 
@@ -514,7 +523,7 @@ Pick one as your first PR. They're all real, small, and improve the downstream s
 - [ ] **`screen_promotion_rate` dashboard**: target band 30–80% — **blocked on Haiku screen**
 - [x] **Deep thesis** (Sonnet 4.6, PR #33, shipped 2026-06-02): currently runs on hand-picked tickers via CLI / `persona_batch.py`. "shortlist only" gating pending Haiku screen
 - [x] **Prompt caching** (PR #33, shipped 2026-06-02): persona spec marked `cache_control: ephemeral` in `anthropic_runner.py:258`. Verified cache hits in `llm_call_log` cost reduction
-- [ ] **pgvector recall**: surface prior 5 theses on same ticker via embedding similarity — **partial**: `fetch_memory_recall()` ships in `prompt_assembler.py` but uses **recency only** (`ORDER BY ts DESC LIMIT 3`), not embedding similarity. `persona_memory.embedding` column exists; needs (1) embedding writer on thesis persist (2) `<->` cosine query. **Week 3 task**
+- [x] **pgvector recall** — **shipped 2026-06-05** (PR #42 + follow-ups). Voyage AI embeddings (1024-dim `voyage-3.5-lite`, Anthropic-recommended, ~$0.0003/mo at pilot scale, free-tier covers indefinitely). New `agents/embeddings.py` (`embed_thesis`/`embed_query`/`to_pgvector_literal`). `persist_analyst_report` writes one `persona_memory` row per proposal as best-effort (NULL embedding if Voyage unavailable; persistence never blocks). `fetch_memory_recall` picks strategy at runtime: similarity (`<=>` cosine, query built from top-3 news titles + key features) when Voyage works, else recency fallback — both paths upper-bounded by `as_of` for backtest correctness. Recall lines tagged `sim=0.234` or `recency` for prompt audits. Migration `002_persona_memory_vector_1024.sql` (VECTOR 1536→1024, ivfflat WHERE embedding IS NOT NULL). 4 new tests.
 - [x] **Cost logging** (PR #33, shipped 2026-06-02): every call → **`llm_call_log` table** `(persona_id, stage, model, tokens_in, tokens_out, cost_usd, latency_ms, ts)`. Daily cap check in `_check_daily_budget()`. ~~Grafana metric~~ deferred to Phase C observability
 - [x] **First sanity check** — shipped 2026-06-03. Warren wrote real theses on AAPL (3 runs, all `side=hold conv=0.55-0.62 cash=0.12-0.15`, ~$0.02 each), Cathie on NVDA (tri-scenario thesis, conv=0.72), Peter on COST (hold, conv=0.62). Ray's `instrument`+ETF schema doesn't fit `Proposal` — needs separate `RegimeProbabilities` path, deferred to Week 3.
 
@@ -525,26 +534,39 @@ Pick one as your first PR. They're all real, small, and improve the downstream s
 
 ### Week 3 — Chat + backtest + hardening
 - [ ] **Persona batch job** (LLM Pipeline): `apps/worker/tessera_worker/jobs/persona_batch.py` — loops the per-persona shortlist (Haiku screen 500→30) and calls `anthropic_runner.run_thesis()` for each (persona, ticker). Wired to a new orchestrator step OR a separate Vercel Cron / Cloud Run Job. Until this exists, **`FEATURE_REAL_LLM=true` on prod has no effect** because nothing in the daily orchestrator currently calls `anthropic_runner`. Manual `python -m tessera_worker.agents.anthropic_runner <persona> <ticker>` only.
-- [ ] **Ray RegimeProbabilities runner** (LLM Pipeline) — Ray doesn't pick stocks; he allocates to asset-class ETFs (VTI / IEF / TLT / GLD / etc.) and outputs regime probabilities (goldilocks / reflation / stagflation / deflation). Current `AnalystReport` + `Proposal` schema rejects his output (uses `instrument` not `ticker`, weight 0.20–0.40 exceeds Proposal's 0.20 cap). Surface: build a parallel `run_regime_thesis(persona='ray', as_of)` that uses `RegimeProbabilities` schema (already defined in `packages/shared/tessera_shared/schemas.py`) instead of `AnalystReport`. Persist to a separate `regime_reports` table or extend `analyst_reports.parsed` with a discriminated union. Smoke-test confirmed today (2026-06-03): Ray's prompt produces sane allocations (e.g. 28% VTI, 22% IEF, 18% GLD, 32% cash) — just can't land in DB until the schema route exists.
+- [x] **Ray RegimeProbabilities runner** (LLM Pipeline) — **shipped 2026-06-03** (`fix/week2-followups` branch). Parallel `RegimeReport` schema (asset-class ETF allocations, `instrument`-keyed, per-slice cap 0.40 vs. Proposal's 0.20) + `RegimeProbabilities` (goldilocks / reflation / stagflation / deflation, sums to 1.0). `run_regime_thesis()` in `agents/anthropic_runner.py` mirrors the stock-picker retry path. **Persistence**: discriminated union into existing `analyst_reports` table — `persona_id='ray'` row carries the RegimeReport shape in `parsed` JSONB; UI / risk-gateway / leaderboard read on `persona_id` and branch on the schema. (Separate `regime_reports` table was the alternative; chose discriminator to keep one source of truth for "what did the desk say today" queries.) CLI: `python -m tessera_worker.agents.anthropic_runner ray` (no ticker arg). 2 tests pin the allocations-validate + weights-sum behavior. Live run 2026-06-03: probabilities 28/35/22/15, 8 ETF allocations including VTI/VXUS/DBC/GLD/TIP/IEF/TLT/QQQ, cash_target 0.08, $0.025/run.
 - [ ] **Chat backend**: `/api/chat/[personaId]` assembling 6-part system prompt
   (persona spec + book + recent reports + relevant features + history + user msg);
   stream Anthropic response via SSE; wire `analyst-chat.tsx` to consume stream
-- [x] **Backtest harness** (LLM Pipeline) — **shipped 2026-06-04**. `apps/worker/tessera_worker/jobs/backtest_harness.py` — replays N trading days × M personas × K tickers with point-in-time correctness. All `fetch_inputs` queries now upper-bound on `as_of` (features / news / fundamentals / filings / macros / persona_memory) so no future data leaks into the prompt. New `backtest_reports` table (separate from `analyst_reports` to keep UI / risk gateway clean) plus a per-run `run_id`. CLI flags: `--days`, `--personas`, `--tickers`, `--dry-run` (skips LLM, verifies assembly path), `--max-cost` (defaults $5). Per-run summary prints attempted / persisted / rejected / errors per persona + schema-fail rate vs. the <2% acceptance target. Honors `LLM_MAX_DAILY_COST_USD` on top of `--max-cost`.
-- [ ] **Hard rule enforcement**: per-persona validators (e.g., Warren cannot output `target_weight > 0.18`)
+- [x] **Backtest harness** (LLM Pipeline) — **shipped 2026-06-04**, **acceptance verified 2026-06-05**. `apps/worker/tessera_worker/jobs/backtest_harness.py` — replays N trading days × M personas × K tickers with point-in-time correctness. All `fetch_inputs` queries upper-bound on `as_of` (features / news / fundamentals / filings / macros / persona_memory) so no future data leaks into the prompt. New `backtest_reports` table (separate from `analyst_reports` to keep UI / risk gateway clean) plus a per-run `run_id`. CLI flags: `--days`, `--personas`, `--tickers`, `--dry-run` (skips LLM, verifies assembly path), `--max-cost` (defaults $5). Honors `LLM_MAX_DAILY_COST_USD` on top of `--max-cost`. Same 2-attempt retry-with-feedback path as production. Followups (PRs #41–#42 + descendants):
+    - 2-attempt retry + persist-unparseable (parsed=NULL row preserves raw text + reject reason for hand-review).
+    - `JSONDecoder.raw_decode()` parser ignores trailing chatter (Cathie scenario narration ~5% of cells).
+    - Targeted retry guidance — `_retry_guidance_for()` pattern-matches the error (JSONDecode / what_would_make_me_wrong / conviction-missing / cited_news_ids) and gives the model a specific corrective instruction instead of generic "Fix JSON only".
+    - `personalities.md` field-name drift fix (`confidence` → `conviction`) + defensive alias in `_normalize_conviction` so 100%-silent signal-loss regressions can't recur.
+    - `what_would_make_me_wrong` cap 5 → 8 (Cathie's scenario-structured voice routinely enumerates 6–7 risks).
+    - **Live run (60 cells, 10 days × 3 personas × 5 tickers)**: 1.67% schema fail (target <2%, PASS), $4.63 cost. Smaller 18-cell follow-up after the conviction + parser fixes: 0% schema fail, $0.65, conviction distribution diverse and persona-appropriate (Cathie 0.38–0.82, Warren 0.55–0.62, Peter 0.45–0.72), voice differentiation strong (Warren simple metaphors / Cathie Base-Bull-Bear scenarios / Peter store-walker anecdotes).
+- [→] **Hard rule enforcement** — **moved to Phase C Week 4 Risk Gateway** (2026-06-05). Same per-persona validators (Warren `target_weight > 0.18` reject, etc.) belong in `risk/gateway.py` where the trade-time check happens. Implementing twice would diverge. Schema-level global `target_weight ≤ 0.20` cap already in place.
 - [ ] **Hallucination canary**: 5 known-bad prompts run weekly, all must be rejected
-- [ ] **Cost cap**: alert in Grafana if daily LLM cost > $10
+- [→] **Cost cap** — **functional component shipped 2026-06-02** (`check_daily_budget()` hard-pauses on cap breach; cost logged per call to `llm_call_log`). Grafana visualization + Slack alerts moved to Phase C Week 4 observability work (rolled forward; same data source, just unwired alerts).
 - [ ] **Frontend swap** (Frontend track, carried over from Phase A): `lib/mock/performance.ts` → `/api/performance`; same for thesis + portfolio reads. Now safe because real theses exist.
 
 **Compression note**: previously three weeks (runner / desk / chat). Now two
 weeks. Risk: backtest review is rushed. Mitigation: review sample size from 10
 to 5 per persona; defer voice tuning to post-launch iteration.
 
-### Acceptance criteria
-- ✅ Open Warren in UI → see real thesis written today, with citations linking to real news rows
-- ✅ Open chat with Cathie → real Sonnet response, in her voice
-- ✅ Cost dashboard shows < $5/day on average
-- ✅ Backtest of 30 days × 4 personas shows < 2% schema-validation failure rate
-- ✅ 0 hallucinated tickers reached the UI in 30-day backtest
+### Acceptance criteria (as of 2026-06-05)
+- 🟡 Open Warren in UI → see real thesis written today, with citations linking to real news rows
+  - LLM pipeline ✅ writes real theses with valid citations to `analyst_reports`. UI swap (mock → /api/reports) still pending (Frontend track).
+- 🔴 Open chat with Cathie → real Sonnet response, in her voice
+  - Chat backend (`/api/chat/[personaId]` SSE) not yet built.
+- 🟢 Cost dashboard shows < $5/day on average
+  - Every call logged to `llm_call_log` with cost. Live backtest (60 cells) ran $4.63. Daily cap (`LLM_MAX_DAILY_COST_USD`) enforced in `_check_daily_budget()`. Grafana export deferred to Phase C.
+- 🟢 Backtest of 30 days × 4 personas shows < 2% schema-validation failure rate
+  - Verified at 10 days × 3 personas × 5 tickers (60 cells): **1.67%** fail rate, PASS.
+  - 4 personas (incl. Ray): Ray uses parallel `RegimeReport` schema, will need a separate Ray-aware backtest cell type. Carried into Phase C precursor work.
+  - 30-day expansion: gated on Anthropic credit budget; current 10-day proxy passed the underlying gate.
+- 🟢 0 hallucinated tickers reached the (would-be) UI in backtest
+  - `citation_validator` rejected 0 cells on bad news IDs across the 60-cell run. `assemble_prompt` only emits tickers from `tessera_worker.universe` so the schema cannot produce a non-universe `ticker`.
 
 ### Open decisions to resolve here
 - **Chat model**: Sonnet 4.6 always (simpler, ~$0.012/msg) vs. fine-tuned Haiku per persona (more expensive to set up, ~$0.001/msg, stronger voice). **Recommendation: Sonnet 4.6 for pilot, revisit when chat volume justifies fine-tune.**
@@ -556,12 +578,18 @@ to 5 per persona; defer voice tuning to post-launch iteration.
 **Goal**: Each persona's portfolio executes in paper. Daily P&L tracked. Leaderboard shows real Sharpe/MDD.
 
 ### Week 4 — Risk gateway + paper engine + mark-to-market
-- [ ] **Risk gateway** (`tessera/risk/gateway.py`): ticker-exists, single-name cap, sector cap, parametric VaR, drawdown floor. Pure Python.
+- [ ] **Risk gateway** (`apps/worker/tessera_worker/risk/gateway.py` — note: not `tessera/risk/`, the monorepo path was finalized in Phase A). Pure Python. Single function `gate(report, persona, current_portfolio) → RiskCheckResult`. Checks:
+    - **Ticker exists** in `universe.py` (defense vs. hallucination — `assemble_prompt` already restricts but gateway is the final stop)
+    - **Per-persona single-name cap** — pulls from `personas` metadata (`max_single_name`); rejects any `Proposal.target_weight > cap` (e.g. Warren 0.18, Cathie 0.30). **Subsumes Phase B's deferred "Hard rule enforcement" task — single home, single code path.**
+    - **Sector cap** from `Persona.max_sector`
+    - **Parametric VaR** at 99% — fast Python compute against the correlation matrix
+    - **Drawdown floor** — refuses orders that would push the portfolio past its persona-specific max drawdown
 - [ ] **PaperEngine** (`ExecutionAdapter` impl): diff vs current positions → orders → fill at next-day open
 - [ ] **Order ledger** (orders, positions, ledger): full audit trail
 - [ ] **LISTEN/NOTIFY**: `analyst_reports` INSERT → Cloud Run job evaluates rebalance
 - [ ] **EOD mark-to-market**: recompute `persona_portfolios.total_value` daily
 - [ ] **Persona performance writer**: nightly pnl_day, pnl_cum, sharpe_30d, mdd_30d, hit_rate
+- [ ] **Cost observability — Grafana visualization + Slack alerts** (rolled forward from Phase B Week 2 plan). Source data already populated in `llm_call_log`; this is dashboard + webhook wiring. Alert thresholds: $5/day (info), $10/day (warning), $20/day (page). The hard pause (`check_daily_budget`) stays as the safety net — alerts give earlier warning.
 
 ### Week 5 — Frontend wire-up + baseline backtest + weight-distribution telemetry
 - [ ] **Leaderboard tab** reads from `persona_performance` (delete mock)
@@ -578,7 +606,7 @@ to 5 per persona; defer voice tuning to post-launch iteration.
     2. **Alternating null filings** — some tickers have duplicate filing rows where one is a restatement/erratum with no FCF data; the Phase B fix filters nulls before capping the loader window, but a few cases still slip through when filings span > 2 fiscal years.
     3. **One-time spikes** — COIN's TTM includes the late-2025 crypto turnover boom; the value is real but unrepresentative of forward yield.
   - **Fix path**: dedicated daily mcap source (FMP `key_metrics` endpoint) + FY-aware ingestion that records `fiscal_year_end_month` per ticker so the decomposer can pick anchors precisely. Ingestor → new column `key_metrics_market_cap` on `ticker_features` → `estimate_market_cap()` adds it as a 5th candidate. Phase C because it touches the ingest plane, not just compute.
-- [ ] **Leakage tests for backtest mode**: ensure feature_date never overlaps with target_return_window and no post-rebalance data is used
+- [x] **Leakage tests for backtest mode** — **shipped 2026-06-05** (PR descendants of #42). 4 mock-session unit tests in `tests/test_prompt_assembler.py`: (1) `fetch_inputs(as_of=X)` passes `cutoff=X` to ≥5 queries and all date binds ≤ X, (2) `as_of=None` still binds today, (3) memory recall recency path respects cutoff, (4) memory recall without as_of omits the cutoff clause from SQL (not just binding None). Phase C Week 5 will add the same-shape gate at LEADERBOARD/BACKTEST METRIC WRITE-TIME — different layer, same guarantee.
 - [x] **SEC EDGAR XBRL fundamentals parser** (Quant) — **shipped 2026-06-02 (pre-Phase B)**. Took the simpler path via SEC's pre-parsed XBRL JSON (`data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json`) instead of parsing XML with arelle. New `ingestors/sec_edgar_facts.py` wired as step 5 of the orchestrator. Coverage jumped from FMP free's 20/42 tickers to **39/42** (HON, LLY, MA, NEE, LIN, etc. now reachable). 3 still missing for reasons unrelated to gating: BRK.B (SEC uses dash not dot in ticker map), ASML + TSM (foreign filers — submit 20-F, no us-gaap facts JSON). JSONB-merge upsert preserves any FMP-only fields, so the two sources coexist. FMP Starter $14/mo decision becomes moot for the 39 covered names; only useful if the 3 foreign filers become critical.
 - [x] **Maximum-history backfill across all sources** (Quant + Infra) — **shipped 2026-06-02 (pre-Phase B)** via new `jobs/backfill_history.py` with `--source {alpaca|coinbase|fred|yahoo|all}` flags. Results from the one-shot run:
   - **Alpaca OHLCV (equities)**: 73,486 rows, 51 tickers, 2020-07-27 → 2026-06-01 (~6 yrs, Alpaca IEX feed start). 23 sec.
@@ -684,10 +712,12 @@ deferred to post-launch. Auth + mirror engine + onboarding ship in one week.
 ## 9. Cross-cutting workstreams (run throughout)
 
 ### Observability
-- **From Week 1**: Sentry on web + worker
-- **From Week 2**: Grafana Cloud — LLM cost, ingestor lag, paper-fill error rate
+- **From Week 1**: ✅ Sentry on web + worker (shipped 2026-06-01)
+- **From Week 2 (originally planned)**: ~~Grafana Cloud — LLM cost~~
+  - **Schedule slipped, functional equivalent shipped instead.** `llm_call_log` table (persona_id, stage, model, tokens_in, tokens_out, cost_usd, latency_ms, ts) populated per call. `check_daily_budget()` runs before every Anthropic call and **hard-pauses** the run when daily spend ≥ `LLM_MAX_DAILY_COST_USD` (default $20, set $5 in pilot .env). No alert → just refuses the call.
+  - **Phase C work** (rolled forward): Grafana Cloud dashboard + Slack webhook alert at $5/$10/$20 thresholds. Same source data, just visualized.
 - **From Week 4**: Simple `/status` page (last ingest, last persona run, paper engine health)
-- **From Week 6**: Sentry alerts → email; cost alerts at $5/day, $10/day, $20/day thresholds
+- **From Week 6**: Sentry alerts → email; cost alerts at $5/day, $10/day, $20/day thresholds (becomes the trip-line on the same data already collected)
 
 ### Secrets management
 - Anthropic key, Alpaca key (when live), FMP key, NewsAPI key → GCP Secret Manager
@@ -708,17 +738,21 @@ deferred to post-launch. Auth + mirror engine + onboarding ship in one week.
 
 ## 10. Open decisions
 
-These don't block Phase A but should be decided by the end of Phase B.
+### Decided (2026-06-05 stocktake)
+| Decision | Choice | Date | Rationale |
+|---|---|---|---|
+| Chat model | **(a) Sonnet 4.6 always** | 2026-06-05 | Chat backend not yet built; will start with Sonnet, revisit when chat volume > 500 msg/day per persona |
+| Persona count for pilot | **(a) all 4** | 2026-05-26 | Budget allows; Ray runs on parallel RegimeReport schema |
+| Persona run cadence | **Weekly (Fri close), not daily** | 2026-06-04 | Daily = 4×30×$0.02 ≈ $72/mo. Weekly = ~$10/mo, sufficient for paper-pilot. Hard-coded in `persona_batch.py` design (pending ship) |
+| Screen funnel | **Deferred** — universe is 50 names, no Haiku screen needed yet | 2026-06-03 | Revisit when universe > 200 |
 
+### Still open
 | Decision | Options | Recommendation | Decide by |
 |---|---|---|---|
-| Manager curation | (a) ship as-built (4 portfolios side-by-side) (b) add 5th persona "Mara" that curates into 3 named portfolios | **(a) for pilot, revisit at user count > 20** | End of B (wk 3) |
-| Chat model | (a) Sonnet 4.6 always (b) fine-tuned Haiku per persona | **(a)** until chat volume > 500 msg/day per persona | End of B (wk 3) |
-| Cathie crypto exposure | (a) equity proxies only (COIN, MSTR) (b) spot BTC/ETH via Coinbase | **(a) for pilot**, (b) requires Coinbase OAuth + additional disclosures | End of B (wk 3) |
-| Backtest window | (a) rolling 90d (b) fixed 2024-01 → 2025-12 | **(b)** — reproducible baseline that everyone can compare against | Start of C (wk 4) |
-| Persona count for pilot | (a) all 4 (b) Warren + Cathie only | **(a)** if budget allows, else (b) | Start of A (wk 1) |
-| Weight decision authority | (a) LLM outputs `target_weight` directly (current schema) (b) LLM outputs `conviction ∈ [0,1]`, Python maps to weight | **Start with (a); refactor to (b) if mode-collapse telemetry flags it.** (b) is architecturally cleaner but reduces LLM-side explainability. | End of C (wk 5) |
-| Screen funnel width | (a) Haiku promotes top 30 (current spec) (b) top 60 (recall-tuned) (c) hybrid: Haiku ∪ mechanical metric top-30 | **(c)** — belt and suspenders. Costs ~30% more Sonnet calls but cuts false-negative risk meaningfully. | Start of B (wk 2) |
+| Manager curation | (a) ship as-built (4 portfolios side-by-side) (b) add 5th persona "Mara" that curates into 3 named portfolios | **(a) for pilot, revisit at user count > 20** | Before Phase D F&F onboarding |
+| Cathie crypto exposure | (a) equity proxies only (COIN, MSTR) (b) spot BTC/ETH via Coinbase | **(a) for pilot**, (b) requires Coinbase OAuth + additional disclosures | Before Phase C paper execution wires Coinbase adapter |
+| Backtest window | (a) rolling 90d (b) fixed 2024-01 → 2025-12 | **(b)** — reproducible baseline everyone can compare against | Start of C (wk 4) |
+| Weight decision authority | (a) LLM outputs `target_weight` directly (current schema) (b) LLM outputs `conviction ∈ [0,1]`, Python maps to weight | **Start with (a); refactor to (b) if mode-collapse telemetry flags it.** (b) is architecturally cleaner but reduces LLM-side explainability | End of C (wk 5) — after weight-distribution telemetry in Phase C Week 5 |
 
 ---
 
@@ -746,12 +780,12 @@ These don't block Phase A but should be decided by the end of Phase B.
 
 The pilot is "done" (ready to consider expansion or shutdown) when:
 
-- [ ] **All 4 personas** writing real Sonnet 4.6 theses daily, validated
+- [ ] **All 4 personas** writing real Sonnet 4.6 theses on the agreed cadence (**weekly Fri close** per 2026-06-04 decision; daily reserved for Phase F live mode), validated by passing the same <2% schema-fail gate the backtest harness measures
 - [ ] **30+ days** of paper P&L track record, accurate Sharpe/MDD displayed
 - [ ] **Self** running paper successfully for 30+ days, no manual intervention required
 - [ ] **3 F&F users** onboarded, each following a different persona, with their own dashboard
 - [ ] **Lawyer consult** complete; written advice on file
-- [ ] **Cost stable** under $200/mo for 4 weeks
+- [ ] **Cost stable** under $200/mo for 4 weeks (current trajectory: weekly cadence projects ~$10–15/mo for LLM alone, well under)
 - [ ] **One write-up** (blog post or talk) explaining the approach publicly
 - [ ] **No open Sev-1 bugs** for 14 consecutive days
 - [ ] **Decision documented** on whether to expand to public users, go live with F&F, or pivot
