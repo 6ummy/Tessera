@@ -117,3 +117,124 @@ def test_to_pgvector_literal_format() -> None:
     from tessera_worker.agents.embeddings import to_pgvector_literal
     s = to_pgvector_literal([0.1, -0.5, 1.0])
     assert s == "[0.100000,-0.500000,1.000000]"
+
+
+# ─── Backtest leakage tests (Phase B Week 3) ───────────────────────────
+# Verifies that fetch_inputs(as_of=X) cannot leak data with ts > X into
+# the LLM prompt. We capture every SQL parameter dict the function emits
+# and assert the cutoff is present (or that the query has no temporal
+# field). Cheaper and tighter than a real-DB integration check.
+
+
+def test_fetch_inputs_passes_cutoff_to_every_query() -> None:
+    """Every SQL the assembler runs against time-series tables must carry
+    the cutoff. Missing it = backtest replay sees future data = leakage."""
+    import datetime as _dt
+    from unittest.mock import MagicMock
+    from tessera_worker.agents.prompt_assembler import fetch_inputs
+
+    cutoff = _dt.date(2025, 6, 1)
+    session = MagicMock()
+    # Default chain returns empty so the function completes; we don't care
+    # about return values, only that calls carry cutoff.
+    session.execute.return_value.mappings.return_value.first.return_value = None
+    session.execute.return_value.mappings.return_value.all.return_value = []
+    session.execute.return_value.all.return_value = []
+
+    fetch_inputs(session, "warren", "AAPL", as_of=cutoff)  # type: ignore[arg-type]
+
+    queries_with_temporal_bind = 0
+    for call in session.execute.call_args_list:
+        params = call.args[1] if len(call.args) > 1 else {}
+        if not isinstance(params, dict):
+            continue
+        # Any param key that's a date carries the cutoff (or a derived
+        # since-window). Walk the values.
+        date_values = [v for v in params.values() if isinstance(v, _dt.date)]
+        if date_values:
+            queries_with_temporal_bind += 1
+            # The latest date in this query must be ≤ cutoff (since-window
+            # may be older, but cutoff itself can never be exceeded).
+            assert max(date_values) <= cutoff, (
+                f"leakage: query bound to date > cutoff {cutoff}, "
+                f"params={params}"
+            )
+
+    # Sanity: features + prices + fundamentals (×2 paths × 3 filing types) +
+    # macros + news + filings + memory = at least 5 queries should bind
+    # cutoff. If this drops to 0, fetch_inputs lost its temporal guards.
+    assert queries_with_temporal_bind >= 5, (
+        f"only {queries_with_temporal_bind} queries carried cutoff — "
+        "fetch_inputs lost some point-in-time guards"
+    )
+
+
+def test_fetch_inputs_with_no_as_of_uses_today() -> None:
+    """No as_of → cutoff = today. Production prod path (live cron) doesn't
+    pass as_of explicitly; ensure it still binds something rather than
+    emitting an unbounded query."""
+    import datetime as _dt
+    from unittest.mock import MagicMock
+    from tessera_worker.agents.prompt_assembler import fetch_inputs
+
+    today = _dt.date.today()
+    session = MagicMock()
+    session.execute.return_value.mappings.return_value.first.return_value = None
+    session.execute.return_value.mappings.return_value.all.return_value = []
+    session.execute.return_value.all.return_value = []
+
+    fetch_inputs(session, "warren", "AAPL")  # type: ignore[arg-type]
+
+    # At least one execute call should carry a date ≤ today.
+    any_temporal = False
+    for call in session.execute.call_args_list:
+        params = call.args[1] if len(call.args) > 1 else {}
+        if not isinstance(params, dict):
+            continue
+        date_values = [v for v in params.values() if isinstance(v, _dt.date)]
+        if date_values:
+            any_temporal = True
+            assert max(date_values) <= today
+    assert any_temporal, "no temporal bind found — leakage guard missing"
+
+
+def test_fetch_memory_recall_recency_path_respects_cutoff() -> None:
+    """The recency fallback path also has to respect cutoff. Embedding
+    similarity path is harder to mock (needs Voyage); recency is the
+    safety net and the one production hits when Voyage is unavailable."""
+    import datetime as _dt
+    from unittest.mock import MagicMock
+    from tessera_worker.agents.prompt_assembler import fetch_memory_recall
+
+    cutoff = _dt.date(2025, 6, 1)
+    session = MagicMock()
+    session.execute.return_value.all.return_value = []
+
+    # No query_text → similarity bypassed → recency runs.
+    fetch_memory_recall(session, "warren", "AAPL", as_of=cutoff)
+
+    assert session.execute.call_count == 1
+    params = session.execute.call_args.args[1]
+    assert "cutoff" in params, (
+        f"memory recall recency query didn't bind cutoff: {params}"
+    )
+    assert params["cutoff"] == cutoff
+
+
+def test_fetch_memory_recall_no_as_of_skips_cutoff_clause() -> None:
+    """When as_of is None, the cutoff clause must be omitted from SQL
+    (not just bound to None — that would still filter). Verify by
+    inspecting the raw SQL text emitted."""
+    from unittest.mock import MagicMock
+    from tessera_worker.agents.prompt_assembler import fetch_memory_recall
+
+    session = MagicMock()
+    session.execute.return_value.all.return_value = []
+
+    fetch_memory_recall(session, "warren", "AAPL")
+
+    sql_text = str(session.execute.call_args.args[0])
+    # Without as_of the temporal predicate must not appear at all.
+    assert "ts::date <= :cutoff" not in sql_text, (
+        "recency query injected cutoff clause without an as_of value"
+    )
