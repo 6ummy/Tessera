@@ -47,11 +47,12 @@
 | `persona_memory` | ~30 | one row per proposal, embedded best-effort |
 
 **Still missing (Phase B Week 3 end → Phase C):**
-- **`persona_batch.py`** — cron auto-trigger; FEATURE_REAL_LLM=true is set but nothing in the orchestrator yet loops personas. Until shipped, weekly theses are manual CLI only. **Critical path to Phase D.**
-- **Chat backend** (`/api/chat/[personaId]` SSE) — not started
-- **Frontend swap** (mock → /api/reports) — Frontend track; backend ready
+- ~~`persona_batch.py`~~ ✅ shipped 2026-06-05
+- ~~Chat backend~~ ✅ shipped 2026-06-05 (backend + frontend SSE consumer)
+- ~~Frontend swap (reports + proposals)~~ ✅ shipped 2026-06-05
 - **More Quant features** (PEG, EPS CAGR 3y, debt/equity, gross margin trend) — same `cross_validated()` scaffold as fcf_yield
 - **No paper-trading engine, no risk gateway** — Phase C Week 4
+- **performance.ts + portfolio.ts mocks** — blocked on Phase C paper engine populating `persona_performance`
 - **No real auth** (assumes `jshin`) — Phase D
 - **Grafana cost dashboard** — `llm_call_log` table is the source of truth; visualization deferred to Phase C observability work
 
@@ -569,7 +570,8 @@ Pick one as your first PR. They're all real, small, and improve the downstream s
   - Exit 0 = pass, 1 = fail (Sentry capture on failure). Weekly cron should run canary as the LAST step after `persona_batch.py` and treat exit 1 as stop-the-world (skip next batch + page on-call).
   - First live run against the 18-cell backtest: **0 violations, PASS**. 23 unit tests cover each check independently + the result/threshold sanity.
 - [→] **Cost cap** — **functional component shipped 2026-06-02** (`check_daily_budget()` hard-pauses on cap breach; cost logged per call to `llm_call_log`). Grafana visualization + Slack alerts moved to Phase C Week 4 observability work (rolled forward; same data source, just unwired alerts).
-- [ ] **Frontend swap** (Frontend track, carried over from Phase A): `lib/mock/performance.ts` → `/api/performance`; same for thesis + portfolio reads. Now safe because real theses exist.
+- [x] **Frontend swap — thesis half** (Frontend track) — **shipped 2026-06-05**. `lib/mock/reports.ts` + `lib/mock/proposals.ts` deleted; `/api/reports/[personaId]` + `/api/proposals/[personaId]` Edge proxies pipe Cloud Run worker endpoints (`GET /api/reports/{persona}` + `GET /api/proposals/{persona}` in `main.py`) into the persona detail sheet + `/proposals` page. Worker reshapes `analyst_reports.parsed` — AnalystReport for stock-pickers, RegimeReport for Ray — into a uniform `{positions, cashWeight, regime?, asOf}` shape so the UI consumes both schemas without branching. Types in `lib/thesis-types.ts`; client fetcher with AbortController + skeleton + empty states in `lib/analyst-data.ts`. Edge cache 60s s-maxage matches the weekly cron cadence. Live verified — Warren MCO/JNJ from yesterday's batch + Ray's 8 ETF regime allocations render correctly.
+- [→] **Frontend swap — performance + portfolio half** — **deferred to Phase C Week 5**, blocked on the paper-trading engine populating `persona_performance` + `persona_portfolios`. Showing mock until then is more honest than synthesizing fake P&L. `lib/mock/performance.ts` + `lib/mock/portfolio.ts` intentionally retained.
 
 **Compression note**: previously three weeks (runner / desk / chat). Now two
 weeks. Risk: backtest review is rushed. Mitigation: review sample size from 10
