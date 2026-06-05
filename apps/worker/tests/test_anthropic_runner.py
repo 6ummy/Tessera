@@ -23,6 +23,35 @@ def test_parse_llm_json_strips_fences() -> None:
     assert parsed["cash_target"] == 0.1
 
 
+def test_parse_llm_json_ignores_trailing_chatter():
+    """Cathie often appends a scenario paragraph after the closing brace.
+    raw_decode parses the first valid JSON and logs the trailing text
+    instead of raising JSONDecodeError."""
+    raw = (
+        '{"cash_target": 0.2, "proposals": []}\n\n'
+        "Bear scenario: hyperscaler capex pause + China tariff escalation "
+        "would compress my conviction below 0.3 — would trim 30%."
+    )
+    parsed = parse_llm_json(raw)
+    assert parsed["cash_target"] == 0.2
+
+
+def test_parse_llm_json_handles_trailing_chatter_inside_fences():
+    raw = (
+        '```json\n{"cash_target": 0.15, "proposals": []}\n```\n\n'
+        "Note: 5-year horizon assumes Apple doesn't pivot away from services."
+    )
+    parsed = parse_llm_json(raw)
+    assert parsed["cash_target"] == 0.15
+
+
+def test_parse_llm_json_rejects_non_object():
+    """Top-level JSON array (not an object) should raise — schema demands dict."""
+    import pytest as _pt
+    with _pt.raises(ValueError, match="JSON object"):
+        parse_llm_json('[{"persona_id": "warren"}]')
+
+
 def test_estimate_cost_positive() -> None:
     assert estimate_cost_usd("claude-sonnet-4-6", 1000, 500) > 0
 
@@ -100,6 +129,55 @@ def test_normalize_conviction_null_defaults_to_median():
     p = {"ticker": "AAPL", "conviction": None}
     _normalize_conviction(p)
     assert p["conviction"] == 0.5
+
+
+def test_normalize_conviction_accepts_confidence_alias():
+    """personalities.md spec briefly said 'confidence' → LLM output
+    100% missed conviction → all defaulted to 0.5 (signal loss). Spec is
+    fixed but accept the alias so future drift can't recur silently."""
+    p = {"ticker": "AAPL", "confidence": 0.72}
+    _normalize_conviction(p)
+    assert p["conviction"] == 0.72
+    assert "confidence" not in p  # promoted, not duplicated
+
+
+def test_normalize_conviction_alias_still_normalizes():
+    """confidence=62 (percent scale) should be promoted AND rescaled."""
+    p = {"ticker": "AAPL", "confidence": 62}
+    _normalize_conviction(p)
+    assert p["conviction"] == 0.62
+
+
+# ─── Retry guidance pattern matching (PR #41 D-follow-up) ──────────────
+
+
+def test_retry_guidance_jsondecode_targets_trailing_text():
+    from tessera_worker.agents.anthropic_runner import _retry_guidance_for
+    g = _retry_guidance_for("JSONDecodeError: Extra data: line 33 column 1")
+    assert "AFTER" in g and "closing brace" in g
+
+
+def test_retry_guidance_what_would_wrong_targets_trim():
+    from tessera_worker.agents.anthropic_runner import _retry_guidance_for
+    g = _retry_guidance_for(
+        "1 validation error for Proposal\nwhat_would_make_me_wrong\n"
+        "  List should have at most 8 items after validation, not 10 [type=too_long, ...]"
+    )
+    assert "Trim" in g and "8" in g
+
+
+def test_retry_guidance_conviction_missing_targets_field():
+    from tessera_worker.agents.anthropic_runner import _retry_guidance_for
+    g = _retry_guidance_for(
+        "validation error for Proposal\nconviction\n  Field required [type=missing, ...]"
+    )
+    assert "`conviction`" in g
+
+
+def test_retry_guidance_fallback_is_generic():
+    from tessera_worker.agents.anthropic_runner import _retry_guidance_for
+    g = _retry_guidance_for("some unexpected pydantic error about target_weight")
+    assert "Fix the validation problem" in g
 
 
 def test_build_regime_report_validates_allocations():

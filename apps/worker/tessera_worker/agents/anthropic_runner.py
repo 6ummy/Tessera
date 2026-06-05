@@ -61,7 +61,28 @@ def _strip_json_fences(text: str) -> str:
 
 
 def parse_llm_json(raw: str) -> dict[str, Any]:
-    return json.loads(_strip_json_fences(raw))
+    """Parse the first complete JSON object from the LLM response.
+
+    Uses `JSONDecoder.raw_decode` instead of `json.loads` so trailing
+    chatter (Cathie's voice especially tends to append a scenario
+    paragraph after the closing brace) doesn't raise.
+
+    `raw_decode` returns (obj, end_index); anything past end_index is
+    logged + ignored. If you instead want to be strict, swap back to
+    json.loads — but the 2026-06-04 backtest had ~5% of Cathie cells
+    fail this way and the trailing text was always commentary, never
+    a competing JSON.
+    """
+    text_in = _strip_json_fences(raw).strip()
+    decoder = json.JSONDecoder()
+    obj, end_idx = decoder.raw_decode(text_in)
+    trailing = text_in[end_idx:].strip()
+    if trailing:
+        log.info("parse_llm_json.trailing_text_ignored",
+                 chars_dropped=len(trailing), preview=trailing[:120])
+    if not isinstance(obj, dict):
+        raise ValueError(f"Expected JSON object, got {type(obj).__name__}")
+    return obj
 
 
 def _resolve_news_uuid(item: Any, allowed_news_ids: set[str]) -> UUID:
@@ -97,6 +118,14 @@ def _normalize_conviction(p: dict[str, Any]) -> None:
         feedback usually fixes it but not always. Fill the median (0.5)
         rather than reject; log it so we can see if this gets common.
     """
+    # Defensive alias: personalities.md spec drifted to "confidence" at
+    # one point (2026-06-04 backtest: 100% of cells missing `conviction`,
+    # all defaulted to 0.5, signal completely lost). The spec is fixed
+    # but accept the alias here so any future drift can't silently
+    # collapse the signal again — we promote `confidence` → `conviction`
+    # and let the rest of the function normalize the value.
+    if "conviction" not in p and "confidence" in p:
+        p["conviction"] = p.pop("confidence")
     if "conviction" not in p:
         log.info("conviction.missing_defaulted_to_median",
                  ticker=p.get("ticker"), side=p.get("side"))
@@ -303,6 +332,43 @@ def _persist_persona_memory(session, report: AnalystReport, *, report_id: UUID) 
     return written
 
 
+def _retry_guidance_for(error_message: str) -> str:
+    """Pick a corrective instruction tuned to the actual failure mode.
+    Generic 'fix it' guidance lets the model repeat the same mistake
+    (especially Cathie + trailing-commentary). Pattern-match the error
+    and tell it specifically what to do.
+    """
+    err = error_message.lower()
+    if "extra data" in err or "jsondecodeerror" in err:
+        return (
+            "Your last response had text AFTER the closing brace `}`. Return "
+            "ONLY a single JSON object, then stop — no commentary, no "
+            "scenario narration, no second code block, no closing remarks. "
+            "First character must be `{`, last character must be `}`."
+        )
+    if "what_would_make_me_wrong" in err and "too_long" in err:
+        return (
+            "Trim `what_would_make_me_wrong` to at most 8 items, keeping "
+            "the strongest. Return ONLY the JSON object."
+        )
+    if "conviction" in err and "missing" in err:
+        return (
+            "Include the `conviction` field on every proposal (float 0.0-1.0). "
+            "Return ONLY the JSON object."
+        )
+    if "cited_news_ids" in err:
+        return (
+            "Use only `n_xxxxxxxx` short identifiers from the news block I "
+            "provided. Drop any citation whose id isn't in that list. "
+            "Return ONLY the JSON object."
+        )
+    # Fallback — covers Pydantic constraint violations not yet pattern-matched.
+    return (
+        "Fix the validation problem above and return ONLY the JSON object "
+        "(no commentary, no extra text)."
+    )
+
+
 def call_anthropic_thesis(
     assembled: AssembledPrompt,
     *,
@@ -315,7 +381,14 @@ def call_anthropic_thesis(
     client = Anthropic(api_key=settings.anthropic_api_key)
     user_content = assembled.user_message
     if feedback:
-        user_content = f"{user_content}\n\n---\nValidation failed:\n{feedback}\nFix JSON only."
+        # Tailor the corrective instruction to what actually broke.
+        # Generic "Fix JSON only" was insufficient when the model added
+        # commentary after the closing brace — it kept doing it.
+        guidance = _retry_guidance_for(feedback)
+        user_content = (
+            f"{user_content}\n\n---\nYour previous output was rejected:\n"
+            f"{feedback}\n\n{guidance}"
+        )
 
     t0 = time.perf_counter()
     resp = client.messages.create(

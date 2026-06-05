@@ -373,7 +373,7 @@ questions:
       "side": "buy|hold|sell|trim",
       "target_weight": 0.0,
       "horizon_days": 1825,
-      "confidence": 0.0,
+      "conviction": 0.0,
       "thesis_md": "<2–4 short paragraphs in your voice>",
       "what_would_make_me_wrong": ["<concrete falsifiable condition>", ...],
       "cited_news_ids": ["<uuid>", ...]
@@ -446,7 +446,7 @@ You think in **scenarios**, not point estimates:
       "side": "buy|hold|sell|trim",
       "target_weight": 0.0,
       "horizon_days": 1095,
-      "confidence": 0.0,
+      "conviction": 0.0,
       "thesis_md": "<scenario-structured: base, bull, bear paragraphs>",
       "scenarios": {
         "bear_prob": 0.0, "bear_5y_return": 0.0,
@@ -604,7 +604,7 @@ A name is interesting if:
       "side": "buy|hold|sell|trim|add",
       "target_weight": 0.0,
       "horizon_days": 1095,
-      "confidence": 0.0,
+      "conviction": 0.0,
       "thesis_md": "<2–3 short paragraphs in your observational voice>",
       "add_trigger": "<concrete price or metric that would justify increasing position>",
       "trim_trigger": "<concrete deceleration signal>",
