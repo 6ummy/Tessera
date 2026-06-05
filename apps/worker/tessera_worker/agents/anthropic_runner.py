@@ -97,6 +97,14 @@ def _normalize_conviction(p: dict[str, Any]) -> None:
         feedback usually fixes it but not always. Fill the median (0.5)
         rather than reject; log it so we can see if this gets common.
     """
+    # Defensive alias: personalities.md spec drifted to "confidence" at
+    # one point (2026-06-04 backtest: 100% of cells missing `conviction`,
+    # all defaulted to 0.5, signal completely lost). The spec is fixed
+    # but accept the alias here so any future drift can't silently
+    # collapse the signal again — we promote `confidence` → `conviction`
+    # and let the rest of the function normalize the value.
+    if "conviction" not in p and "confidence" in p:
+        p["conviction"] = p.pop("confidence")
     if "conviction" not in p:
         log.info("conviction.missing_defaulted_to_median",
                  ticker=p.get("ticker"), side=p.get("side"))

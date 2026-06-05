@@ -102,6 +102,23 @@ def test_normalize_conviction_null_defaults_to_median():
     assert p["conviction"] == 0.5
 
 
+def test_normalize_conviction_accepts_confidence_alias():
+    """personalities.md spec briefly said 'confidence' → LLM output
+    100% missed conviction → all defaulted to 0.5 (signal loss). Spec is
+    fixed but accept the alias so future drift can't recur silently."""
+    p = {"ticker": "AAPL", "confidence": 0.72}
+    _normalize_conviction(p)
+    assert p["conviction"] == 0.72
+    assert "confidence" not in p  # promoted, not duplicated
+
+
+def test_normalize_conviction_alias_still_normalizes():
+    """confidence=62 (percent scale) should be promoted AND rescaled."""
+    p = {"ticker": "AAPL", "confidence": 62}
+    _normalize_conviction(p)
+    assert p["conviction"] == 0.62
+
+
 def test_build_regime_report_validates_allocations():
     """Ray's RegimeReport accepts ETF allocations w/ weights > stock-picker cap."""
     import datetime as _dt
