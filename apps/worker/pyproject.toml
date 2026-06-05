@@ -24,6 +24,7 @@ dependencies = [
 
     # LLM
     "anthropic>=0.39.0",
+    "voyageai>=0.3.0",
 
     # Schema + validation
     "pydantic>=2.10.0",

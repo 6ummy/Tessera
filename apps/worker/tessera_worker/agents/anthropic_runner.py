@@ -230,7 +230,66 @@ def persist_analyst_report(
             "reasons": reject_reasons or [],
         },
     ).first()
-    return row[0]
+    report_id: UUID = row[0]
+
+    # Best-effort persona_memory write — one row per proposal so future
+    # similarity recall can land on per-(persona, ticker) thesis text.
+    # Rejected reports skip memory (we don't want bad theses retrieved).
+    if not rejected:
+        try:
+            _persist_persona_memory(session, report, report_id=report_id)
+        except Exception as e:
+            log.warning("persona_memory.write_failed",
+                        persona=report.persona_id, error=str(e))
+
+    return report_id
+
+
+def _persist_persona_memory(session, report: AnalystReport, *, report_id: UUID) -> int:
+    """One row per proposal into persona_memory with a Voyage embedding.
+
+    Embedding write is best-effort:
+      - voyage_api_key blank or library missing → embedding=NULL row
+        still inserted (recency-only recall continues to work).
+      - Embedding API failure → embedding=NULL row inserted, warning logged.
+    """
+    from tessera_worker.agents.embeddings import embed_thesis, to_pgvector_literal
+
+    if not report.proposals:
+        return 0
+
+    written = 0
+    embedded = 0
+    for prop in report.proposals:
+        vec = embed_thesis(prop.thesis_md)
+        if vec is not None:
+            session.execute(
+                text("""
+                    INSERT INTO persona_memory
+                        (persona_id, ticker, ts, thesis_md, embedding, report_id)
+                    VALUES
+                        (:p, :t, NOW(), :md, CAST(:emb AS vector), :rid)
+                """),
+                {"p": report.persona_id, "t": prop.ticker,
+                 "md": prop.thesis_md, "emb": to_pgvector_literal(vec),
+                 "rid": str(report_id)},
+            )
+            embedded += 1
+        else:
+            session.execute(
+                text("""
+                    INSERT INTO persona_memory
+                        (persona_id, ticker, ts, thesis_md, embedding, report_id)
+                    VALUES
+                        (:p, :t, NOW(), :md, NULL, :rid)
+                """),
+                {"p": report.persona_id, "t": prop.ticker,
+                 "md": prop.thesis_md, "rid": str(report_id)},
+            )
+        written += 1
+    log.info("persona_memory.written",
+             persona=report.persona_id, rows=written, with_embeddings=embedded)
+    return written
 
 
 def call_anthropic_thesis(

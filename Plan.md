@@ -529,8 +529,7 @@ Pick one as your first PR. They're all real, small, and improve the downstream s
 - [ ] **Chat backend**: `/api/chat/[personaId]` assembling 6-part system prompt
   (persona spec + book + recent reports + relevant features + history + user msg);
   stream Anthropic response via SSE; wire `analyst-chat.tsx` to consume stream
-- [ ] **Backtest harness**: replay last 30 days of features, generate 30 days of
-  theses, manually review 10 random samples per persona for voice + reasoning quality
+- [x] **Backtest harness** (LLM Pipeline) — **shipped 2026-06-04**. `apps/worker/tessera_worker/jobs/backtest_harness.py` — replays N trading days × M personas × K tickers with point-in-time correctness. All `fetch_inputs` queries now upper-bound on `as_of` (features / news / fundamentals / filings / macros / persona_memory) so no future data leaks into the prompt. New `backtest_reports` table (separate from `analyst_reports` to keep UI / risk gateway clean) plus a per-run `run_id`. CLI flags: `--days`, `--personas`, `--tickers`, `--dry-run` (skips LLM, verifies assembly path), `--max-cost` (defaults $5). Per-run summary prints attempted / persisted / rejected / errors per persona + schema-fail rate vs. the <2% acceptance target. Honors `LLM_MAX_DAILY_COST_USD` on top of `--max-cost`.
 - [ ] **Hard rule enforcement**: per-persona validators (e.g., Warren cannot output `target_weight > 0.18`)
 - [ ] **Hallucination canary**: 5 known-bad prompts run weekly, all must be rejected
 - [ ] **Cost cap**: alert in Grafana if daily LLM cost > $10

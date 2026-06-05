@@ -38,6 +38,16 @@ class Settings(BaseSettings):
     llm_model_review: str = Field("claude-opus-4-7")
     llm_max_daily_cost_usd: float = Field(20.0, description="Auto-pause batch if exceeded")
 
+    # ── Embeddings (Voyage AI — Anthropic-recommended) ──
+    # Blank → embedding writes skipped, persona_memory falls back to
+    # recency-only recall in fetch_memory_recall. Add a key when ready
+    # for similarity-based recall. Cost: $0.02/1M tokens; the pilot's
+    # ~30 reports/week × ~400 tokens/thesis ≈ $0.00024/month (free tier
+    # covers indefinitely).
+    voyage_api_key: str = Field("", description="Voyage AI key for thesis embeddings")
+    voyage_model: str = Field("voyage-3.5-lite",
+                              description="1024-dim; persona_memory.embedding migrated to match")
+
     # ── Brokerage ──
     alpaca_api_key: str = Field("")
     alpaca_api_secret: str = Field("")
