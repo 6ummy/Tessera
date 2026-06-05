@@ -152,3 +152,29 @@ def test_build_regime_report_rejects_weights_over_one():
             as_of=_dt.date(2026, 6, 4), inputs_hash="h", model="m",
             tokens_in=0, tokens_out=0, cost_usd=0.0,
         )
+
+
+# ─── Backtest harness primitives (PR #41 D) ────────────────────────────
+
+
+def test_trading_days_skips_weekends():
+    """trading_days walks back, skips Sat/Sun, returns ascending dates."""
+    import datetime as _dt
+    from tessera_worker.jobs.backtest_harness import trading_days
+    # 2026-06-08 = Monday. Walking back 5 trading days: Mon-Fri prev week.
+    days = trading_days(_dt.date(2026, 6, 8), 5)
+    assert len(days) == 5
+    assert all(d.weekday() < 5 for d in days), [d.weekday() for d in days]
+    # Ascending
+    assert days == sorted(days)
+    # Latest is the given end-date if it's a weekday
+    assert days[-1] == _dt.date(2026, 6, 8)
+
+
+def test_run_result_schema_fail_rate():
+    from tessera_worker.jobs.backtest_harness import RunResult
+    from uuid import uuid4
+    r = RunResult(run_id=uuid4(), attempted=100, rejected=3)
+    assert abs(r.schema_fail_rate() - 0.03) < 1e-9
+    r2 = RunResult(run_id=uuid4(), attempted=0)
+    assert r2.schema_fail_rate() == 0.0

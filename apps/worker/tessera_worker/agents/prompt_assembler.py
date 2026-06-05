@@ -147,19 +147,23 @@ def fetch_inputs(
     *,
     as_of: date | None = None,
 ) -> dict[str, Any]:
-    """Pull DB blocks for one (persona, ticker) pair."""
+    """Pull DB blocks for one (persona, ticker) pair as of `as_of` (default
+    today). Backtest replay relies on this — every query is upper-bounded
+    by `as_of` so no future data leaks into the prompt.
+    """
     rules = RENDER_RULES[persona]
-    since = (as_of or date.today()) - timedelta(days=rules["news_lookback_days"])
+    cutoff = as_of or date.today()
+    since = cutoff - timedelta(days=rules["news_lookback_days"])
     out: dict[str, Any] = {}
 
     feat = session.execute(
         text("""
             SELECT ts, ret_1d, ret_5d, ret_30d, ret_90d, ret_1y,
-                   vol_30d, rsi_14, sma_20, sma_50, volume_z
-            FROM ticker_features WHERE ticker = :t
+                   vol_30d, rsi_14, sma_20, sma_50, volume_z, fcf_yield
+            FROM ticker_features WHERE ticker = :t AND ts <= :cutoff
             ORDER BY ts DESC LIMIT 1
         """),
-        {"t": ticker},
+        {"t": ticker, "cutoff": cutoff},
     ).mappings().first()
     out["features"] = dict(feat) if feat else None
 
@@ -167,14 +171,14 @@ def fetch_inputs(
         text("""
             SELECT DISTINCT ON (ts::date) ts::date AS d, close, source
             FROM ohlcv_1d
-            WHERE ticker = :t
+            WHERE ticker = :t AND ts::date <= :cutoff
             ORDER BY ts::date,
                      CASE source WHEN 'yahoo' THEN 1
                                  WHEN 'alpaca' THEN 2
                                  WHEN 'coinbase' THEN 3
                                  ELSE 9 END
         """),
-        {"t": ticker},
+        {"t": ticker, "cutoff": cutoff},
     ).all()
     out["prices_full"] = [(p.d, float(p.close)) for p in all_prices]
 
@@ -184,10 +188,11 @@ def fetch_inputs(
             text("""
                 SELECT period_end, payload FROM fundamentals
                 WHERE ticker = :t AND filing_type = :ft
+                  AND period_end <= :cutoff
                   AND (payload ->> 'form' = '10-K' OR payload ->> 'fp' = 'FY')
                 ORDER BY period_end DESC LIMIT 5
             """),
-            {"t": ticker, "ft": ft},
+            {"t": ticker, "ft": ft, "cutoff": cutoff},
         ).mappings().all()
         funds[ft] = [dict(r) for r in annual_rows]
     out["fundamentals_annual"] = funds
@@ -197,10 +202,10 @@ def fetch_inputs(
         row = session.execute(
             text("""
                 SELECT period_end, payload FROM fundamentals
-                WHERE ticker = :t AND filing_type = :ft
+                WHERE ticker = :t AND filing_type = :ft AND period_end <= :cutoff
                 ORDER BY period_end DESC LIMIT 1
             """),
-            {"t": ticker, "ft": ft},
+            {"t": ticker, "ft": ft, "cutoff": cutoff},
         ).mappings().first()
         funds_latest[ft] = dict(row) if row else None
     out["fundamentals"] = funds_latest
@@ -210,18 +215,20 @@ def fetch_inputs(
         macros = session.execute(
             text("""
                 SELECT DISTINCT ON (series_id) series_id, value, ts
-                FROM macro_series ORDER BY series_id, ts DESC
+                FROM macro_series WHERE ts <= :cutoff
+                ORDER BY series_id, ts DESC
             """),
+            {"cutoff": cutoff},
         ).all()
     else:
         macros = session.execute(
             text("""
                 SELECT DISTINCT ON (series_id) series_id, value, ts
                 FROM macro_series
-                WHERE series_id = ANY(:ids)
+                WHERE series_id = ANY(:ids) AND ts <= :cutoff
                 ORDER BY series_id, ts DESC
             """),
-            {"ids": wanted},
+            {"ids": wanted, "cutoff": cutoff},
         ).all()
     out["macros"] = {r.series_id: float(r.value) for r in macros}
 
@@ -230,10 +237,10 @@ def fetch_inputs(
         news = session.execute(
             text("""
                 SELECT id, ts, source, title FROM news
-                WHERE :t = ANY(tickers) AND ts >= :since
+                WHERE :t = ANY(tickers) AND ts >= :since AND ts <= :cutoff
                 ORDER BY ts DESC LIMIT :lim
             """),
-            {"t": ticker, "since": since, "lim": news_limit},
+            {"t": ticker, "since": since, "cutoff": cutoff, "lim": news_limit},
         ).all()
         out["news"] = [
             {"id": str(n.id), "ts": n.ts, "source": n.source, "title": n.title}
@@ -247,10 +254,10 @@ def fetch_inputs(
             text("""
                 SELECT filing_type, filing_date, period_end, text_summary, raw_gcs_uri
                 FROM filings
-                WHERE ticker = :t AND filing_type = '10-K'
+                WHERE ticker = :t AND filing_type = '10-K' AND filing_date <= :cutoff
                 ORDER BY filing_date DESC LIMIT 1
             """),
-            {"t": ticker},
+            {"t": ticker, "cutoff": cutoff},
         ).mappings().first()
         out["filing"] = dict(filing) if filing else None
     else:
@@ -277,7 +284,7 @@ def fetch_inputs(
     query_text = " | ".join(query_seeds) if query_seeds else f"{persona} {ticker}"
 
     out["memory"] = fetch_memory_recall(
-        session, persona, ticker, query_text=query_text,
+        session, persona, ticker, query_text=query_text, as_of=as_of,
     )
     return out
 
@@ -289,6 +296,7 @@ def fetch_memory_recall(
     limit: int = 3,
     *,
     query_text: str | None = None,
+    as_of: date | None = None,
 ) -> str:
     """Recall up to `limit` prior thesis snippets for this (persona, ticker).
 
@@ -310,8 +318,8 @@ def fetch_memory_recall(
     requires careful citation discipline so the LLM doesn't quote a
     different stock's thesis.
     """
-    rows = _fetch_by_similarity(session, persona, ticker, limit, query_text) \
-        or _fetch_by_recency(session, persona, ticker, limit)
+    rows = _fetch_by_similarity(session, persona, ticker, limit, query_text, as_of) \
+        or _fetch_by_recency(session, persona, ticker, limit, as_of)
     if not rows:
         return ""
     lines = [f'<memory count="{len(rows)}">']
@@ -326,30 +334,40 @@ def fetch_memory_recall(
 
 def _fetch_by_similarity(
     session: Session, persona: PersonaId, ticker: str, limit: int,
-    query_text: str | None,
+    query_text: str | None, as_of: date | None,
 ) -> list:
-    """Try Voyage embedding + pgvector cosine search. Empty list on any miss."""
+    """Try Voyage embedding + pgvector cosine search. Empty list on any miss.
+
+    `as_of` upper-bounds ts — backtest replay must not see theses from
+    after the replay date.
+    """
     if not query_text:
         return []
-    # Lazy import — keeps prompt_assembler usable in tests without voyage.
     from tessera_worker.agents.embeddings import embed_query, to_pgvector_literal
     vec = embed_query(query_text)
     if vec is None:
         return []
+    cutoff_clause = "AND ts::date <= :cutoff" if as_of else ""
+    params: dict[str, Any] = {
+        "p": persona, "t": ticker, "n": limit,
+        "q": to_pgvector_literal(vec),
+    }
+    if as_of:
+        params["cutoff"] = as_of
     rows = session.execute(
-        text("""
+        text(f"""
             SELECT thesis_md, ts,
                    (embedding <=> CAST(:q AS vector)) AS distance
             FROM persona_memory
             WHERE persona_id = :p AND ticker = :t
               AND embedding IS NOT NULL
+              {cutoff_clause}
             ORDER BY embedding <=> CAST(:q AS vector)
             LIMIT :n
         """),
-        {"p": persona, "t": ticker, "n": limit, "q": to_pgvector_literal(vec)},
+        params,
     ).all()
     for r in rows:
-        # mark for the prompt audit tag
         try:
             r._recall_tag = f"sim={float(r.distance):.3f}"
         except (AttributeError, TypeError):
@@ -359,14 +377,20 @@ def _fetch_by_similarity(
 
 def _fetch_by_recency(
     session: Session, persona: PersonaId, ticker: str, limit: int,
+    as_of: date | None,
 ) -> list:
+    cutoff_clause = "AND ts::date <= :cutoff" if as_of else ""
+    params: dict[str, Any] = {"p": persona, "t": ticker, "n": limit}
+    if as_of:
+        params["cutoff"] = as_of
     rows = session.execute(
-        text("""
+        text(f"""
             SELECT thesis_md, ts FROM persona_memory
             WHERE persona_id = :p AND ticker = :t
+              {cutoff_clause}
             ORDER BY ts DESC LIMIT :n
         """),
-        {"p": persona, "t": ticker, "n": limit},
+        params,
     ).all()
     for r in rows:
         try:
