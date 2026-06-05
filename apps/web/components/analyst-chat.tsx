@@ -3,12 +3,16 @@ import { useEffect, useRef, useState } from "react";
 import { ArrowUp, Sparkles } from "lucide-react";
 import type { Persona } from "@/lib/mock/personas";
 import { ACCENT_CLASS } from "@/lib/mock/personas";
-import { respond, STARTERS, type ChatMessage } from "@/lib/mock/chat";
+import { STARTERS, type ChatMessage } from "@/lib/chat-starters";
+import {
+  ChatStreamError,
+  streamChat,
+  type ChatStreamMessage,
+} from "@/lib/chat-stream";
 import { PersonaAvatar } from "./persona-avatar";
 import { cn } from "@/lib/utils";
 
-const TYPING_DELAY_MS = 600;
-const STREAM_CHAR_MS = 8;
+const HISTORY_TURNS = 10; // last N messages sent back as conversation context
 
 export function AnalystChat({ persona }: { persona: Persona }) {
   const a = ACCENT_CLASS[persona.accent];
@@ -22,40 +26,83 @@ export function AnalystChat({ persona }: { persona: Persona }) {
   const [streamingId, setStreamingId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+    scrollRef.current?.scrollTo({
+      top: scrollRef.current.scrollHeight,
+      behavior: "smooth",
+    });
   }, [messages, typing]);
 
-  const send = (text: string) => {
+  // Cancel any in-flight stream when the component unmounts or persona switches
+  useEffect(() => {
+    return () => abortRef.current?.abort();
+  }, [persona.id]);
+
+  const send = async (text: string) => {
     const trimmed = text.trim();
-    if (!trimmed || typing) return;
-    const userMsg: ChatMessage = { id: `u-${Date.now()}`, role: "user", content: trimmed, ts: Date.now() };
+    if (!trimmed || typing || streamingId) return;
+
+    const userMsg: ChatMessage = {
+      id: `u-${Date.now()}`,
+      role: "user",
+      content: trimmed,
+      ts: Date.now(),
+    };
     setMessages((m) => [...m, userMsg]);
     setInput("");
     setTyping(true);
 
-    setTimeout(() => {
-      const fullReply = respond(persona.id, trimmed);
-      const id = `a-${Date.now()}`;
-      setMessages((m) => [...m, { id, role: "analyst", content: "", ts: Date.now() }]);
-      setStreamingId(id);
-      setTyping(false);
+    // Conversation history sent to the model — last N turns, greeting
+    // excluded (it's a UI flourish, not analyst output).
+    const history: ChatStreamMessage[] = messages
+      .filter((m) => m.id !== "greet")
+      .slice(-HISTORY_TURNS)
+      .map((m) => ({
+        role: m.role === "analyst" ? "assistant" : "user",
+        content: m.content,
+      }));
 
-      // Character-by-character stream
-      let i = 0;
-      const tick = () => {
-        i += Math.max(1, Math.floor(fullReply.length / 80));
-        const slice = fullReply.slice(0, Math.min(i, fullReply.length));
-        setMessages((m) => m.map((msg) => (msg.id === id ? { ...msg, content: slice } : msg)));
-        if (i < fullReply.length) {
-          setTimeout(tick, STREAM_CHAR_MS);
-        } else {
-          setStreamingId(null);
-        }
-      };
-      setTimeout(tick, STREAM_CHAR_MS);
-    }, TYPING_DELAY_MS);
+    const assistantId = `a-${Date.now()}`;
+    setMessages((m) => [
+      ...m,
+      { id: assistantId, role: "analyst", content: "", ts: Date.now() },
+    ]);
+    setStreamingId(assistantId);
+    setTyping(false);
+
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+
+    try {
+      for await (const delta of streamChat(
+        persona.id,
+        trimmed,
+        history,
+        ctrl.signal,
+      )) {
+        setMessages((m) =>
+          m.map((msg) =>
+            msg.id === assistantId
+              ? { ...msg, content: msg.content + delta }
+              : msg,
+          ),
+        );
+      }
+    } catch (err) {
+      const msg = formatStreamError(err, persona.name);
+      setMessages((m) =>
+        m.map((msgRow) =>
+          msgRow.id === assistantId
+            ? { ...msgRow, content: (msgRow.content || "") + msg }
+            : msgRow,
+        ),
+      );
+    } finally {
+      setStreamingId(null);
+      if (abortRef.current === ctrl) abortRef.current = null;
+    }
   };
 
   const onKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -71,7 +118,12 @@ export function AnalystChat({ persona }: { persona: Persona }) {
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 py-6">
         <div className="mx-auto max-w-2xl space-y-5">
           {messages.map((m) => (
-            <Message key={m.id} msg={m} persona={persona} streaming={streamingId === m.id} />
+            <Message
+              key={m.id}
+              msg={m}
+              persona={persona}
+              streaming={streamingId === m.id}
+            />
           ))}
           {typing && (
             <div className="flex items-end gap-3">
@@ -98,7 +150,7 @@ export function AnalystChat({ persona }: { persona: Persona }) {
                   onClick={() => send(s)}
                   className={cn(
                     "rounded-full border border-ink-900/10 bg-cream-50 px-3 py-1.5 text-xs text-ink-700 transition-all hover:border-ink-900/20 hover:bg-ink-900/[0.04]",
-                    a.text
+                    a.text,
                   )}
                 >
                   {s}
@@ -119,26 +171,29 @@ export function AnalystChat({ persona }: { persona: Persona }) {
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={onKey}
               rows={1}
-              placeholder={`Message ${persona.name}…`}
-              className="num min-h-[24px] flex-1 resize-none bg-transparent text-[14px] leading-relaxed text-ink-900 placeholder:text-ink-400 focus:outline-none"
+              placeholder={
+                streamingId ? `${persona.name} is typing…` : `Message ${persona.name}…`
+              }
+              disabled={!!streamingId}
+              className="num min-h-[24px] flex-1 resize-none bg-transparent text-[14px] leading-relaxed text-ink-900 placeholder:text-ink-400 focus:outline-none disabled:opacity-60"
               style={{ fontFamily: "var(--font-sans)" }}
             />
             <button
               onClick={() => send(input)}
-              disabled={!input.trim() || typing}
+              disabled={!input.trim() || typing || !!streamingId}
               aria-label="Send"
               className={cn(
                 "grid h-8 w-8 shrink-0 place-items-center rounded-full transition-colors",
-                input.trim() && !typing
+                input.trim() && !typing && !streamingId
                   ? "bg-ink-900 text-cream-50 hover:bg-ink-800"
-                  : "bg-ink-900/[0.06] text-ink-400"
+                  : "bg-ink-900/[0.06] text-ink-400",
               )}
             >
               <ArrowUp className="h-4 w-4" />
             </button>
           </div>
           <p className="mt-2 text-center text-[11px] text-ink-400">
-            Demo · responses are mock-generated from {persona.name}'s philosophy and reports. No LLM calls.
+            Powered by Sonnet 4.6 in {persona.name}'s voice · not financial advice
           </p>
         </div>
       </div>
@@ -146,7 +201,35 @@ export function AnalystChat({ persona }: { persona: Persona }) {
   );
 }
 
-function Message({ msg, persona, streaming }: { msg: ChatMessage; persona: Persona; streaming: boolean }) {
+function formatStreamError(err: unknown, personaName: string): string {
+  if (err instanceof ChatStreamError) {
+    if (err.code === "aborted") return "";
+    if (err.code === "network") {
+      return `\n\n_[연결이 끊겼어요. 다시 시도해 주세요.]_`;
+    }
+    if (err.code === "http" && err.status === 503) {
+      return `\n\n_[채팅 서버가 아직 연결되지 않았습니다. 잠시 후 다시 시도해주세요.]_`;
+    }
+    if (err.message.includes("chat_disabled")) {
+      return `\n\n_[Chat is disabled on this environment (FEATURE_REAL_LLM=false).]_`;
+    }
+    if (err.message.includes("budget_exceeded")) {
+      return `\n\n_[Daily LLM budget reached — ${personaName} is offline until tomorrow.]_`;
+    }
+    return `\n\n_[Error: ${err.message}]_`;
+  }
+  return `\n\n_[Unexpected error: ${err instanceof Error ? err.message : String(err)}]_`;
+}
+
+function Message({
+  msg,
+  persona,
+  streaming,
+}: {
+  msg: ChatMessage;
+  persona: Persona;
+  streaming: boolean;
+}) {
   const a = ACCENT_CLASS[persona.accent];
   if (msg.role === "user") {
     return (
@@ -161,10 +244,19 @@ function Message({ msg, persona, streaming }: { msg: ChatMessage; persona: Perso
     <div className="flex items-start gap-3">
       <PersonaAvatar persona={persona} size="sm" />
       <div className="max-w-[80%] rounded-2xl rounded-tl-md border border-ink-900/[0.06] bg-cream-50 px-4 py-3">
-        <div className={cn("mb-1 text-[10px] uppercase tracking-[0.16em]", a.text)}>{persona.name}</div>
+        <div
+          className={cn(
+            "mb-1 text-[10px] uppercase tracking-[0.16em]",
+            a.text,
+          )}
+        >
+          {persona.name}
+        </div>
         <div className="whitespace-pre-wrap text-[14px] leading-relaxed text-ink-800">
           {msg.content}
-          {streaming && <span className="ml-0.5 inline-block h-3.5 w-[2px] translate-y-0.5 animate-pulse bg-ink-700" />}
+          {streaming && (
+            <span className="ml-0.5 inline-block h-3.5 w-[2px] translate-y-0.5 animate-pulse bg-ink-700" />
+          )}
         </div>
       </div>
     </div>
@@ -174,9 +266,18 @@ function Message({ msg, persona, streaming }: { msg: ChatMessage; persona: Perso
 function Dots() {
   return (
     <div className="flex items-center gap-1">
-      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-ink-400" style={{ animationDelay: "0ms" }} />
-      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-ink-400" style={{ animationDelay: "150ms" }} />
-      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-ink-400" style={{ animationDelay: "300ms" }} />
+      <span
+        className="h-1.5 w-1.5 animate-bounce rounded-full bg-ink-400"
+        style={{ animationDelay: "0ms" }}
+      />
+      <span
+        className="h-1.5 w-1.5 animate-bounce rounded-full bg-ink-400"
+        style={{ animationDelay: "150ms" }}
+      />
+      <span
+        className="h-1.5 w-1.5 animate-bounce rounded-full bg-ink-400"
+        style={{ animationDelay: "300ms" }}
+      />
     </div>
   );
 }
