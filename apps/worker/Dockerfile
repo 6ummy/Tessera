@@ -55,6 +55,11 @@ COPY --from=builder /opt/venv /opt/venv
 
 WORKDIR /app
 COPY --chown=tessera:tessera apps/worker/tessera_worker /app/tessera_worker
+# personalities.md lives at repo root; persona_loader walks up from the
+# package looking for it. Without this COPY, chat raises FileNotFoundError
+# on first request. Sits at /app/personalities.md so the loader's
+# parent-walk finds it at the third parent of persona_loader.py.
+COPY --chown=tessera:tessera personalities.md /app/personalities.md
 
 USER tessera
 

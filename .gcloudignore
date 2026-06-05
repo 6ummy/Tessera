@@ -47,6 +47,9 @@ docs/
 *.md
 !apps/worker/**/*.md
 !packages/shared/**/*.md
+# personalities.md is at repo root and the Dockerfile COPYs it into the
+# worker image. Re-include so the build context actually carries it.
+!personalities.md
 
 # Local logs
 .deploy.log
