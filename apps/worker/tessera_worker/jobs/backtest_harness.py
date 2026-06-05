@@ -119,48 +119,43 @@ def run_one(
     result: RunResult,
 ) -> None:
     """One (replay_as_of, persona, ticker) attempt. Errors are logged + counted,
-    never raised — harness must complete all cells."""
-    from tessera_worker.agents.prompt_assembler import build_user_message, fetch_inputs
-    from tessera_worker.agents.persona_loader import load_persona_specs
+    never raised — harness must complete all cells.
+
+    Uses `assemble_prompt` (the same entry point production `run_thesis`
+    uses) so the prompt + system block + inputs_hash + news_ids are
+    constructed identically. point-in-time correctness is enforced inside
+    `fetch_inputs` via the `as_of` upper-bound.
+    """
+    from tessera_worker.agents.prompt_assembler import assemble_prompt
 
     result.attempted += 1
     result.bump(persona, "attempted")
 
     try:
-        inputs = fetch_inputs(session, persona, ticker, as_of=replay_as_of)  # type: ignore[arg-type]
-        spec = load_persona_specs()[persona]
-        assembled = build_user_message(
-            persona=persona,  # type: ignore[arg-type]
-            ticker=ticker,
-            as_of=replay_as_of,
-            inputs=inputs,
-            persona_spec=spec,
-        )
+        assembled = assemble_prompt(persona, ticker, as_of=replay_as_of)  # type: ignore[arg-type]
     except Exception as e:
         log.warning("backtest.assemble_failed",
                     persona=persona, ticker=ticker, replay_as_of=str(replay_as_of),
-                    error=str(e))
+                    error=str(e), error_type=type(e).__name__)
         result.errors += 1
         result.bump(persona, "errors")
         return
 
     if dry_run:
-        # Verify assembly path worked; don't call LLM.
+        # Assembly succeeded — that's the full check for --dry-run.
         result.persisted += 1
         result.bump(persona, "persisted")
         return
 
     # Real path: LLM call + validation + persist.
     from tessera_worker.agents.anthropic_runner import (
-        build_analyst_report, call_anthropic_thesis, parse_llm_json,
+        build_analyst_report, call_anthropic_thesis, estimate_cost_usd, parse_llm_json,
     )
     from tessera_worker.agents.citation_validator import validate_citations
 
     try:
         raw, ti, to_, _cached, _ms = call_anthropic_thesis(assembled)
         parsed = parse_llm_json(raw)
-        allowed_news_ids = {str(n["id"]) for n in (inputs.get("news") or [])}
-        from tessera_worker.agents.anthropic_runner import estimate_cost_usd
         cost = estimate_cost_usd("claude-sonnet-4-6", ti, to_)
         result.total_cost_usd += cost
 
@@ -168,9 +163,9 @@ def run_one(
             parsed, persona_id=persona, as_of=replay_as_of,  # type: ignore[arg-type]
             inputs_hash=assembled.inputs_hash, model="claude-sonnet-4-6",
             tokens_in=ti, tokens_out=to_, cost_usd=cost,
-            allowed_news_ids={UUID(s) for s in allowed_news_ids},  # type: ignore[arg-type]
+            allowed_news_ids=set(assembled.news_ids),
         )
-        cite_problems = validate_citations(report, {UUID(s) for s in allowed_news_ids})  # type: ignore[arg-type]
+        cite_problems = validate_citations(report, set(assembled.news_ids))
         rejected = bool(cite_problems)
         persist_backtest_row(
             session, run_id=run_id, replay_as_of=replay_as_of,
