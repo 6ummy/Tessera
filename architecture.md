@@ -452,7 +452,7 @@ plane is shipped; the LLM pipeline is the Week 2 / Week 3 work.
 | `jobs/backtest_harness.py` (point-in-time replay, separate `backtest_reports` table, retry + persist-unparseable) | LLM Pipeline | ✅ shipped 2026-06-05 (live verified 1.67% then 0% schema-fail rate) |
 | `jobs/hallucination_canary.py` (5 invariant checks against most-recent batch; Sentry alert on fail) | LLM Pipeline | ✅ shipped 2026-06-05 |
 | `jobs/persona_batch.py` (weekly Fri cron — loops personas × shortlist → calls runner) | LLM Pipeline | ✅ shipped 2026-06-05 (Vercel cron `0 22 * * 5` → `/jobs/persona-batch` → 31-cell batch + chained canary; replaces the prior TODO stub in `main.py`) |
-| `/api/chat/[personaId]` SSE chat backend | LLM Pipeline + Frontend | ⏳ Phase B/D boundary (MVP ~5h on Vercel; production-grade ~10h on Cloud Run streaming endpoint) |
+| `/api/chat/[personaId]` SSE chat backend — worker `agents/chat.py` (6-part assembler + Anthropic stream) + FastAPI SSE endpoint + Next.js Edge proxy | LLM Pipeline | ✅ shipped 2026-06-05 (backend only). 6 levels of ticker resolution + RAG over last 5 reports + ticker_features. Universal chat policies (compliance / no-personalized-advice / hallucination guard) + per-persona chat fine-tuning spec parsed from personalities.md. Frontend SSE consumer (`analyst-chat.tsx` swap) ⏳ Frontend track. |
 
 **Cost model** (Plan.md §4 acceptance: < $5/day average):
 
