@@ -447,7 +447,12 @@ plane is shipped; the LLM pipeline is the Week 2 / Week 3 work.
 | `features/compute.py` — `fcf_yield` (TTM-decomposed cumulative-YTD, FX-converted, cross-validated mcap) | Quant | ✅ shipped 2026-06-04 |
 | `features/compute.py` — `peg`, `eps_cagr_3y`, `debt_to_equity`, `gross_margin_trend` | Quant | ⏳ Week 2–3 (reuses `cross_validated()` primitive) |
 | `apps/web/app/api/reports/route.ts` + UI swap | Frontend | ⏳ Week 3 |
-| Ray-specific `RegimeProbabilities` runner (separate schema) | LLM Pipeline | ⏳ Week 3 |
+| `agents/anthropic_runner.py` Ray-specific (`run_regime_thesis`, `RegimeReport`) | LLM Pipeline | ✅ shipped 2026-06-03 (parallel schema, `persona_id='ray'` discriminator in `analyst_reports`) |
+| `agents/embeddings.py` + `prompt_assembler.fetch_memory_recall` (Voyage similarity, recency fallback) | LLM Pipeline | ✅ shipped 2026-06-05 (PR #44) |
+| `jobs/backtest_harness.py` (point-in-time replay, separate `backtest_reports` table, retry + persist-unparseable) | LLM Pipeline | ✅ shipped 2026-06-05 (live verified 1.67% then 0% schema-fail rate) |
+| `jobs/hallucination_canary.py` (5 invariant checks against most-recent batch; Sentry alert on fail) | LLM Pipeline | ✅ shipped 2026-06-05 |
+| `jobs/persona_batch.py` (weekly Fri cron — loops personas × shortlist → calls runner) | LLM Pipeline | ⏳ next (Phase B Week 3 → 4 closing task) |
+| `/api/chat/[personaId]` SSE chat backend | LLM Pipeline + Frontend | ⏳ Phase B/D boundary (MVP ~5h on Vercel; production-grade ~10h on Cloud Run streaming endpoint) |
 
 **Cost model** (Plan.md §4 acceptance: < $5/day average):
 
@@ -601,9 +606,10 @@ One-time: securities-lawyer consult (~$300) before Phase E.
 - **No custody.** Tessera never holds, moves, or receives user funds.
 - **No live orders without explicit user approval.** Even after Phase F, every order requires user confirmation in the UI.
 - **No personalized advice.** We publish ideas; we don't tell a specific user what to buy for their account.
-- **No guarantees.** Marketing copy never implies promised returns.
-- **No hallucinated tickers.** Risk Gateway rejects anything not in the verified universe.
+- **No guarantees.** Marketing copy never implies promised returns. **Mechanically enforced** by `jobs/hallucination_canary.py` — every batch's `thesis_md` is grep'd for `"guaranteed return"`, `"can't lose"`, `"risk-free"`, `"insider tip"`, etc. Any hit = stop-the-world, Sentry alert, next batch skipped.
+- **No hallucinated tickers.** Risk Gateway rejects anything not in the verified universe. **Mechanically enforced** at three layers: (1) `assemble_prompt` only emits tickers from `tessera_worker.universe`; (2) `citation_validator` drops invented `cited_news_ids` at runtime; (3) `hallucination_canary` re-verifies every persisted row's citations + side/conviction coherence + persona-topic-drift (Warren/Peter must not propose options).
 - **No skipping paper.** Every persona, every strategy update, every new feature ships to paper first and runs for a meaningful window before any live exposure.
+- **No mode-collapse to the cap.** `hallucination_canary` flags any `target_weight ≥ 0.19` (the 0.20 schema cap minus a 0.01 buffer) as a possible mode-collapse signal — see Plan §11 risk register. Detection is the trigger for the conviction-only-schema refactor (Plan §10 weight authority decision).
 
 ---
 

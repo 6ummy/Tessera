@@ -546,7 +546,15 @@ Pick one as your first PR. They're all real, small, and improve the downstream s
     - `what_would_make_me_wrong` cap 5 → 8 (Cathie's scenario-structured voice routinely enumerates 6–7 risks).
     - **Live run (60 cells, 10 days × 3 personas × 5 tickers)**: 1.67% schema fail (target <2%, PASS), $4.63 cost. Smaller 18-cell follow-up after the conviction + parser fixes: 0% schema fail, $0.65, conviction distribution diverse and persona-appropriate (Cathie 0.38–0.82, Warren 0.55–0.62, Peter 0.45–0.72), voice differentiation strong (Warren simple metaphors / Cathie Base-Bull-Bear scenarios / Peter store-walker anecdotes).
 - [→] **Hard rule enforcement** — **moved to Phase C Week 4 Risk Gateway** (2026-06-05). Same per-persona validators (Warren `target_weight > 0.18` reject, etc.) belong in `risk/gateway.py` where the trade-time check happens. Implementing twice would diverge. Schema-level global `target_weight ≤ 0.20` cap already in place.
-- [ ] **Hallucination canary**: 5 known-bad prompts run weekly, all must be rejected
+- [x] **Hallucination canary** — **shipped 2026-06-05**. `apps/worker/tessera_worker/jobs/hallucination_canary.py` — invariant checks on the most-recent batch's outputs (dropped probe-prompt approach in favor of post-hoc invariants, which test actual production behavior). Five checks:
+    1. Every `cited_news_ids` resolves to a real `news` row.
+    2. No `target_weight ≥ 0.19` (mode-collapse signal vs the 0.20 schema cap — Plan §11 risk).
+    3. `side ∈ {buy, add}` requires `conviction ≥ persona floor` (Warren 0.55, Cathie/Peter 0.50).
+    4. `thesis_md` contains no compliance-forbidden phrases (`guaranteed return`, `can't lose`, `risk-free`, `insider tip`, etc.).
+    5. Warren/Peter `thesis_md` mentions no derivatives (`covered call`, `leveraged`, `margin loan` — spec drift).
+  - CLI: `python -m tessera_worker.jobs.hallucination_canary --latest` (default = most-recent backtest run), `--run-id <uuid>`, or `--table analyst_reports --since YYYY-MM-DD` for prod-batch mode.
+  - Exit 0 = pass, 1 = fail (Sentry capture on failure). Weekly cron should run canary as the LAST step after `persona_batch.py` and treat exit 1 as stop-the-world (skip next batch + page on-call).
+  - First live run against the 18-cell backtest: **0 violations, PASS**. 23 unit tests cover each check independently + the result/threshold sanity.
 - [→] **Cost cap** — **functional component shipped 2026-06-02** (`check_daily_budget()` hard-pauses on cap breach; cost logged per call to `llm_call_log`). Grafana visualization + Slack alerts moved to Phase C Week 4 observability work (rolled forward; same data source, just unwired alerts).
 - [ ] **Frontend swap** (Frontend track, carried over from Phase A): `lib/mock/performance.ts` → `/api/performance`; same for thesis + portfolio reads. Now safe because real theses exist.
 
