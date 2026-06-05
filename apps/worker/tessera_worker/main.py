@@ -84,12 +84,60 @@ async def trigger_ingest_daily(
 
 @app.post("/jobs/persona-batch")
 async def trigger_persona_batch(
+    background: BackgroundTasks,
     authorization: str | None = Header(default=None),
 ) -> dict[str, str]:
-    """Trigger the persona thesis batch after ingestion completes."""
+    """Trigger the weekly persona thesis batch.
+
+    Vercel Cron hits this Fri close (see apps/web/vercel.json `cron/weekly`).
+    Runs in the background — a full 4-persona batch takes 5–10 min.
+
+    Sequence: persona_batch → hallucination_canary on the freshly-written
+    rows. A canary violation pages on-call via Sentry but doesn't roll
+    back the batch (rejected rows are already isolated via Pydantic +
+    citation_validator at write time).
+    """
     _require_webhook_auth(authorization)
-    # TODO(Phase B, Week 2): wire to tessera_worker.jobs.persona_batch.run()
-    log.info("persona_batch.triggered")
+    from datetime import date as _date
+
+    from tessera_worker.db import session_scope
+    from tessera_worker.jobs.hallucination_canary import run_canary
+    from tessera_worker.jobs.persona_batch import run_batch
+
+    def _job() -> None:
+        try:
+            result = run_batch()  # all 4 personas, defaults
+            log.info("persona_batch.bg_done",
+                     attempted=result.attempted, persisted=result.persisted,
+                     errors=result.errors, cost_usd=round(result.total_cost_usd, 3),
+                     aborted=bool(result.aborted_reason))
+            # Canary runs against today's analyst_reports rows — i.e. what
+            # this batch just wrote. analyst_reports has no run_id, so
+            # `--since today` is the cleanest scoping proxy.
+            with session_scope() as session:
+                canary = run_canary(session, table="analyst_reports",
+                                    since=_date.today())
+            log.info("persona_batch.canary_done",
+                     rows=canary.rows_checked,
+                     violations=len(canary.violations),
+                     passed=canary.passed)
+            if not canary.passed:
+                try:
+                    import sentry_sdk
+                    sentry_sdk.capture_message(
+                        f"persona_batch canary FAILED — "
+                        f"{len(canary.violations)} violations across "
+                        f"{canary.rows_checked} fresh reports",
+                        level="error",
+                    )
+                except Exception:
+                    pass
+        except Exception:
+            log.exception("persona_batch.bg_failed")
+            raise  # Sentry captures
+
+    background.add_task(_job)
+    log.info("persona_batch.queued")
     return {"status": "queued", "job": "persona_batch"}
 
 
