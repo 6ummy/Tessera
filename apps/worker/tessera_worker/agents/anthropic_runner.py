@@ -88,13 +88,24 @@ _CONVICTION_WORDS = {
 def _normalize_conviction(p: dict[str, Any]) -> None:
     """Coerce common LLM mistakes into Proposal.conviction's [0,1] float.
 
-    Observed in early Phase B runs: model occasionally returns conviction
-    as a percent (55), an integer (1-10 scale), or a word ("high"). We
-    normalize before Pydantic validation so we don't waste a retry on a
-    purely-formatting error. Out-of-range remains a hard reject.
+    Observed in early Phase B runs:
+      - percent (55), 1-10 scale (7), word ("high"). Normalize before
+        Pydantic validation so a purely-formatting error doesn't burn a
+        retry. Out-of-range still hard-rejects.
+      - **field omitted entirely** — seen in 2026-06-04 backtest, Cathie
+        outputs the full proposal but drops `conviction`. The retry
+        feedback usually fixes it but not always. Fill the median (0.5)
+        rather than reject; log it so we can see if this gets common.
     """
+    if "conviction" not in p:
+        log.info("conviction.missing_defaulted_to_median",
+                 ticker=p.get("ticker"), side=p.get("side"))
+        p["conviction"] = 0.5
+        return
     c = p.get("conviction")
     if c is None:
+        log.info("conviction.null_defaulted_to_median", ticker=p.get("ticker"))
+        p["conviction"] = 0.5
         return
     if isinstance(c, str):
         word = c.strip().lower()

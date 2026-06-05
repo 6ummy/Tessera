@@ -80,15 +80,26 @@ def test_normalize_conviction(given, expected):
     assert abs(p["conviction"] - expected) < 1e-6, (given, p["conviction"], expected)
 
 
-def test_normalize_conviction_passes_through_unknowns():
-    """Unparseable values aren't touched — Pydantic raises a clearer error."""
+def test_normalize_conviction_unparseable_word_passes_through():
+    """Unparseable string (not a known word, not numeric) → leave for Pydantic
+    to raise a clearer error."""
     p = {"conviction": "purple"}
     _normalize_conviction(p)
     assert p["conviction"] == "purple"
 
-    p = {}  # no conviction key
+
+def test_normalize_conviction_missing_defaults_to_median():
+    """Missing field → 0.5 (median). Backtest 2026-06-04: Cathie ~1% of
+    runs drops the field even after retry; defaulting beats hard-rejecting."""
+    p = {"ticker": "AAPL", "side": "hold"}
     _normalize_conviction(p)
-    assert p == {}
+    assert p["conviction"] == 0.5
+
+
+def test_normalize_conviction_null_defaults_to_median():
+    p = {"ticker": "AAPL", "conviction": None}
+    _normalize_conviction(p)
+    assert p["conviction"] == 0.5
 
 
 def test_build_regime_report_validates_allocations():
