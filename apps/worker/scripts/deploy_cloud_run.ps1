@@ -50,8 +50,14 @@ Write-Output "==> Deploying $SERVICE to Cloud Run"
     --min-instances 0 `
     --max-instances 2 `
     --timeout 3600 `
-    --set-env-vars "ENV=production,LOG_LEVEL=INFO,SENTRY_ENVIRONMENT=production,FEATURE_REAL_LLM=false,FEATURE_PAPER_EXECUTION=false,FEATURE_LIVE_TRADING=false,GCS_BUCKET_RAW=tessera-raw,LLM_MAX_DAILY_COST_USD=5.0,ALPACA_BASE_URL=https://paper-api.alpaca.markets" `
+    --set-env-vars "ENV=production,LOG_LEVEL=INFO,SENTRY_ENVIRONMENT=production,FEATURE_REAL_LLM=true,FEATURE_PAPER_EXECUTION=false,FEATURE_LIVE_TRADING=false,GCS_BUCKET_RAW=tessera-raw,LLM_MAX_DAILY_COST_USD=5.0,ALPACA_BASE_URL=https://paper-api.alpaca.markets" `
     --set-secrets "DATABASE_URL=DATABASE_URL:latest,ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest,ALPACA_API_KEY=ALPACA_API_KEY:latest,ALPACA_API_SECRET=ALPACA_API_SECRET:latest,FMP_API_KEY=FMP_API_KEY:latest,FRED_API_KEY=FRED_API_KEY:latest,NEWSAPI_API_KEY=NEWSAPI_API_KEY:latest,SENTRY_DSN=SENTRY_DSN:latest,WORKER_WEBHOOK_SECRET=WORKER_WEBHOOK_SECRET:latest,SEC_USER_AGENT=SEC_USER_AGENT:latest"
+# Optional: chat memory uses Voyage embeddings if VOYAGE_API_KEY is set.
+# Create the secret once with:
+#   gcloud secrets create VOYAGE_API_KEY --replication-policy=automatic --project tessera-498200
+#   echo -n "pa-…" | gcloud secrets versions add VOYAGE_API_KEY --data-file=- --project tessera-498200
+# Then add `,VOYAGE_API_KEY=VOYAGE_API_KEY:latest` to the --set-secrets line above.
+# Without it, chat still works — `fetch_memory_recall` falls back to recency-only.
 
 if ($LASTEXITCODE -ne 0) { Write-Error "Cloud Run deploy failed"; exit 1 }
 
