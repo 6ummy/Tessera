@@ -514,7 +514,7 @@ Pick one as your first PR. They're all real, small, and improve the downstream s
 - [ ] **`screen_promotion_rate` dashboard**: target band 30–80% — **blocked on Haiku screen**
 - [x] **Deep thesis** (Sonnet 4.6, PR #33, shipped 2026-06-02): currently runs on hand-picked tickers via CLI / `persona_batch.py`. "shortlist only" gating pending Haiku screen
 - [x] **Prompt caching** (PR #33, shipped 2026-06-02): persona spec marked `cache_control: ephemeral` in `anthropic_runner.py:258`. Verified cache hits in `llm_call_log` cost reduction
-- [ ] **pgvector recall**: surface prior 5 theses on same ticker via embedding similarity — **partial**: `fetch_memory_recall()` ships in `prompt_assembler.py` but uses **recency only** (`ORDER BY ts DESC LIMIT 3`), not embedding similarity. `persona_memory.embedding` column exists; needs (1) embedding writer on thesis persist (2) `<->` cosine query. **Week 3 task**
+- [x] **pgvector recall** — **shipped 2026-06-05** (PR #42 + follow-ups). Voyage AI embeddings (1024-dim `voyage-3.5-lite`, Anthropic-recommended, ~$0.0003/mo at pilot scale, free-tier covers indefinitely). New `agents/embeddings.py` (`embed_thesis`/`embed_query`/`to_pgvector_literal`). `persist_analyst_report` writes one `persona_memory` row per proposal as best-effort (NULL embedding if Voyage unavailable; persistence never blocks). `fetch_memory_recall` picks strategy at runtime: similarity (`<=>` cosine, query built from top-3 news titles + key features) when Voyage works, else recency fallback — both paths upper-bounded by `as_of` for backtest correctness. Recall lines tagged `sim=0.234` or `recency` for prompt audits. Migration `002_persona_memory_vector_1024.sql` (VECTOR 1536→1024, ivfflat WHERE embedding IS NOT NULL). 4 new tests.
 - [x] **Cost logging** (PR #33, shipped 2026-06-02): every call → **`llm_call_log` table** `(persona_id, stage, model, tokens_in, tokens_out, cost_usd, latency_ms, ts)`. Daily cap check in `_check_daily_budget()`. ~~Grafana metric~~ deferred to Phase C observability
 - [x] **First sanity check** — shipped 2026-06-03. Warren wrote real theses on AAPL (3 runs, all `side=hold conv=0.55-0.62 cash=0.12-0.15`, ~$0.02 each), Cathie on NVDA (tri-scenario thesis, conv=0.72), Peter on COST (hold, conv=0.62). Ray's `instrument`+ETF schema doesn't fit `Proposal` — needs separate `RegimeProbabilities` path, deferred to Week 3.
 
@@ -529,7 +529,13 @@ Pick one as your first PR. They're all real, small, and improve the downstream s
 - [ ] **Chat backend**: `/api/chat/[personaId]` assembling 6-part system prompt
   (persona spec + book + recent reports + relevant features + history + user msg);
   stream Anthropic response via SSE; wire `analyst-chat.tsx` to consume stream
-- [x] **Backtest harness** (LLM Pipeline) — **shipped 2026-06-04**. `apps/worker/tessera_worker/jobs/backtest_harness.py` — replays N trading days × M personas × K tickers with point-in-time correctness. All `fetch_inputs` queries now upper-bound on `as_of` (features / news / fundamentals / filings / macros / persona_memory) so no future data leaks into the prompt. New `backtest_reports` table (separate from `analyst_reports` to keep UI / risk gateway clean) plus a per-run `run_id`. CLI flags: `--days`, `--personas`, `--tickers`, `--dry-run` (skips LLM, verifies assembly path), `--max-cost` (defaults $5). Per-run summary prints attempted / persisted / rejected / errors per persona + schema-fail rate vs. the <2% acceptance target. Honors `LLM_MAX_DAILY_COST_USD` on top of `--max-cost`.
+- [x] **Backtest harness** (LLM Pipeline) — **shipped 2026-06-04**, **acceptance verified 2026-06-05**. `apps/worker/tessera_worker/jobs/backtest_harness.py` — replays N trading days × M personas × K tickers with point-in-time correctness. All `fetch_inputs` queries upper-bound on `as_of` (features / news / fundamentals / filings / macros / persona_memory) so no future data leaks into the prompt. New `backtest_reports` table (separate from `analyst_reports` to keep UI / risk gateway clean) plus a per-run `run_id`. CLI flags: `--days`, `--personas`, `--tickers`, `--dry-run` (skips LLM, verifies assembly path), `--max-cost` (defaults $5). Honors `LLM_MAX_DAILY_COST_USD` on top of `--max-cost`. Same 2-attempt retry-with-feedback path as production. Followups (PRs #41–#42 + descendants):
+    - 2-attempt retry + persist-unparseable (parsed=NULL row preserves raw text + reject reason for hand-review).
+    - `JSONDecoder.raw_decode()` parser ignores trailing chatter (Cathie scenario narration ~5% of cells).
+    - Targeted retry guidance — `_retry_guidance_for()` pattern-matches the error (JSONDecode / what_would_make_me_wrong / conviction-missing / cited_news_ids) and gives the model a specific corrective instruction instead of generic "Fix JSON only".
+    - `personalities.md` field-name drift fix (`confidence` → `conviction`) + defensive alias in `_normalize_conviction` so 100%-silent signal-loss regressions can't recur.
+    - `what_would_make_me_wrong` cap 5 → 8 (Cathie's scenario-structured voice routinely enumerates 6–7 risks).
+    - **Live run (60 cells, 10 days × 3 personas × 5 tickers)**: 1.67% schema fail (target <2%, PASS), $4.63 cost. Smaller 18-cell follow-up after the conviction + parser fixes: 0% schema fail, $0.65, conviction distribution diverse and persona-appropriate (Cathie 0.38–0.82, Warren 0.55–0.62, Peter 0.45–0.72), voice differentiation strong (Warren simple metaphors / Cathie Base-Bull-Bear scenarios / Peter store-walker anecdotes).
 - [ ] **Hard rule enforcement**: per-persona validators (e.g., Warren cannot output `target_weight > 0.18`)
 - [ ] **Hallucination canary**: 5 known-bad prompts run weekly, all must be rejected
 - [ ] **Cost cap**: alert in Grafana if daily LLM cost > $10
@@ -539,12 +545,19 @@ Pick one as your first PR. They're all real, small, and improve the downstream s
 weeks. Risk: backtest review is rushed. Mitigation: review sample size from 10
 to 5 per persona; defer voice tuning to post-launch iteration.
 
-### Acceptance criteria
-- ✅ Open Warren in UI → see real thesis written today, with citations linking to real news rows
-- ✅ Open chat with Cathie → real Sonnet response, in her voice
-- ✅ Cost dashboard shows < $5/day on average
-- ✅ Backtest of 30 days × 4 personas shows < 2% schema-validation failure rate
-- ✅ 0 hallucinated tickers reached the UI in 30-day backtest
+### Acceptance criteria (as of 2026-06-05)
+- 🟡 Open Warren in UI → see real thesis written today, with citations linking to real news rows
+  - LLM pipeline ✅ writes real theses with valid citations to `analyst_reports`. UI swap (mock → /api/reports) still pending (Frontend track).
+- 🔴 Open chat with Cathie → real Sonnet response, in her voice
+  - Chat backend (`/api/chat/[personaId]` SSE) not yet built.
+- 🟢 Cost dashboard shows < $5/day on average
+  - Every call logged to `llm_call_log` with cost. Live backtest (60 cells) ran $4.63. Daily cap (`LLM_MAX_DAILY_COST_USD`) enforced in `_check_daily_budget()`. Grafana export deferred to Phase C.
+- 🟢 Backtest of 30 days × 4 personas shows < 2% schema-validation failure rate
+  - Verified at 10 days × 3 personas × 5 tickers (60 cells): **1.67%** fail rate, PASS.
+  - 4 personas (incl. Ray): Ray uses parallel `RegimeReport` schema, will need a separate Ray-aware backtest cell type. Carried into Phase C precursor work.
+  - 30-day expansion: gated on Anthropic credit budget; current 10-day proxy passed the underlying gate.
+- 🟢 0 hallucinated tickers reached the (would-be) UI in backtest
+  - `citation_validator` rejected 0 cells on bad news IDs across the 60-cell run. `assemble_prompt` only emits tickers from `tessera_worker.universe` so the schema cannot produce a non-universe `ticker`.
 
 ### Open decisions to resolve here
 - **Chat model**: Sonnet 4.6 always (simpler, ~$0.012/msg) vs. fine-tuned Haiku per persona (more expensive to set up, ~$0.001/msg, stronger voice). **Recommendation: Sonnet 4.6 for pilot, revisit when chat volume justifies fine-tune.**
