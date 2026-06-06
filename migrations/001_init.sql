@@ -118,6 +118,9 @@ CREATE TABLE IF NOT EXISTS ticker_features (
     market_cap_usd  BIGINT,
     operating_margin NUMERIC(6, 4),
     eps_cagr_3y     NUMERIC(6, 4),
+    debt_to_equity  NUMERIC(8, 4),
+    gross_margin    NUMERIC(6, 4),
+    gross_margin_trend NUMERIC(6, 4),
     -- sentiment & news
     news_sentiment_7d NUMERIC(4, 3),
     news_count_7d   INT,

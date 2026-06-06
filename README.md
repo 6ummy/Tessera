@@ -53,17 +53,29 @@ To run one full ingest locally (writes to the shared Neon DB):
 
 ```bash
 python -m tessera_worker.jobs.ingest_daily
-# 6 steps, ~7 min. Use --only/--skip to run a subset.
+# 8 steps, usually ~5-10 min in steady state. Use --only/--skip to run a subset.
+```
+
+To recompute only deterministic features from already-ingested Neon data:
+
+```bash
+python -m tessera_worker.jobs.ingest_daily --only features
+# Rebuilds price/momentum history and latest fundamentals-derived features
+# such as fcf_yield, peg, eps_cagr_3y, debt_to_equity, and gross_margin.
 ```
 
 ### Database
 
 Provisioned and shared across the team. Get `DATABASE_URL` from the team
-KakaoTalk credential pin. The v1 schema is already applied; to bootstrap
-a fresh Neon project (or your own dev branch):
+KakaoTalk credential pin. The shared schema is already applied; to bootstrap
+a fresh Neon project (or your own dev branch), apply migrations in numeric
+order:
 
 ```bash
 psql "$DATABASE_URL" -f migrations/001_init.sql
+psql "$DATABASE_URL" -f migrations/002_persona_memory_vector_1024.sql
+psql "$DATABASE_URL" -f migrations/003_backtest_reports.sql
+psql "$DATABASE_URL" -f migrations/004_quality_features.sql
 ```
 
 ### Production runtime (cloud)
@@ -73,7 +85,7 @@ Vercel Cron (21:30 UTC weekdays)
    → /api/cron/daily        (Bearer CRON_SECRET)
    → Cloud Run worker       (us-east1, tessera-worker)
    → /jobs/ingest-daily     (Bearer WORKER_WEBHOOK_SECRET)
-   → 6-step ingest          (BackgroundTask, ~7 min)
+   → 8-step ingest          (BackgroundTask, ~5-10 min steady state)
    → Neon Postgres          (single source of truth)
 ```
 
@@ -90,8 +102,8 @@ See `architecture.md` §6 "Daily data flow" for the full diagram.
 |---|---|---|
 | **Frontend MVP** | ✅ shipped | 4 routes, 4 personas with photos + bios + chat UI, all on Vercel |
 | **A — Data backbone** (wk 1) | ✅ shipped | Ingestors + features + Neon schema + Cloud Run worker + Sentry |
-| **B — Real LLM theses** (wks 2–3) | 🚧 in progress | Anthropic SDK + Pydantic validation + EDGAR + frontend swap |
-| **C — Paper execution** (wks 4–5) | ⏳ planned | Risk gateway + paper engine + real P&L |
+| **B — Real LLM theses** (wks 2–3) | ✅ shipped | Weekly persona batch, live reports/proposals, SSE chat, pgvector recall |
+| **C — Paper execution** (wks 4–5) | 🚧 in progress | Risk gateway + paper engine + real P&L; quality features pre-shipped |
 | **D — User auth + follow** (wk 6) | ⏳ planned | Firebase Auth + 3 F&F users |
 | **E — Compliance** (wk 6, parallel) | ⏳ planned | Securities-lawyer consult |
 | **F — Live trading** (wk 7+, optional) | ⏳ planned | Alpaca OAuth, behind feature flag |

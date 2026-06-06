@@ -78,9 +78,10 @@ and watch FCF yield evolve — is it trending or stable?
 ```
 
 ### Wire into ticker_features (the actual production path)
-> ✅ **Shipped 2026-06-04** across PRs #37 / #38 / #39. This section is
-> kept for educational reference and as the recipe for the next features
-> in the backlog (PEG, EPS CAGR, debt/equity, gross margin trend).
+> ✅ **Shipped 2026-06-04 → 2026-06-06.** `fcf_yield` shipped first across
+> PRs #37 / #38 / #39; the Phase C quality-feature pass then added PEG,
+> EPS CAGR, debt/equity, gross margin, and margin trend using the same
+> pure-function + loader + latest-row upsert pattern.
 
 What's now live in `compute.py`:
 
@@ -95,11 +96,21 @@ What's now live in `compute.py`:
   from 4 candidates (close × diluted, close × basic, payload cash, payload
   income). Disagreement → conservative max.
 - `±100%` sanity bound on yield (`FCF_YIELD_SANITY_BOUND`).
+- `compute_eps_cagr_3y()` — diluted EPS CAGR from annual income rows,
+  anchored roughly three fiscal years back; drops non-positive EPS.
+- `compute_peg()` — trailing PEG proxy: `(close / latest EPS) ÷
+  (EPS CAGR × 100)`. True forward PEG still awaits analyst-estimate data.
+- `compute_debt_to_equity()` — total debt / stockholders' equity, with
+  long-term + short-term debt fallback when total debt is missing.
+- `compute_gross_margin()` + `compute_gross_margin_trend()` — current
+  gross margin plus latest-minus-three-years-ago trend.
 - `build(*, with_fundamentals: bool = True)` — flexibility toggle.
   Default daily; toggle exists for future cadence splits.
 
-Live state (mid-2026, 42-ticker equity universe): 31 tickers write
-`fcf_yield` each daily run. Representative values:
+Live state after the 2026-06-06 local rebuild: the features step wrote
+~259K price/momentum rows across 53 tickers and latest fundamentals-derived
+features for 40 tickers. Representative `fcf_yield` values from the earlier
+shipping pass:
 
 | Ticker | Yield | Notes |
 |---|---|---|
@@ -108,7 +119,7 @@ Live state (mid-2026, 42-ticker equity universe): 31 tickers write
 | TSM | 1.5% | currency-converted from TWD |
 | PLTR, TSLA | <1% | cash-burning growth — sub-bound, but in band |
 
-**Deferred to Phase C** (data-quality work): UNH, NVDA, AMZN, COIN
+**Still deferred to Phase C** (data-quality work): UNH, NVDA, AMZN, COIN
 edge cases (sparse FY anchors, alternating null filings, one-time
 spikes). Sanity bound prevents pollution of the LLM prompt; full fix
 needs a dedicated daily mcap source (FMP `key_metrics`) and FY-aware
@@ -153,17 +164,23 @@ For features that also need momentum (Cathie) or correlation (risk
 gateway), pull from `ticker_features` (already-computed) or `ohlcv_1d`
 (raw history) instead of recomputing.
 
-## Phase B feature backlog — pick one to ship
+## Fundamentals features now live
 
-In priority order (Warren + Peter > Cathie > Ray):
+The production `ticker_features` boundary now includes:
 
-1. **`fcf_yield`** — what this demo computes. **Ship first.**
-2. **`peg_ratio`** = forward P/E ÷ 3y EPS CAGR. Peter primary screen.
-3. **`eps_cagr_3y`** — durability of growth. Warren + Peter both want.
-4. **`debt_to_equity`** — risk hygiene; every persona uses it as a
-   gate, not a primary signal.
-5. **`gross_margin_trend`** — Cathie's "is it scaling?" detector.
-6. **`news_sentiment_30d`** — needs an LLM/local model. **Defer to Phase C.**
+1. **`fcf_yield`** — TTM FCF / fresh USD market cap.
+2. **`peg`** — trailing proxy until an analyst-estimates source lands.
+3. **`eps_cagr_3y`** — durability of earnings growth.
+4. **`debt_to_equity`** — risk hygiene; gate rather than primary signal.
+5. **`gross_margin`** and **`gross_margin_trend`** — quality/scaling signal.
+6. **`operating_margin`** and **`market_cap_usd`** — support fields for
+   prompts, risk checks, and auditability.
+
+Remaining backlog:
+
+- **`news_sentiment_30d`** — needs an LLM/local model. **Defer to Phase C.**
+- **Dedicated daily market-cap source** — add FMP `key_metrics` as a fifth
+  market-cap candidate to tighten the known FCF-yield edge cases.
 
 Each follows the same 5-step recipe (migration → compute.py → test → apply → PR).
 

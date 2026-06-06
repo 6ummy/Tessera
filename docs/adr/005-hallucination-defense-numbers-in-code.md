@@ -33,7 +33,7 @@ LLM은 숫자 산수에서 hallucinate합니다 — "AAPL 30일 수익률은 +12
 **역할을 split.** LLM은 *narrative*, Python은 *numbers*.
 
 ### LLM이 받는 것 (input)
-- **사전 계산된 numerical features**: `ret_1d`, `ret_30d`, `fcf_yield`, `peg`, `rsi_14`, `vol_30d` 등이 이미 Python에서 계산된 dict
+- **사전 계산된 numerical features**: `ret_1d`, `ret_30d`, `fcf_yield`, `peg`, `eps_cagr_3y`, `debt_to_equity`, `gross_margin`, `rsi_14`, `vol_30d` 등이 이미 Python에서 계산된 dict
 - **raw text**: 뉴스 본문, earnings call transcript, 10-K 본문 발췌 — 그대로 흘러감 (LLM의 행간 읽기 능력 보존)
 - **persona memory recall**: pgvector로 surfaced된 과거 thesis 텍스트
 
@@ -99,7 +99,7 @@ LLM은 숫자 산수에서 hallucinate합니다 — "AAPL 30일 수익률은 +12
 
 ### Negative
 - **Pre-computation 비용** — Phase A에서 13,983 feature row 계산 ~8초. 미래 universe 500개 + 5년 데이터로 늘면 더 비싸짐.
-- **새 feature 추가 friction** — LLM이 "PEG 보고싶다" → Quant 트랙이 PEG 계산 추가 → schema migration → property test → 그 다음에야 LLM이 사용. 빠른 실험엔 부담.
+- **새 feature 추가 friction** — LLM이 "새 품질 지표 보고싶다" → Quant 트랙이 계산 추가 → schema migration → property test → prompt/chat read path 연결 → 그 다음에야 LLM이 사용. 빠른 실험엔 부담.
 - **Feature schema가 모든 페르소나 prompt와 강결합** — feature 이름 바꾸면 4 페르소나 spec 다 업데이트 필요
 
 ### Neutral / 관찰할 것

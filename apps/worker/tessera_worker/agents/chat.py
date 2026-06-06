@@ -129,7 +129,8 @@ def _build_ticker_features_block(session, tickers: list[str]) -> str:
         text("""
             SELECT DISTINCT ON (ticker) ticker, ts::date AS asof,
                    ret_1d, ret_30d, ret_90d, ret_1y,
-                   vol_30d, rsi_14, fcf_yield
+                   vol_30d, rsi_14, fcf_yield, peg, eps_cagr_3y,
+                   debt_to_equity, gross_margin
             FROM ticker_features
             WHERE ticker = ANY(:t)
             ORDER BY ticker, ts DESC
@@ -142,13 +143,19 @@ def _build_ticker_features_block(session, tickers: list[str]) -> str:
     lines = [f'<features tickers="{",".join(tickers)}">']
     for r in rows:
         fcf = f"{float(r.fcf_yield):.2%}" if r.fcf_yield is not None else "n/a"
+        peg = f"{float(r.peg):.2f}" if r.peg is not None else "n/a"
+        eps_cagr = f"{float(r.eps_cagr_3y):.1%}" if r.eps_cagr_3y is not None else "n/a"
+        de = f"{float(r.debt_to_equity):.2f}" if r.debt_to_equity is not None else "n/a"
+        gm = f"{float(r.gross_margin):.1%}" if r.gross_margin is not None else "n/a"
         r1m = f"{float(r.ret_30d):.1%}" if r.ret_30d is not None else "n/a"
         r1y = f"{float(r.ret_1y):.1%}" if r.ret_1y is not None else "n/a"
         vol = f"{float(r.vol_30d):.2f}" if r.vol_30d is not None else "n/a"
         rsi = f"{float(r.rsi_14):.0f}" if r.rsi_14 is not None else "n/a"
         lines.append(
             f"  {r.ticker} [{r.asof}]: "
-            f"ret_30d={r1m} ret_1y={r1y} vol_30d={vol} rsi_14={rsi} fcf_yield={fcf}"
+            f"ret_30d={r1m} ret_1y={r1y} vol_30d={vol} rsi_14={rsi} "
+            f"fcf_yield={fcf} peg={peg} eps_cagr_3y={eps_cagr} "
+            f"debt_to_equity={de} gross_margin={gm}"
         )
     lines.append("</features>")
     return "\n".join(lines)
@@ -230,7 +237,9 @@ async def run_chat_stream(
     # We use a sync session for the gate + DB block-building; the actual
     # streaming uses async client below.
     from tessera_worker.agents.anthropic_runner import (
-        check_daily_budget, estimate_cost_usd, log_llm_call,
+        check_daily_budget,
+        estimate_cost_usd,
+        log_llm_call,
     )
 
     with session_scope() as session:

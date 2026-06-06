@@ -9,7 +9,8 @@
 
 ## 0. Where we are today (baseline)
 
-**Phase A complete + Phase B Weeks 2–3 complete.** ✅ Updated 2026-06-05.
+**Phase A complete + Phase B Weeks 2–3 complete; Phase C quant feature
+precursors started.** ✅ Updated 2026-06-06.
 
 **Phase A — shipped 2026-05-18:**
 - Next.js 14 frontend with 4 routes (`/`, `/proposals`, `/dashboard`, `/how-it-works`) + Vercel-Cron-ready
@@ -34,11 +35,20 @@
 - **LLM robustness pass** — `personalities.md` `confidence`→`conviction` rename (silent-signal-loss fix), `JSONDecoder.raw_decode` parser absorbs trailing chatter (Cathie scenario narration), `_retry_guidance_for` pattern-matches the validation error and gives the LLM a SPECIFIC corrective instruction
 - **Leakage tests** for backtest mode — mock-session unit tests prove `fetch_inputs(as_of=X)` never emits a query without an `as_of` upper-bound
 
+**Phase C Week 4 Quant precursor — shipped locally 2026-06-06:**
+- **Quality / growth feature pass** — `features/compute.py` now writes
+  `peg`, `eps_cagr_3y`, `debt_to_equity`, `gross_margin`,
+  `gross_margin_trend`, `market_cap_usd`, and `operating_margin` to the
+  latest `ticker_features` row per ticker. The path reuses the `fcf_yield`
+  scaffold: pure functions, loader extension, latest-row upsert, and tests.
+  `004_quality_features.sql` is idempotent and backfills missing schema
+  columns with `ADD COLUMN IF NOT EXISTS`.
+
 **Production Neon state (approx, 2026-06-05):**
 | Table | Rows | Note |
 |---|---|---|
 | `ohlcv_1d` | ~250K | 20-yr depth via yfinance backfill |
-| `ticker_features` | ~240K | 6yr × 42 equities, now with `fcf_yield` populated |
+| `ticker_features` | ~260K | 6yr × 53 tickers, price/momentum history + latest quality features |
 | `macro_series` | ~237K | full FRED history |
 | `fundamentals` | ~7,400 | FMP + SEC XBRL merged, 39/42 ticker coverage |
 | `news` | ~2.5K+ | growing daily |
@@ -50,7 +60,9 @@
 - ~~`persona_batch.py`~~ ✅ shipped 2026-06-05
 - ~~Chat backend~~ ✅ shipped 2026-06-05 (backend + frontend SSE consumer)
 - ~~Frontend swap (reports + proposals)~~ ✅ shipped 2026-06-05
-- ~~More Quant features (PEG / EPS CAGR / D-E / gross margin)~~ → **moved to Phase C Week 4** (2026-06-05). Voice differentiation already verified with fcf_yield alone; remaining features are precision-tuning for the risk gateway, which is itself Phase C.
+- ~~More Quant features (PEG / EPS CAGR / D-E / gross margin)~~ ✅
+  shipped locally 2026-06-06; remaining Phase C work is precision hardening
+  and risk-gateway consumption.
 - **No paper-trading engine, no risk gateway** — Phase C Week 4
 - **performance.ts + portfolio.ts mocks** — blocked on Phase C paper engine populating `persona_performance`
 
@@ -302,14 +314,14 @@ What's in `ticker_features` today (already populated daily):
 - Momentum: `rsi_14`
 - Trend: `sma_20`, `sma_50`
 - Liquidity: `volume_z`
+- Valuation / quality: `fcf_yield`, `peg`, `eps_cagr_3y`,
+  `debt_to_equity`, `gross_margin`, `gross_margin_trend`,
+  `market_cap_usd`, `operating_margin`
 
-What's missing for Phase B that needs to be added to `features/compute.py` (Quant owns this):
-- **FCF yield** — needs `ohlcv_1d.close * shares_outstanding` and `fundamentals.cash_flow.free_cash_flow`
-- **PEG ratio** — `forward P/E ÷ EPS growth 3yr`
-- **Debt-to-equity** — from `fundamentals.balance_sheet`
-- **EPS CAGR 3y / 5y** — derived from `fundamentals.income_stmt` over consecutive periods
-
-Pattern to follow: each new feature is a pure pandas function inside `features/compute.py`, with a property-based test in `tests/test_features.py`. Goes through the same `ticker_features` upsert path — no schema change needed (jsonb column or extend the table; ADR if extending).
+Pattern to follow for any next feature: add a pure function inside
+`features/compute.py`, extend the fundamentals/macro loader if needed,
+write through the same `ticker_features` upsert path, and pin behavior with
+tests in `tests/test_features.py`.
 
 For **risk gateway prep** (Phase C precursor): compute per-ticker volatility and correlation matrices using existing `ohlcv_1d`. Don't store yet — Phase C is when persona positions exist and we need to gate them.
 
@@ -425,11 +437,11 @@ You should see:
 
 **Already done for you by 정우** (zero setup on your side):
 - ✅ All raw data is in Neon. `ohlcv_1d` (prices), `fundamentals` (FMP — three rows per period_end per ticker, one each for income / balance / cash_flow), `news`, `macro_series`, `filings` all populated overnight.
-- ✅ `ticker_features` is the existing feature table, already populated daily with `ret_*, vol_30d, rsi_14, sma_{20,50}, volume_z`. Your new features add columns / rows to this same table — no parallel store.
-- ✅ Property-test scaffolding exists in `tests/test_features.py` with 13 passing tests — copy the pattern when you add a new feature.
-- ✅ Cron job auto-runs your new features once they're plugged into `compute.py`'s `build()` — no extra deployment step.
+- ✅ `ticker_features` is the existing feature table, already populated daily with `ret_*`, `vol_30d`, `rsi_14`, `sma_{20,50}`, `volume_z`, and the latest valuation/quality features (`fcf_yield`, `peg`, `eps_cagr_3y`, `debt_to_equity`, `gross_margin`, `gross_margin_trend`, `market_cap_usd`, `operating_margin`). No parallel store.
+- ✅ Property-test scaffolding exists in `tests/test_features.py` with 60 passing tests — copy the pattern when you add a new feature.
+- ✅ Cron job auto-runs feature code plugged into `compute.py`'s `build()` — no extra deployment step beyond migration + worker deploy.
 
-**Your scope** (Week 2): extend `features/compute.py` with Phase B features that the personas need (FCF yield, PEG, EPS CAGR, debt/equity, gross margin trend). Each feature is a small pandas function + a property test + a column migration. Risk gateway code lives in `risk/` and is Phase C — you can sketch it now but don't ship until Week 4.
+**Current Quant scope**: harden the shipped fundamentals features for Phase C — measure coverage/null rates, tighten market-cap precision edge cases, and wire these columns into the risk gateway/backtest selection rules. New features should still follow the same pattern: pure function + loader extension + migration + tests.
 
 **Your folder**: `apps/worker/tessera_worker/features/`
 
@@ -468,9 +480,15 @@ You should see:
     - **Live verification (31/42 tickers write)**: AAPL 2.83%, COST 2.06%, META 3.38%, TSM 1.51% — all within ±10% of independently-computed real values. Ranking is Warren-correct: XOM/MA/JNJ at top, mega-cap tech mid, cash-burning growth at bottom.
     - **50 tests**. Includes worked-example tests for AAPL Q2 FY26 and COST Q3 FY26 TTM math.
     - **Deferred to Phase C** (data quality work): UNH/NVDA/AMZN/COIN edge cases (sparse FY anchors, alternating null filings, one-time spikes). Sanity bound keeps these from polluting the LLM prompt; precision fix waits for a dedicated daily mcap source (FMP `key_metrics`) and FY-aware ingestion.
-- ~~Day 3: `peg_ratio` (forward P/E ÷ EPS growth — needs FMP analyst estimates, else trailing proxy)~~ — **deferred to Phase C Week 4** (2026-06-05). See Phase C entry.
-- ~~Day 4: `eps_cagr_3y` (3 consecutive annual income rows)~~ — deferred to Phase C Week 4.
-- ~~Day 5: `debt_to_equity`~~ — deferred to Phase C Week 4. Correlation matrix / sector exposure (Phase C precursor) remains Phase C Week 4 risk-gateway scope.
+- [x] Day 3 / Phase C precursor: `peg` — shipped 2026-06-06 as a trailing
+  PEG proxy (`P/E ÷ EPS CAGR %`). True forward PEG still needs an analyst
+  estimates source.
+- [x] Day 4 / Phase C precursor: `eps_cagr_3y` — shipped 2026-06-06 from
+  annual income rows with positive-EPS guards.
+- [x] Day 5 / Phase C precursor: `debt_to_equity`, `gross_margin`,
+  `gross_margin_trend`, `market_cap_usd`, `operating_margin` — shipped
+  2026-06-06. Correlation matrix / sector exposure remains Phase C
+  risk-gateway scope.
 
 **You will not need to touch**: `agents/*`, `ingestors/*` (mostly), `risk/*`. Those are owned by LLM Pipeline + Infra.
 
@@ -609,7 +627,7 @@ All five §4 acceptance criteria 🟢:
 **Deferred to Phase C** with documented rationale:
 - Hard rule per-persona caps → merged into Risk Gateway (single home, single code path)
 - Cost-cap Grafana viz → joins observability work in Phase C Week 4 (functional hard-pause already shipped)
-- 4 remaining Quant features (PEG / EPS CAGR 3y / debt-to-equity / gross margin) → precision-tuning for risk-gated backtests, not for voice differentiation (already verified)
+- Quant feature consumption/hardening → wire shipped quality features into risk-gated backtests; add coverage/null-rate telemetry
 - Performance + portfolio frontend swap → blocked on Phase C paper engine populating `persona_performance`
 - fcf_yield precision edge cases (UNH/NVDA/AMZN/COIN) → needs dedicated daily mcap source (Phase C ingest plane work)
 
@@ -632,7 +650,7 @@ All five §4 acceptance criteria 🟢:
 - [ ] **EOD mark-to-market**: recompute `persona_portfolios.total_value` daily
 - [ ] **Persona performance writer**: nightly pnl_day, pnl_cum, sharpe_30d, mdd_30d, hit_rate
 - [ ] **Cost observability — Grafana visualization + Slack alerts** (rolled forward from Phase B Week 2 plan). Source data already populated in `llm_call_log`; this is dashboard + webhook wiring. Alert thresholds: $5/day (info), $10/day (warning), $20/day (page). The hard pause (`check_daily_budget`) stays as the safety net — alerts give earlier warning.
-- [ ] **Quant fundamentals features — PEG / EPS CAGR 3y / debt-to-equity / gross margin trend** (rolled forward from Phase B Week 2; deferred 2026-06-05 with Phase B closure). All four follow the same `cross_validated()` scaffold as `fcf_yield` (already shipped), so this is incremental work, not new infrastructure. Why Phase C rather than Phase B: voice differentiation was already verified live with `fcf_yield` alone (Cathie 0.38–0.82, Warren 0.55–0.62, Peter 0.45–0.72 — Phase B acceptance PASS), so the additional features are about precision-tuning for the risk gateway + backtest harness, both of which are Phase C work. Each is a small pandas function + property test + loader extension on top of the existing `_load_fundamentals_latest`. Order suggested by persona need: PEG (Peter primary screen) → EPS CAGR 3y (Warren + Peter both want) → debt/equity (every persona uses as a gate) → gross margin trend (Cathie + Peter trend signal).
+- [x] **Quant fundamentals features — PEG / EPS CAGR 3y / debt-to-equity / gross margin trend** — shipped locally 2026-06-06. `004_quality_features.sql` adds any missing columns idempotently; `features/compute.py` computes the values from existing Neon `fundamentals` + latest `ohlcv_1d` close; prompt assembly and chat now read the columns. Remaining Phase C work is **consumption + hardening**: wire these into the risk gateway/backtest selection rules, add dashboards for coverage/null rates, and tighten known market-cap precision edge cases with a dedicated daily FMP `key_metrics` source.
 
 ### Week 5 — Frontend wire-up + baseline backtest + weight-distribution telemetry
 - [ ] **Leaderboard tab** reads from `persona_performance` (delete mock)

@@ -7,22 +7,27 @@ all-down, zero volume, single-day series) that hand-written cases miss.
 
 from __future__ import annotations
 
+import inspect
+
 import numpy as np
 import pandas as pd
 import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
-from hypothesis.extra.numpy import arrays
 
 from tessera_worker.features.compute import (
     ADR_SHARE_RATIOS,
-    FCF_YIELD_SANITY_BOUND,
     FX_TO_USD,
     RSI_WINDOW,
     VOL_WINDOW,
     VOLUME_Z_WINDOW,
     _market_cap_from_shares,
+    compute_debt_to_equity,
+    compute_eps_cagr_3y,
     compute_fcf_yield,
+    compute_gross_margin,
+    compute_gross_margin_trend,
+    compute_peg,
     cross_validated,
     estimate_market_cap,
     pct_change,
@@ -32,7 +37,6 @@ from tessera_worker.features.compute import (
     sum_ttm_fcf,
     volume_zscore,
 )
-
 
 # Reasonable price series: positive, finite, lengths 30..400.
 price_series = st.lists(
@@ -607,8 +611,109 @@ def test_legacy_kwarg_shares_common_still_works() -> None:
 def test_build_signature_accepts_with_fundamentals_toggle() -> None:
     """API contract — orchestrators rely on this kwarg to flex cadence.
     No DB hit; just verify the signature accepts the flag."""
-    import inspect
     from tessera_worker.features.compute import build
+
     sig = inspect.signature(build)
     assert "with_fundamentals" in sig.parameters
     assert sig.parameters["with_fundamentals"].default is True
+
+
+# ─── Phase C quality/growth features ───────────────────────────────────
+
+
+def test_eps_cagr_3y_uses_annual_rows_and_calendar_anchor() -> None:
+    import datetime as _dt
+
+    rows = [
+        {"period_end": _dt.date(2026, 9, 30), "period": "FY", "epsDiluted": 8.0},
+        {"period_end": _dt.date(2025, 9, 30), "period": "FY", "epsDiluted": 6.0},
+        {"period_end": _dt.date(2024, 9, 30), "period": "FY", "epsDiluted": 5.0},
+        {"period_end": _dt.date(2023, 9, 30), "period": "FY", "epsDiluted": 4.0},
+    ]
+    cagr = compute_eps_cagr_3y(rows)
+    assert cagr is not None
+    assert cagr == pytest.approx((8.0 / 4.0) ** (1 / 3) - 1.0, rel=1e-3)
+
+
+def test_eps_cagr_3y_requires_positive_eps() -> None:
+    import datetime as _dt
+
+    rows = [
+        {"period_end": _dt.date(2026, 12, 31), "period": "FY", "epsDiluted": 2.0},
+        {"period_end": _dt.date(2025, 12, 31), "period": "FY", "epsDiluted": 1.5},
+        {"period_end": _dt.date(2024, 12, 31), "period": "FY", "epsDiluted": 1.0},
+        {"period_end": _dt.date(2023, 12, 31), "period": "FY", "epsDiluted": -1.0},
+    ]
+    assert compute_eps_cagr_3y(rows) is None
+
+
+def test_peg_uses_growth_percent_not_fraction() -> None:
+    # P/E = 30, EPS CAGR = 15%, PEG = 30 / 15 = 2.0
+    assert compute_peg(close=150.0, latest_eps=5.0, eps_cagr_3y=0.15) == pytest.approx(2.0)
+
+
+def test_peg_drops_non_positive_growth() -> None:
+    assert compute_peg(close=150.0, latest_eps=5.0, eps_cagr_3y=0.0) is None
+    assert compute_peg(close=150.0, latest_eps=5.0, eps_cagr_3y=-0.1) is None
+
+
+def test_debt_to_equity_prefers_total_debt_when_available() -> None:
+    ratio = compute_debt_to_equity(
+        total_debt=120.0,
+        long_term_debt=100.0,
+        short_term_debt=10.0,
+        equity=240.0,
+    )
+    assert ratio == pytest.approx(0.5)
+
+
+def test_debt_to_equity_sums_debt_parts_as_fallback() -> None:
+    ratio = compute_debt_to_equity(long_term_debt=90.0, short_term_debt=30.0, equity=240.0)
+    assert ratio == pytest.approx(0.5)
+
+
+def test_debt_to_equity_requires_positive_equity() -> None:
+    assert compute_debt_to_equity(total_debt=10.0, equity=0.0) is None
+    assert compute_debt_to_equity(total_debt=10.0, equity=-1.0) is None
+
+
+def test_gross_margin_basic() -> None:
+    assert compute_gross_margin(revenue=100.0, gross_profit=42.0) == pytest.approx(0.42)
+
+
+def test_gross_margin_drops_bad_denominator_and_bounds() -> None:
+    assert compute_gross_margin(revenue=0.0, gross_profit=10.0) is None
+    assert compute_gross_margin(revenue=100.0, gross_profit=150.0) is None
+
+
+def test_gross_margin_trend_latest_minus_three_year_anchor() -> None:
+    import datetime as _dt
+
+    rows = [
+        {
+            "period_end": _dt.date(2026, 12, 31),
+            "period": "FY",
+            "revenue": 100.0,
+            "grossProfit": 48.0,
+        },
+        {
+            "period_end": _dt.date(2025, 12, 31),
+            "period": "FY",
+            "revenue": 90.0,
+            "grossProfit": 40.5,
+        },
+        {
+            "period_end": _dt.date(2024, 12, 31),
+            "period": "FY",
+            "revenue": 80.0,
+            "grossProfit": 32.0,
+        },
+        {
+            "period_end": _dt.date(2023, 12, 31),
+            "period": "FY",
+            "revenue": 70.0,
+            "grossProfit": 28.0,
+        },
+    ]
+    # 48% latest minus 40% anchor = +8 percentage points.
+    assert compute_gross_margin_trend(rows) == pytest.approx(0.08)
