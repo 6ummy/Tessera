@@ -22,6 +22,11 @@ when fundamentals + news ingestors land):
 | sma_20, sma_50     | simple moving average                                         |
 | volume_z           | (volume[t] - mean(volume, 60d)) / std(volume, 60d)            |
 | fcf_yield          | trailing FCF / market cap (point-in-time, ADR-adjusted)       |
+| eps_cagr_3y        | diluted EPS CAGR over roughly 3 fiscal years                  |
+| peg                | trailing P/E divided by EPS CAGR percentage                   |
+| debt_to_equity     | total debt / stockholders' equity                             |
+| gross_margin       | gross profit / revenue                                        |
+| gross_margin_trend | latest gross margin minus roughly-3y-ago gross margin         |
 """
 
 from __future__ import annotations
@@ -78,6 +83,11 @@ ADR_SHARE_RATIOS: dict[str, int] = {
 # (units mismatch, stale denominator, currency). We log + drop rather
 # than feed garbage into the LLM prompt.
 FCF_YIELD_SANITY_BOUND = 1.0   # ±100%
+EPS_CAGR_SANITY_BOUND = 2.0    # ±200%
+PEG_SANITY_BOUND = 100.0
+DEBT_TO_EQUITY_SANITY_BOUND = 50.0
+MARGIN_SANITY_LOW = -1.0
+MARGIN_SANITY_HIGH = 1.0
 
 # ─────────────────────────────────────────────────────────────────────────
 # FX conversion: financial data providers report `freeCashFlow` in the
@@ -350,6 +360,145 @@ def compute_fcf_yield(
     return yld
 
 
+def compute_eps_cagr_3y(rows: list[dict]) -> float | None:
+    """3-year diluted EPS CAGR from annual income rows.
+
+    `rows` should be newest first and carry `period_end` plus `epsDiluted`
+    or `epsBasic`. We prefer a row roughly three fiscal years before the
+    latest observation; if dates are sparse but at least four annual rows
+    exist, the fourth row is used as the fallback anchor.
+    """
+    annual = _annual_income_rows(rows)
+    if len(annual) < 4:
+        return None
+
+    latest = annual[0]
+    latest_eps = _eps_value(latest)
+    latest_pe = latest.get("period_end")
+    if latest_eps is None or latest_eps <= 0 or latest_pe is None:
+        return None
+
+    anchor = None
+    for row in annual[1:]:
+        pe = row.get("period_end")
+        if pe is None:
+            continue
+        delta_days = (latest_pe - pe).days
+        if 900 <= delta_days <= 1280:
+            anchor = row
+            break
+    if anchor is None and len(annual) >= 4:
+        anchor = annual[3]
+
+    if anchor is None:
+        return None
+    anchor_eps = _eps_value(anchor)
+    anchor_pe = anchor.get("period_end")
+    if anchor_eps is None or anchor_eps <= 0 or anchor_pe is None:
+        return None
+
+    years = (latest_pe - anchor_pe).days / 365.25
+    if years < 2.5:
+        return None
+
+    cagr = (latest_eps / anchor_eps) ** (1.0 / years) - 1.0
+    if abs(cagr) > EPS_CAGR_SANITY_BOUND:
+        return None
+    return cagr
+
+
+def compute_peg(
+    close: float | None,
+    latest_eps: float | None,
+    eps_cagr_3y: float | None,
+) -> float | None:
+    """Trailing PEG proxy: P/E divided by EPS growth as a percent.
+
+    The backlog called this `peg_ratio` and noted that true forward PEG
+    needs analyst estimates. We use trailing P/E until an estimates feed
+    lands, while keeping the DB column name `peg`.
+    """
+    if close is None or latest_eps is None or eps_cagr_3y is None:
+        return None
+    if close <= 0 or latest_eps <= 0 or eps_cagr_3y <= 0:
+        return None
+    trailing_pe = close / latest_eps
+    peg = trailing_pe / (eps_cagr_3y * 100.0)
+    if peg <= 0 or peg > PEG_SANITY_BOUND:
+        return None
+    return peg
+
+
+def compute_debt_to_equity(
+    *,
+    total_debt: float | None = None,
+    long_term_debt: float | None = None,
+    short_term_debt: float | None = None,
+    equity: float | None = None,
+) -> float | None:
+    """Total debt / stockholders' equity."""
+    if equity is None or equity <= 0:
+        return None
+    debt = total_debt
+    if debt is None:
+        parts = [v for v in (long_term_debt, short_term_debt) if v is not None and v > 0]
+        if not parts:
+            return None
+        debt = sum(parts)
+    if debt < 0:
+        return None
+    ratio = debt / equity
+    if ratio > DEBT_TO_EQUITY_SANITY_BOUND:
+        return None
+    return ratio
+
+
+def compute_gross_margin(revenue: float | None, gross_profit: float | None) -> float | None:
+    """Gross profit / revenue, with conservative sanity bounds."""
+    if revenue is None or gross_profit is None or revenue <= 0:
+        return None
+    margin = gross_profit / revenue
+    if margin < MARGIN_SANITY_LOW or margin > MARGIN_SANITY_HIGH:
+        return None
+    return margin
+
+
+def compute_gross_margin_trend(rows: list[dict]) -> float | None:
+    """Latest gross margin minus gross margin roughly three years prior."""
+    annual = _annual_income_rows(rows)
+    if len(annual) < 4:
+        return None
+
+    latest = annual[0]
+    latest_margin = compute_gross_margin(
+        _to_float(latest.get("revenue")),
+        _to_float(latest.get("grossProfit")),
+    )
+    latest_pe = latest.get("period_end")
+    if latest_margin is None or latest_pe is None:
+        return None
+
+    anchor = None
+    for row in annual[1:]:
+        pe = row.get("period_end")
+        if pe is None:
+            continue
+        delta_days = (latest_pe - pe).days
+        if 900 <= delta_days <= 1280:
+            anchor = row
+            break
+    if anchor is None:
+        anchor = annual[3]
+
+    anchor_margin = compute_gross_margin(
+        _to_float(anchor.get("revenue")),
+        _to_float(anchor.get("grossProfit")),
+    )
+    if anchor_margin is None:
+        return None
+    return latest_margin - anchor_margin
+
+
 def sum_ttm_fcf(rows: list[dict]) -> float | None:
     """Trailing-twelve-month FCF — robust to three data shapes.
 
@@ -440,6 +589,32 @@ def _fcf_value(r: dict) -> float | None:
         return float(v)
     except (TypeError, ValueError):
         return None
+
+
+def _eps_value(r: dict) -> float | None:
+    diluted = _to_float(r.get("epsDiluted"))
+    if diluted is not None:
+        return diluted
+    return _to_float(r.get("epsBasic"))
+
+
+def _annual_income_rows(rows: list[dict]) -> list[dict]:
+    """Return newest-first income rows that look annual/FY.
+
+    FMP annual rows carry `period=FY`; SEC companyfacts rows carry
+    `form=10-K` and/or `fp=FY`. If a provider omitted those markers, do
+    not guess here — annual math is safer as None than as quarterly data
+    accidentally annualized.
+    """
+    out = []
+    for row in rows:
+        period = (row.get("period") or "").upper()
+        form = (row.get("form") or "").upper()
+        fp = (row.get("fp") or "").upper()
+        if period in ("FY", "Q4") or form == "10-K" or fp == "FY":
+            out.append(row)
+    out.sort(key=lambda r: r.get("period_end") or date.min, reverse=True)
+    return out
 
 
 def _decompose_cumulative_ytd_to_ttm(rows: list[dict]) -> float | None:
@@ -628,19 +803,27 @@ def _f(v) -> float | None:
     return float(v)
 
 
+def _int_or_none(v) -> int | None:
+    f = _f(v)
+    return int(f) if f is not None else None
+
+
 # ─────────────────────────────────────────────────────────────────────────
 # Fundamentals loader + latest-row upsert
 # ─────────────────────────────────────────────────────────────────────────
 
 def _load_fundamentals_latest(tickers: list[str]) -> dict[str, dict]:
-    """Latest 4 quarterly cash_flow rows + latest income row per ticker.
+    """Recent cash-flow/income rows + latest balance row per ticker.
 
     Cash flow: pulls up to 4 most-recent rows so the caller can compute
     TTM FCF via `sum_ttm_fcf`. Returns each row's freeCashFlow + period
     + reportedCurrency so currency conversion can happen downstream.
 
-    Income: pulls one (latest) row for shares outstanding + optional
-    payload marketCap fallback.
+    Income: pulls recent rows for shares outstanding, EPS CAGR, PEG, and
+    gross-margin/trend. The latest row with share data supplies the mcap
+    denominator candidates.
+
+    Balance: pulls one latest row for debt/equity.
     """
     cash_sql = text("""
         SELECT ticker, period_end,
@@ -653,8 +836,15 @@ def _load_fundamentals_latest(tickers: list[str]) -> dict[str, dict]:
         ORDER BY ticker, period_end DESC
     """)
     income_sql = text("""
-        SELECT DISTINCT ON (ticker)
-               ticker,
+        SELECT ticker, period_end,
+               payload ->> 'epsDiluted'               AS eps_diluted,
+               payload ->> 'epsBasic'                 AS eps_basic,
+               payload ->> 'revenue'                  AS revenue,
+               payload ->> 'grossProfit'              AS gross_profit,
+               payload ->> 'operatingIncome'          AS operating_income,
+               payload ->> 'period'                   AS period,
+               payload ->> 'form'                     AS form,
+               payload ->> 'fp'                       AS fp,
                payload ->> 'weightedAverageShsOut'    AS shares_basic,
                payload ->> 'weightedAverageShsOutDil' AS shares_diluted,
                payload ->> 'marketCap'                AS market_cap_inc
@@ -662,9 +852,21 @@ def _load_fundamentals_latest(tickers: list[str]) -> dict[str, dict]:
         WHERE ticker = ANY(:t) AND filing_type = 'income'
         ORDER BY ticker, period_end DESC
     """)
+    balance_sql = text("""
+        SELECT DISTINCT ON (ticker)
+               ticker,
+               payload ->> 'totalDebt'                AS total_debt,
+               payload ->> 'longTermDebt'             AS long_term_debt,
+               payload ->> 'shortTermDebt'            AS short_term_debt,
+               payload ->> 'totalStockholdersEquity'  AS equity
+        FROM fundamentals
+        WHERE ticker = ANY(:t) AND filing_type = 'balance'
+        ORDER BY ticker, period_end DESC
+    """)
     with session_scope() as session:
         cash_rows = session.execute(cash_sql, {"t": tickers}).all()
         inc_rows = session.execute(income_sql, {"t": tickers}).all()
+        bal_rows = session.execute(balance_sql, {"t": tickers}).all()
 
     # Group cash rows by ticker, keep top 8 — covers:
     #   - 4 rows for the Shape-B quarterly sum
@@ -705,19 +907,56 @@ def _load_fundamentals_latest(tickers: list[str]) -> dict[str, dict]:
         if r.ticker not in mcap_payload and r.market_cap is not None:
             mcap_payload[r.ticker] = _to_float(r.market_cap)
 
-    inc_by_ticker = {r.ticker: r for r in inc_rows}
+    income_by_ticker: dict[str, list[dict]] = {}
+    shares_by_ticker: dict[str, dict] = {}
+    for r in inc_rows:
+        bucket = income_by_ticker.setdefault(r.ticker, [])
+        if len(bucket) < 8:
+            bucket.append({
+                "period_end":      r.period_end,
+                "epsDiluted":      _to_float(r.eps_diluted),
+                "epsBasic":        _to_float(r.eps_basic),
+                "revenue":         _to_float(r.revenue),
+                "grossProfit":     _to_float(r.gross_profit),
+                "operatingIncome": _to_float(r.operating_income),
+                "period":          r.period,
+                "form":            r.form,
+                "fp":              r.fp,
+            })
+        if r.ticker not in shares_by_ticker:
+            shares_basic = _to_float(r.shares_basic)
+            shares_diluted = _to_float(r.shares_diluted)
+            market_cap_inc = _to_float(r.market_cap_inc)
+            if shares_basic is not None or shares_diluted is not None or market_cap_inc is not None:
+                shares_by_ticker[r.ticker] = {
+                    "shares_basic":        shares_basic,
+                    "shares_diluted":      shares_diluted,
+                    "payload_mcap_income": market_cap_inc,
+                }
+
+    balance_by_ticker = {
+        r.ticker: {
+            "total_debt":     _to_float(r.total_debt),
+            "long_term_debt": _to_float(r.long_term_debt),
+            "short_term_debt": _to_float(r.short_term_debt),
+            "equity":         _to_float(r.equity),
+        }
+        for r in bal_rows
+    }
 
     out: dict[str, dict] = {}
-    tickers_seen = set(cash_by_ticker) | set(inc_by_ticker)
+    tickers_seen = set(cash_by_ticker) | set(income_by_ticker) | set(balance_by_ticker)
     for ticker in tickers_seen:
-        inc = inc_by_ticker.get(ticker)
+        shares = shares_by_ticker.get(ticker, {})
         out[ticker] = {
             "cash_rows":           cash_by_ticker.get(ticker, []),
+            "income_rows":         income_by_ticker.get(ticker, []),
+            "balance":             balance_by_ticker.get(ticker, {}),
             "reported_currency":   ccy_by_ticker.get(ticker, "USD"),
-            "shares_basic":        _to_float(inc.shares_basic) if inc else None,
-            "shares_diluted":      _to_float(inc.shares_diluted) if inc else None,
+            "shares_basic":        shares.get("shares_basic"),
+            "shares_diluted":      shares.get("shares_diluted"),
             "payload_mcap_cash":   mcap_payload.get(ticker),
-            "payload_mcap_income": _to_float(inc.market_cap_inc) if inc else None,
+            "payload_mcap_income": shares.get("payload_mcap_income"),
         }
     return out
 
@@ -761,10 +1000,29 @@ def _upsert_fundamental_features(per_ticker: dict[str, dict]) -> int:
     if not per_ticker:
         return 0
     sql = text("""
-        INSERT INTO ticker_features (ticker, ts, fcf_yield)
-        VALUES (:ticker, :ts, :fcf_yield)
+        INSERT INTO ticker_features (
+            ticker, ts,
+            fcf_yield, peg, market_cap_usd, operating_margin, eps_cagr_3y,
+            debt_to_equity, gross_margin, gross_margin_trend
+        )
+        VALUES (
+            :ticker, :ts,
+            :fcf_yield, :peg, :market_cap_usd, :operating_margin, :eps_cagr_3y,
+            :debt_to_equity, :gross_margin, :gross_margin_trend
+        )
         ON CONFLICT (ticker, ts) DO UPDATE SET
-            fcf_yield = EXCLUDED.fcf_yield
+            fcf_yield          = COALESCE(EXCLUDED.fcf_yield, ticker_features.fcf_yield),
+            peg                = COALESCE(EXCLUDED.peg, ticker_features.peg),
+            market_cap_usd     = COALESCE(EXCLUDED.market_cap_usd, ticker_features.market_cap_usd),
+            operating_margin   = COALESCE(
+                EXCLUDED.operating_margin, ticker_features.operating_margin
+            ),
+            eps_cagr_3y        = COALESCE(EXCLUDED.eps_cagr_3y, ticker_features.eps_cagr_3y),
+            debt_to_equity     = COALESCE(EXCLUDED.debt_to_equity, ticker_features.debt_to_equity),
+            gross_margin       = COALESCE(EXCLUDED.gross_margin, ticker_features.gross_margin),
+            gross_margin_trend = COALESCE(
+                EXCLUDED.gross_margin_trend, ticker_features.gross_margin_trend
+            )
     """)
     written = 0
     with session_scope() as session:
@@ -773,9 +1031,16 @@ def _upsert_fundamental_features(per_ticker: dict[str, dict]) -> int:
             if ts is None:
                 continue
             session.execute(sql, {
-                "ticker":    ticker,
-                "ts":        ts,
-                "fcf_yield": _f(fields.get("fcf_yield")),
+                "ticker":             ticker,
+                "ts":                 ts,
+                "fcf_yield":          _f(fields.get("fcf_yield")),
+                "peg":                _f(fields.get("peg")),
+                "market_cap_usd":     _int_or_none(fields.get("market_cap_usd")),
+                "operating_margin":   _f(fields.get("operating_margin")),
+                "eps_cagr_3y":        _f(fields.get("eps_cagr_3y")),
+                "debt_to_equity":     _f(fields.get("debt_to_equity")),
+                "gross_margin":       _f(fields.get("gross_margin")),
+                "gross_margin_trend": _f(fields.get("gross_margin_trend")),
             })
             written += 1
     return written
@@ -830,6 +1095,14 @@ def build(
                 continue
             ts, close = c
             ttm_fcf = sum_ttm_fcf(f["cash_rows"])
+            mcap = estimate_market_cap(
+                close=close,
+                shares_basic=f.get("shares_basic"),
+                shares_diluted=f.get("shares_diluted"),
+                payload_mcap_cash=f.get("payload_mcap_cash"),
+                payload_mcap_income=f.get("payload_mcap_income"),
+                ticker=ticker,
+            )
             yld = compute_fcf_yield(
                 close=close,
                 fcf_local=ttm_fcf,
@@ -840,11 +1113,48 @@ def build(
                 payload_mcap_income=f.get("payload_mcap_income"),
                 ticker=ticker,
             )
-            if yld is None:
+            income_rows = f.get("income_rows", [])
+            annual_income = _annual_income_rows(income_rows)
+            latest_income = (
+                annual_income[0]
+                if annual_income
+                else (income_rows[0] if income_rows else {})
+            )
+            eps_cagr = compute_eps_cagr_3y(income_rows)
+            peg = compute_peg(close, _eps_value(latest_income), eps_cagr)
+            revenue = _to_float(latest_income.get("revenue"))
+            gross_margin = compute_gross_margin(
+                revenue,
+                _to_float(latest_income.get("grossProfit")),
+            )
+            operating_margin = compute_gross_margin(
+                revenue,
+                _to_float(latest_income.get("operatingIncome")),
+            )
+            gross_margin_trend = compute_gross_margin_trend(income_rows)
+            balance = f.get("balance", {})
+            debt_to_equity = compute_debt_to_equity(
+                total_debt=balance.get("total_debt"),
+                long_term_debt=balance.get("long_term_debt"),
+                short_term_debt=balance.get("short_term_debt"),
+                equity=balance.get("equity"),
+            )
+            fields = {
+                "ts": ts,
+                "fcf_yield": yld,
+                "market_cap_usd": mcap,
+                "eps_cagr_3y": eps_cagr,
+                "peg": peg,
+                "debt_to_equity": debt_to_equity,
+                "gross_margin": gross_margin,
+                "gross_margin_trend": gross_margin_trend,
+                "operating_margin": operating_margin,
+            }
+            if not any(v is not None for k, v in fields.items() if k != "ts"):
                 continue
-            fund_rows[ticker] = {"ts": ts, "fcf_yield": yld}
+            fund_rows[ticker] = fields
         fund_written = _upsert_fundamental_features(fund_rows)
-        log.info("features.fundamentals.done", tickers_with_fcf_yield=len(fund_rows),
+        log.info("features.fundamentals.done", tickers_with_fund_features=len(fund_rows),
                  rows_written=fund_written)
 
     all_ts = []

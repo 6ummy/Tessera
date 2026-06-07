@@ -27,3 +27,6 @@ psql "postgresql://USER:PASS@HOST.neon.tech/tessera?sslmode=require" \
 | # | What it adds |
 |---|---|
 | 001 | Initial schema: market data (ohlcv, fundamentals, filings, macro, news), pre-computed features, analyst reports + memory, paper ledger, user layer, llm_call_log |
+| 002 | `persona_memory.embedding vector(1024)` for Voyage/pgvector recall |
+| 003 | `backtest_reports` table for point-in-time LLM replay runs |
+| 004 | Quality/growth feature columns on `ticker_features`: `peg`, `eps_cagr_3y`, `debt_to_equity`, `gross_margin`, `gross_margin_trend`, plus `market_cap_usd` and `operating_margin` support fields |

@@ -12,8 +12,8 @@ tessera_worker/
   main.py           FastAPI HTTP server (Vercel Cron triggers, /health)
 
   ingestors/        Phase A — pull from upstream sources into Neon
-  features/         Phase A price features + Phase B fundamentals (fcf_yield: TTM rollup,
-                    FX conversion, cross-validated mcap — see features/compute.py)
+  features/         Price/momentum features + fundamentals quality features
+                    (fcf_yield, PEG, EPS CAGR, debt/equity, margins)
   agents/           Phase B — persona LLM pipeline + chat
   risk/             Phase C — risk gateway + paper / live execution
   jobs/             One-shot Cloud Run Job entry points
@@ -45,8 +45,16 @@ python -m tessera_worker.main
 
 ```bash
 python -m tessera_worker.jobs.ingest_daily
+python -m tessera_worker.jobs.ingest_daily --only features
 python -m tessera_worker.jobs.persona_batch
 ```
+
+`--only features` reads already-ingested Neon data (`ohlcv_1d` +
+`fundamentals`) and upserts deterministic rows into `ticker_features`.
+It rebuilds price/momentum history and writes latest fundamentals-derived
+columns such as `fcf_yield`, `peg`, `eps_cagr_3y`, `debt_to_equity`,
+`gross_margin`, `gross_margin_trend`, `market_cap_usd`, and
+`operating_margin`.
 
 ## Tests
 

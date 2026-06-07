@@ -7,6 +7,7 @@ merge with optional memory recall, return system (persona spec) + user message.
 from __future__ import annotations
 
 import hashlib
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import date, timedelta
 from textwrap import shorten
@@ -159,7 +160,9 @@ def fetch_inputs(
     feat = session.execute(
         text("""
             SELECT ts, ret_1d, ret_5d, ret_30d, ret_90d, ret_1y,
-                   vol_30d, rsi_14, sma_20, sma_50, volume_z, fcf_yield
+                   vol_30d, rsi_14, sma_20, sma_50, volume_z,
+                   fcf_yield, peg, market_cap_usd, operating_margin,
+                   eps_cagr_3y, debt_to_equity, gross_margin, gross_margin_trend
             FROM ticker_features WHERE ticker = :t AND ts <= :cutoff
             ORDER BY ts DESC LIMIT 1
         """),
@@ -274,10 +277,18 @@ def fetch_inputs(
         if title:
             query_seeds.append(str(title))
     if out.get("features"):
-        # A few highest-signal numbers, formatted compactly. fcf_yield is the
-        # one persona memory most often turns on.
+        # A few highest-signal numbers, formatted compactly. The valuation
+        # and quality features are what persona memory most often turns on.
         feat = out["features"]
-        for k in ("fcf_yield", "rsi_14", "vol_30d"):
+        for k in (
+            "fcf_yield",
+            "peg",
+            "eps_cagr_3y",
+            "debt_to_equity",
+            "gross_margin",
+            "rsi_14",
+            "vol_30d",
+        ):
             v = feat.get(k) if isinstance(feat, dict) else None
             if v is not None:
                 query_seeds.append(f"{k}={v}")
@@ -368,10 +379,8 @@ def _fetch_by_similarity(
         params,
     ).all()
     for r in rows:
-        try:
+        with suppress(AttributeError, TypeError):
             r._recall_tag = f"sim={float(r.distance):.3f}"
-        except (AttributeError, TypeError):
-            pass
     return list(rows)
 
 
@@ -393,10 +402,8 @@ def _fetch_by_recency(
         params,
     ).all()
     for r in rows:
-        try:
+        with suppress(AttributeError, TypeError):
             r._recall_tag = "recency"
-        except (AttributeError, TypeError):
-            pass
     return list(rows)
 
 
@@ -409,17 +416,45 @@ def _fmt_money(v: Any) -> str:
         return "n/a"
 
 
+def _fmt_pct(v: Any, *, signed: bool = False) -> str:
+    if v is None or v == "":
+        return "n/a"
+    try:
+        return f"{float(v):+.2%}" if signed else f"{float(v):.2%}"
+    except (TypeError, ValueError):
+        return "n/a"
+
+
+def _fmt_num(v: Any, digits: int = 2, *, signed: bool = False) -> str:
+    if v is None or v == "":
+        return "n/a"
+    try:
+        return f"{float(v):+.{digits}f}" if signed else f"{float(v):.{digits}f}"
+    except (TypeError, ValueError):
+        return "n/a"
+
+
 def render_features(f: dict | None) -> str:
     if not f:
         return "<features>(no data)</features>"
     return (
         "<features>\n"
         f"  asof={f['ts']}\n"
-        f"  returns:  1d={f['ret_1d']:+.2%}  5d={f['ret_5d']:+.2%}  "
-        f"30d={f['ret_30d']:+.2%}  90d={f['ret_90d']:+.2%}  1y={f['ret_1y']:+.2%}\n"
-        f"  vol_30d={f['vol_30d']:.2%}  RSI14={f['rsi_14']:.0f}  "
-        f"SMA20=${f['sma_20']:.2f}  SMA50=${f['sma_50']:.2f}\n"
-        f"  volume_z={f['volume_z']:+.2f}\n"
+        f"  returns:  1d={_fmt_pct(f.get('ret_1d'), signed=True)}  "
+        f"5d={_fmt_pct(f.get('ret_5d'), signed=True)}  "
+        f"30d={_fmt_pct(f.get('ret_30d'), signed=True)}  "
+        f"90d={_fmt_pct(f.get('ret_90d'), signed=True)}  "
+        f"1y={_fmt_pct(f.get('ret_1y'), signed=True)}\n"
+        f"  vol_30d={_fmt_pct(f.get('vol_30d'))}  RSI14={_fmt_num(f.get('rsi_14'), 0)}  "
+        f"SMA20=${_fmt_num(f.get('sma_20'))}  SMA50=${_fmt_num(f.get('sma_50'))}\n"
+        f"  volume_z={_fmt_num(f.get('volume_z'), signed=True)}\n"
+        f"  valuation: fcf_yield={_fmt_pct(f.get('fcf_yield'))}  PEG={_fmt_num(f.get('peg'))}  "
+        f"mcap={_fmt_money(f.get('market_cap_usd'))}\n"
+        f"  quality: eps_cagr_3y={_fmt_pct(f.get('eps_cagr_3y'))}  "
+        f"debt_to_equity={_fmt_num(f.get('debt_to_equity'))}  "
+        f"gross_margin={_fmt_pct(f.get('gross_margin'))}  "
+        f"gross_margin_trend={_fmt_pct(f.get('gross_margin_trend'), signed=True)}  "
+        f"operating_margin={_fmt_pct(f.get('operating_margin'))}\n"
         "</features>"
     )
 

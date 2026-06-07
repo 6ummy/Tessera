@@ -126,7 +126,7 @@ no broker, no LLM. It exists to validate UX before backend investment.
 - **Python worker** (apps/worker) with FastAPI skeleton, structured JSON logging, SQLAlchemy + psycopg3 session pool.
 - **7 ingestors operational**: Alpaca EOD (equities + ETFs), Coinbase EOD (BTC, ETH), FMP fundamentals (`/stable/` endpoints), FRED macro (37 series — yields, inflation, labor, growth, money, FX, energy, commodities, credit spreads, VIX), NewsAPI (ticker-tagged headlines), SEC EDGAR (10-K + 10-Q with GCS raw HTML — added 2026-06-01 in Phase B), **SEC XBRL companyfacts** (structured GAAP fundamentals via `data.sec.gov/api/xbrl` — added 2026-06-02; fills FMP free-tier gaps so coverage went 20/42 → 39/42 equity tickers). All idempotent via `ON CONFLICT DO UPDATE`.
 - **Universe**: 51 tickers (49 equities + 2 crypto pairs) spanning the sectors each persona cares about.
-- **Feature builder** (`compute.py`): deterministic pandas/numpy module. Reads `ohlcv_1d`, writes `ticker_features`. Computes ret_{1d,5d,30d,90d,1y}, vol_30d, rsi_14, sma_{20,50}, volume_z. **This is the only path numerical features reach the LLM** (Phase B). 13 property-based tests on the math.
+- **Feature builder** (`compute.py`): deterministic pandas/numpy module. Reads `ohlcv_1d` + `fundamentals`, writes `ticker_features`. Computes ret_{1d,5d,30d,90d,1y}, vol_30d, rsi_14, sma_{20,50}, volume_z, plus latest fundamentals-derived `fcf_yield`, `peg`, `eps_cagr_3y`, `debt_to_equity`, `gross_margin`, `gross_margin_trend`, `market_cap_usd`, and `operating_margin`. **This is the only path numerical features reach the LLM**. 60 feature tests pin the math and edge cases.
 - **Daily orchestrator** (`jobs/ingest_daily.py`): 8 sequential steps (ohlcv_equity → ohlcv_crypto → macro → fundamentals → edgar_facts → news → filings → features). CLI flags `--only`/`--skip`. Exit code 0/1 maps to Cloud Run Job success/failure.
 - **Connection smoke test** (`scripts/check_connections.py`): verifies all 6 external services + redacts secrets from any error output.
 - **Production state right now** (snapshot 2026-06-01, after first Cloud Run-driven run + EDGAR step shipped):
@@ -284,7 +284,7 @@ macro_series       # FRED series
 fundamentals       # FMP, JSON blobs per period
 news               # NewsAPI, embedding column ready for pgvector
 filings            # SEC EDGAR (excerpt + GCS pointer)
-ticker_features    # derived: ret_*, vol_30d, rsi_14, sma_*, volume_z
+ticker_features    # derived: ret_*, vol_30d, rsi_14, sma_*, valuation/quality
 ```
 
 **Three access patterns:**
@@ -299,7 +299,9 @@ WHERE ticker = 'AAPL'
 ORDER BY ts DESC LIMIT 5;
 
 -- Latest features for the whole universe (one row per ticker)
-SELECT DISTINCT ON (ticker) ticker, ts, ret_30d, rsi_14, vol_30d
+SELECT DISTINCT ON (ticker)
+       ticker, ts, ret_30d, rsi_14, vol_30d,
+       fcf_yield, peg, eps_cagr_3y, debt_to_equity, gross_margin
 FROM ticker_features
 ORDER BY ticker, ts DESC;
 
@@ -445,7 +447,7 @@ plane is shipped; the LLM pipeline is the Week 2 / Week 3 work.
 | `agents/citation_validator.py` | LLM Pipeline | ✅ shipped |
 | `agents/models.py` (`AnalystReport`, `Proposal`) | LLM Pipeline | ✅ shipped (re-export from `tessera_shared`) |
 | `features/compute.py` — `fcf_yield` (TTM-decomposed cumulative-YTD, FX-converted, cross-validated mcap) | Quant | ✅ shipped 2026-06-04 |
-| `features/compute.py` — `peg`, `eps_cagr_3y`, `debt_to_equity`, `gross_margin_trend` | Quant | ⏳ **Phase C Week 4** (moved from Phase B 2026-06-05 — voice differentiation verified with `fcf_yield` alone; remaining four are precision-tuning for the risk gateway). Reuses the `cross_validated()` primitive. |
+| `features/compute.py` — `peg`, `eps_cagr_3y`, `debt_to_equity`, `gross_margin`, `gross_margin_trend`, `market_cap_usd`, `operating_margin` | Quant | ✅ shipped locally 2026-06-06 (`004_quality_features.sql` + latest-row fundamentals pass). Next: risk-gateway consumption and coverage/precision telemetry. |
 | `apps/web/app/api/reports/route.ts` + UI swap | Frontend | ⏳ Week 3 |
 | `agents/anthropic_runner.py` Ray-specific (`run_regime_thesis`, `RegimeReport`) | LLM Pipeline | ✅ shipped 2026-06-03 (parallel schema, `persona_id='ray'` discriminator in `analyst_reports`) |
 | `agents/embeddings.py` + `prompt_assembler.fetch_memory_recall` (Voyage similarity, recency fallback) | LLM Pipeline | ✅ shipped 2026-06-05 (PR #44) |
