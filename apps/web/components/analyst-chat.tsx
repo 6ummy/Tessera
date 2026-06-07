@@ -75,6 +75,45 @@ export function AnalystChat({ persona }: { persona: Persona }) {
     const ctrl = new AbortController();
     abortRef.current = ctrl;
 
+    // ─── Typewriter pump ────────────────────────────────────────────────
+    // The SSE stream from Anthropic arrives in chunks of 50–200 chars,
+    // sometimes with multi-second pauses between bursts (server-side
+    // batching + network buffering). Rendering each chunk directly
+    // makes the message lurch. Instead, push every delta into a
+    // string buffer and let a 16 ms tick drain the buffer at an
+    // adaptive rate: ≥2 chars per frame baseline, faster when the
+    // backlog grows (cap at 50/frame to never stall behind the model).
+    // The visual feels continuous; if the model actually pauses, the
+    // pump runs out and the cursor sits — which reads as "thinking".
+    let buffer = "";
+    let streamDone = false;
+    const pumpId = window.setInterval(() => {
+      if (ctrl.signal.aborted) {
+        window.clearInterval(pumpId);
+        setStreamingId((id) => (id === assistantId ? null : id));
+        return;
+      }
+      if (buffer.length === 0) {
+        if (streamDone) {
+          // Pump caught up; clear the blinking cursor at the same moment
+          // the last char rendered, so the visual matches the data.
+          window.clearInterval(pumpId);
+          setStreamingId((id) => (id === assistantId ? null : id));
+        }
+        return;
+      }
+      const burst = Math.min(50, Math.max(2, Math.ceil(buffer.length / 30)));
+      const chunk = buffer.slice(0, burst);
+      buffer = buffer.slice(burst);
+      setMessages((m) =>
+        m.map((msg) =>
+          msg.id === assistantId
+            ? { ...msg, content: msg.content + chunk }
+            : msg,
+        ),
+      );
+    }, 16);
+
     try {
       for await (const delta of streamChat(
         persona.id,
@@ -82,25 +121,14 @@ export function AnalystChat({ persona }: { persona: Persona }) {
         history,
         ctrl.signal,
       )) {
-        setMessages((m) =>
-          m.map((msg) =>
-            msg.id === assistantId
-              ? { ...msg, content: msg.content + delta }
-              : msg,
-          ),
-        );
+        buffer += delta;
       }
     } catch (err) {
-      const msg = formatStreamError(err, persona.name);
-      setMessages((m) =>
-        m.map((msgRow) =>
-          msgRow.id === assistantId
-            ? { ...msgRow, content: (msgRow.content || "") + msg }
-            : msgRow,
-        ),
-      );
+      buffer += formatStreamError(err, persona.name);
     } finally {
-      setStreamingId(null);
+      streamDone = true;
+      // streamingId cleared by pump when buffer drains — keeps the
+      // blinking cursor on screen until the visible text catches up.
       if (abortRef.current === ctrl) abortRef.current = null;
     }
   };
