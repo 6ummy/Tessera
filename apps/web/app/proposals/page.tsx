@@ -8,6 +8,8 @@ import type { Proposal } from "@/lib/thesis-types";
 import { Header } from "@/components/header";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { PositionFeatures } from "@/components/position-features";
+import { ChevronDown } from "lucide-react";
 import { cn, fmt } from "@/lib/utils";
 
 const ACCENT_HEX: Record<Persona["accent"], string> = {
@@ -27,6 +29,17 @@ type ConsensusRow = {
 
 export default function ProposalsPage() {
   const [highlight, setHighlight] = useState<string | null>(null);
+  // Expanded position key: "${personaId}:${ticker}" so the same ticker
+  // can be open independently across personas.
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const toggleExpand = (key: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
   const [proposals, setProposals] = useState<Record<string, Proposal | null>>({});
   const [loading, setLoading] = useState(true);
 
@@ -179,48 +192,72 @@ export default function ProposalsPage() {
                             No positions published yet for {persona.name}.
                           </div>
                         ) : (
-                          prop.positions.map((pos) => (
-                            <button
-                              key={pos.ticker}
-                              onMouseEnter={() => setHighlight(pos.ticker)}
-                              onMouseLeave={() => setHighlight(null)}
-                              className={cn(
-                                "block w-full text-left px-5 py-3 transition-colors",
-                                highlight === pos.ticker
-                                  ? "bg-coral-50"
-                                  : "hover:bg-ink-900/[0.025]",
-                              )}
-                            >
-                              <div className="flex items-center justify-between gap-3">
-                                <div className="min-w-0 flex-1">
-                                  <div className="flex items-center gap-2">
-                                    <span className="num text-sm font-medium text-ink-900">
-                                      {pos.ticker}
+                          prop.positions.map((pos) => {
+                            const key = `${persona.id}:${pos.ticker}`;
+                            const isOpen = expanded.has(key);
+                            return (
+                              <div
+                                key={pos.ticker}
+                                onMouseEnter={() => setHighlight(pos.ticker)}
+                                onMouseLeave={() => setHighlight(null)}
+                                className={cn(
+                                  "transition-colors",
+                                  highlight === pos.ticker
+                                    ? "bg-coral-50"
+                                    : "hover:bg-ink-900/[0.025]",
+                                )}
+                              >
+                                <button
+                                  onClick={() => toggleExpand(key)}
+                                  className="block w-full text-left px-5 py-3"
+                                  aria-expanded={isOpen}
+                                >
+                                  <div className="flex items-center justify-between gap-3">
+                                    <div className="min-w-0 flex-1">
+                                      <div className="flex items-center gap-2">
+                                        <span className="num text-sm font-medium text-ink-900">
+                                          {pos.ticker}
+                                        </span>
+                                        <span className="truncate text-xs text-ink-500">{pos.name}</span>
+                                      </div>
+                                    </div>
+                                    <span className="num text-sm font-medium text-ink-800">
+                                      {fmt.pctAbs(pos.weight)}
                                     </span>
-                                    <span className="truncate text-xs text-ink-500">{pos.name}</span>
+                                    <ChevronDown
+                                      className={cn(
+                                        "h-3.5 w-3.5 text-ink-400 transition-transform",
+                                        isOpen && "rotate-180",
+                                      )}
+                                    />
                                   </div>
-                                </div>
-                                <span className="num text-sm font-medium text-ink-800">
-                                  {fmt.pctAbs(pos.weight)}
-                                </span>
+                                  <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-ink-900/[0.05]">
+                                    <div
+                                      className="h-full rounded-full"
+                                      style={{
+                                        width: `${pos.weight * 500}%`,
+                                        maxWidth: "100%",
+                                        background: ACCENT_HEX[persona.accent],
+                                        opacity: 0.55 + (pos.conviction ?? 0.5) * 0.45,
+                                      }}
+                                    />
+                                  </div>
+                                  <p className="mt-2 line-clamp-2 text-[12px] leading-relaxed text-ink-600">
+                                    {pos.thesis}
+                                  </p>
+                                </button>
+                                {isOpen && (
+                                  <div className="px-5 pb-4">
+                                    <PositionFeatures
+                                      ticker={pos.ticker}
+                                      open={isOpen}
+                                      accent={cn(ACCENT_CLASS[persona.accent].text)}
+                                    />
+                                  </div>
+                                )}
                               </div>
-                              <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-ink-900/[0.05]">
-                                <div
-                                  className="h-full rounded-full"
-                                  style={{
-                                    width: `${pos.weight * 500}%`,
-                                    maxWidth: "100%",
-                                    background: ACCENT_HEX[persona.accent],
-                                    // null conviction (Ray) → midpoint opacity
-                                    opacity: 0.55 + (pos.conviction ?? 0.5) * 0.45,
-                                  }}
-                                />
-                              </div>
-                              <p className="mt-2 line-clamp-2 text-[12px] leading-relaxed text-ink-600">
-                                {pos.thesis}
-                              </p>
-                            </button>
-                          ))
+                            );
+                          })
                         )}
                       </div>
                     </div>

@@ -6,6 +6,8 @@ import { ACCENT_CLASS, type Persona } from "@/lib/mock/personas";
 import { SERIES, BENCHMARK } from "@/lib/mock/performance";
 import { fetchProposal, fetchReports } from "@/lib/analyst-data";
 import type { Proposal, Report } from "@/lib/thesis-types";
+import { PositionFeatures } from "./position-features";
+import { ChevronDown } from "lucide-react";
 import { Sheet, SheetContent } from "./ui/sheet";
 import { CumulativeChart } from "./cumulative-chart";
 import { Badge } from "./ui/badge";
@@ -37,6 +39,7 @@ export function PersonaDetailSheet({
   const [proposal, setProposal] = useState<Proposal | null>(null);
   const [reports, setReports] = useState<Report[]>([]);
   const [loadingData, setLoadingData] = useState(false);
+  const [expandedTicker, setExpandedTicker] = useState<string | null>(null);
 
   // Reset to thesis view whenever a new persona opens
   useEffect(() => {
@@ -207,25 +210,56 @@ export function PersonaDetailSheet({
               </p>
             ) : (
               <div className="overflow-hidden rounded-2xl border border-ink-900/[0.06] bg-cream-50">
-                {proposal.positions.slice(0, 5).map((pos) => (
-                  <div key={pos.ticker} className="flex items-center justify-between gap-4 border-b border-ink-900/[0.05] px-4 py-3 last:border-b-0">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="num text-sm font-medium text-ink-900">{pos.ticker}</span>
-                        <span className="truncate text-xs text-ink-500">{pos.name}</span>
-                      </div>
-                      <p className="mt-0.5 line-clamp-1 text-xs text-ink-500">{pos.sector}</p>
-                    </div>
-                    <div className="text-right">
-                      <div className="num text-sm font-medium text-ink-900">{fmt.pctAbs(pos.weight)}</div>
-                      {pos.conviction !== null && (
-                        <div className="num text-[10px] text-ink-500">
-                          conv {fmt.num(pos.conviction, 2)}
+                {proposal.positions.slice(0, 5).map((pos) => {
+                  const isOpen = expandedTicker === pos.ticker;
+                  return (
+                    <div
+                      key={pos.ticker}
+                      className="border-b border-ink-900/[0.05] last:border-b-0"
+                    >
+                      <button
+                        onClick={() =>
+                          setExpandedTicker(isOpen ? null : pos.ticker)
+                        }
+                        aria-expanded={isOpen}
+                        className="flex w-full items-center justify-between gap-4 px-4 py-3 text-left transition-colors hover:bg-ink-900/[0.02]"
+                      >
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="num text-sm font-medium text-ink-900">{pos.ticker}</span>
+                            <span className="truncate text-xs text-ink-500">{pos.name}</span>
+                          </div>
+                          <p className="mt-0.5 line-clamp-1 text-xs text-ink-500">{pos.sector}</p>
+                        </div>
+                        <div className="flex items-center gap-3 text-right">
+                          <div>
+                            <div className="num text-sm font-medium text-ink-900">{fmt.pctAbs(pos.weight)}</div>
+                            {pos.conviction !== null && (
+                              <div className="num text-[10px] text-ink-500">
+                                conv {fmt.num(pos.conviction, 2)}
+                              </div>
+                            )}
+                          </div>
+                          <ChevronDown
+                            className={cn(
+                              "h-4 w-4 shrink-0 text-ink-400 transition-transform",
+                              isOpen && "rotate-180",
+                            )}
+                          />
+                        </div>
+                      </button>
+                      {isOpen && (
+                        <div className="px-4 pb-4">
+                          <PositionFeatures
+                            ticker={pos.ticker}
+                            open={isOpen}
+                            accent={a.text}
+                          />
                         </div>
                       )}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
