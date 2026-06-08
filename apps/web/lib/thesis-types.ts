@@ -33,6 +33,33 @@ export type Proposal = {
   notesToManager?: string;
 };
 
+export type TickerFeatures = {
+  ticker: string;
+  name: string;
+  sector: string;
+  asof: string | null;
+  features: {
+    ret_1d: number | null;
+    ret_5d: number | null;
+    ret_30d: number | null;
+    ret_90d: number | null;
+    ret_1y: number | null;
+    vol_30d: number | null;
+    rsi_14: number | null;
+    sma_20: number | null;
+    sma_50: number | null;
+    volume_z: number | null;
+    fcf_yield: number | null;
+    peg: number | null;
+    market_cap_usd: number | null;
+    operating_margin: number | null;
+    eps_cagr_3y: number | null;
+    debt_to_equity: number | null;
+    gross_margin: number | null;
+    gross_margin_trend: number | null;
+  } | null;
+};
+
 export type Report = {
   id: string;
   personaId: string;

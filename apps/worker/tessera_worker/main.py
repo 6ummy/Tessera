@@ -358,6 +358,79 @@ async def get_persona_proposal(
     }
 
 
+@app.get("/api/features/{ticker}")
+async def get_ticker_features(
+    ticker: str,
+    authorization: str | None = Header(default=None),
+) -> dict:
+    """Latest ticker_features row, reshaped for the UI's expandable
+    position card. Returns numeric values + a snapshot date; the
+    frontend handles per-field formatting (% / x / $)."""
+    _require_webhook_auth(authorization)
+    # Normalize: UI may send lowercase or mixed; universe stores uppercase.
+    ticker_u = ticker.upper()
+    from tessera_worker.db import session_scope
+    from sqlalchemy import text as _sql
+    from tessera_worker.universe import META_BY_TICKER
+
+    meta = META_BY_TICKER.get(ticker_u)
+    if not meta:
+        raise HTTPException(404, f"ticker not in universe: {ticker_u}")
+
+    with session_scope() as session:
+        row = session.execute(
+            _sql("""
+                SELECT ts::date AS asof,
+                       ret_1d, ret_5d, ret_30d, ret_90d, ret_1y,
+                       vol_30d, rsi_14, sma_20, sma_50, volume_z,
+                       fcf_yield, peg, market_cap_usd, operating_margin,
+                       eps_cagr_3y, debt_to_equity,
+                       gross_margin, gross_margin_trend
+                FROM ticker_features
+                WHERE ticker = :t
+                ORDER BY ts DESC
+                LIMIT 1
+            """),
+            {"t": ticker_u},
+        ).mappings().first()
+
+    if not row:
+        return {"ticker": ticker_u, "name": meta.name, "sector": meta.sector,
+                "asof": None, "features": None}
+
+    def _f(v):
+        return float(v) if v is not None else None
+    def _i(v):
+        return int(v) if v is not None else None
+
+    return {
+        "ticker": ticker_u,
+        "name": meta.name,
+        "sector": meta.sector,
+        "asof": row["asof"].isoformat() if row["asof"] else None,
+        "features": {
+            "ret_1d":             _f(row["ret_1d"]),
+            "ret_5d":             _f(row["ret_5d"]),
+            "ret_30d":            _f(row["ret_30d"]),
+            "ret_90d":            _f(row["ret_90d"]),
+            "ret_1y":             _f(row["ret_1y"]),
+            "vol_30d":            _f(row["vol_30d"]),
+            "rsi_14":             _f(row["rsi_14"]),
+            "sma_20":             _f(row["sma_20"]),
+            "sma_50":             _f(row["sma_50"]),
+            "volume_z":           _f(row["volume_z"]),
+            "fcf_yield":          _f(row["fcf_yield"]),
+            "peg":                _f(row["peg"]),
+            "market_cap_usd":     _i(row["market_cap_usd"]),
+            "operating_margin":   _f(row["operating_margin"]),
+            "eps_cagr_3y":        _f(row["eps_cagr_3y"]),
+            "debt_to_equity":     _f(row["debt_to_equity"]),
+            "gross_margin":       _f(row["gross_margin"]),
+            "gross_margin_trend": _f(row["gross_margin_trend"]),
+        },
+    }
+
+
 def _reshape_report_row(
     row_id: str, persona_id: str, date_iso: str, parsed: dict,
 ) -> dict:
