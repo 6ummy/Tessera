@@ -3,12 +3,13 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, Sparkles, Users } from "lucide-react";
 import { PERSONAS, ACCENT_CLASS, type Persona } from "@/lib/mock/personas";
-import { fetchProposal } from "@/lib/analyst-data";
-import type { Proposal } from "@/lib/thesis-types";
+import { fetchProposal, fetchReports } from "@/lib/analyst-data";
+import type { Proposal, Report } from "@/lib/thesis-types";
 import { Header } from "@/components/header";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { PositionFeatures } from "@/components/position-features";
+import { RelatedThesis, type RelatedThesisEntry } from "@/components/related-thesis";
 import { ChevronDown } from "lucide-react";
 import { cn, fmt } from "@/lib/utils";
 
@@ -41,12 +42,17 @@ export default function ProposalsPage() {
     });
   };
   const [proposals, setProposals] = useState<Record<string, Proposal | null>>({});
+  const [reportsByPersona, setReportsByPersona] = useState<Record<string, Report[]>>({});
   const [loading, setLoading] = useState(true);
+  const [reportsLoading, setReportsLoading] = useState(true);
 
-  // Fetch all 4 personas in parallel on mount.
+  // Fetch all 4 personas in parallel on mount — proposals drive the
+  // primary grid, reports power the cross-persona "Related thesis"
+  // index shown when a card is expanded.
   useEffect(() => {
     const ctrl = new AbortController();
     setLoading(true);
+    setReportsLoading(true);
     Promise.all(
       PERSONAS.map((p) =>
         fetchProposal(p.id, { signal: ctrl.signal }).then((data) => [p.id, data] as const),
@@ -56,8 +62,39 @@ export default function ProposalsPage() {
       setProposals(Object.fromEntries(entries));
       setLoading(false);
     });
+    Promise.all(
+      PERSONAS.map((p) =>
+        fetchReports(p.id, { limit: 10, signal: ctrl.signal }).then(
+          (rs) => [p.id, rs] as const,
+        ),
+      ),
+    ).then((entries) => {
+      if (ctrl.signal.aborted) return;
+      setReportsByPersona(Object.fromEntries(entries));
+      setReportsLoading(false);
+    });
     return () => ctrl.abort();
   }, []);
+
+  // Cross-persona index: ticker → every report from any persona that
+  // tags this ticker. Sorted newest-first so the most recent take is
+  // surfaced at the top of the expanded card.
+  const thesisByTicker = useMemo<Record<string, RelatedThesisEntry[]>>(() => {
+    const out: Record<string, RelatedThesisEntry[]> = {};
+    for (const persona of PERSONAS) {
+      const reports = reportsByPersona[persona.id] ?? [];
+      for (const r of reports) {
+        for (const t of r.tickers) {
+          const key = t.toUpperCase();
+          (out[key] ??= []).push({ report: r, persona });
+        }
+      }
+    }
+    for (const k of Object.keys(out)) {
+      out[k].sort((a, b) => (a.report.date < b.report.date ? 1 : -1));
+    }
+    return out;
+  }, [reportsByPersona]);
 
   const consensus = useMemo<ConsensusRow[]>(() => {
     const byTicker = new Map<string, ConsensusRow>();
@@ -247,11 +284,16 @@ export default function ProposalsPage() {
                                   </p>
                                 </button>
                                 {isOpen && (
-                                  <div className="px-5 pb-4">
+                                  <div className="space-y-3 px-5 pb-4">
                                     <PositionFeatures
                                       ticker={pos.ticker}
                                       open={isOpen}
                                       accent={cn(ACCENT_CLASS[persona.accent].text)}
+                                    />
+                                    <RelatedThesis
+                                      ticker={pos.ticker}
+                                      entries={thesisByTicker[pos.ticker.toUpperCase()] ?? []}
+                                      loading={reportsLoading}
                                     />
                                   </div>
                                 )}

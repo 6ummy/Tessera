@@ -564,6 +564,21 @@ def sum_ttm_fcf(rows: list[dict]) -> float | None:
                 # (C-fallback) Last fiscal-year annual ≈ TTM.
                 return max(vals)
 
+        # Shape (A-implicit): no period labels, no cumulative pattern,
+        # but rows are spaced ~12 months apart → an annual-only stream
+        # (FMP's older annual endpoints sometimes omit the `period` key
+        # entirely). Treat rows[0] as TTM-equivalent. Seen on V's
+        # cash_flow history where the latest filing has period=None
+        # and the next-older is ~365d away.
+        dated = [r for r in window if r.get("period_end") is not None]
+        if len(dated) >= 2:
+            dated.sort(key=lambda r: r["period_end"], reverse=True)
+            gap_days = (dated[0]["period_end"] - dated[1]["period_end"]).days
+            if 270 <= gap_days <= 410:
+                v0 = _fcf_value(dated[0])
+                if v0 is not None:
+                    return v0
+
     # Shape (B): treat as quarterly, sum 4 non-FY rows.
     qs: list[float] = []
     for r in rows:
@@ -596,6 +611,17 @@ def _eps_value(r: dict) -> float | None:
     if diluted is not None:
         return diluted
     return _to_float(r.get("epsBasic"))
+
+
+def _pick_latest(rows: list[dict], extract):
+    """Return the first non-None value yielded by `extract(row)` walking
+    `rows` newest-first. Used so a partial latest filing can fall back
+    to an older row that actually carries the field we need."""
+    for r in rows:
+        v = extract(r)
+        if v is not None:
+            return v
+    return None
 
 
 def _annual_income_rows(rows: list[dict]) -> list[dict]:
@@ -852,9 +878,14 @@ def _load_fundamentals_latest(tickers: list[str]) -> dict[str, dict]:
         WHERE ticker = ANY(:t) AND filing_type = 'income'
         ORDER BY ticker, period_end DESC
     """)
+    # NOTE: we deliberately do NOT use `DISTINCT ON (ticker)` here. FMP
+    # occasionally writes a preliminary balance row where every field
+    # we care about is null (seen on V's 2026-03-31 filing). With
+    # DISTINCT ON we'd lock in that empty row and ship NULL forever.
+    # Instead we pull all balance rows newest-first and walk per field
+    # below, so equity from an older row can rescue a stale debt entry.
     balance_sql = text("""
-        SELECT DISTINCT ON (ticker)
-               ticker,
+        SELECT ticker, period_end,
                payload ->> 'totalDebt'                AS total_debt,
                payload ->> 'longTermDebt'             AS long_term_debt,
                payload ->> 'shortTermDebt'            AS short_term_debt,
@@ -923,26 +954,43 @@ def _load_fundamentals_latest(tickers: list[str]) -> dict[str, dict]:
                 "form":            r.form,
                 "fp":              r.fp,
             })
-        if r.ticker not in shares_by_ticker:
-            shares_basic = _to_float(r.shares_basic)
-            shares_diluted = _to_float(r.shares_diluted)
-            market_cap_inc = _to_float(r.market_cap_inc)
-            if shares_basic is not None or shares_diluted is not None or market_cap_inc is not None:
-                shares_by_ticker[r.ticker] = {
-                    "shares_basic":        shares_basic,
-                    "shares_diluted":      shares_diluted,
-                    "payload_mcap_income": market_cap_inc,
-                }
+        # Per-field newest-non-null fall-through. FMP often returns a
+        # preliminary income row where shares/marketCap are null even
+        # though the filing is real (V 2026-03-31 is the canonical
+        # case). We walk newest-first and fill each field independently
+        # from the first row where that field is non-null. Mixing fields
+        # across rows is fine: shares_basic from FY2025 + market_cap
+        # from cash_flow today is still a coherent mcap estimate.
+        bucket_shares = shares_by_ticker.setdefault(r.ticker, {
+            "shares_basic":        None,
+            "shares_diluted":      None,
+            "payload_mcap_income": None,
+        })
+        if bucket_shares["shares_basic"] is None:
+            bucket_shares["shares_basic"] = _to_float(r.shares_basic)
+        if bucket_shares["shares_diluted"] is None:
+            bucket_shares["shares_diluted"] = _to_float(r.shares_diluted)
+        if bucket_shares["payload_mcap_income"] is None:
+            bucket_shares["payload_mcap_income"] = _to_float(r.market_cap_inc)
 
-    balance_by_ticker = {
-        r.ticker: {
-            "total_debt":     _to_float(r.total_debt),
-            "long_term_debt": _to_float(r.long_term_debt),
-            "short_term_debt": _to_float(r.short_term_debt),
-            "equity":         _to_float(r.equity),
-        }
-        for r in bal_rows
-    }
+    # Same fall-through pattern for balance: pick the freshest non-null
+    # value per field across all available balance filings.
+    balance_by_ticker: dict[str, dict] = {}
+    for r in bal_rows:
+        b = balance_by_ticker.setdefault(r.ticker, {
+            "total_debt":      None,
+            "long_term_debt":  None,
+            "short_term_debt": None,
+            "equity":          None,
+        })
+        if b["total_debt"] is None:
+            b["total_debt"] = _to_float(r.total_debt)
+        if b["long_term_debt"] is None:
+            b["long_term_debt"] = _to_float(r.long_term_debt)
+        if b["short_term_debt"] is None:
+            b["short_term_debt"] = _to_float(r.short_term_debt)
+        if b["equity"] is None:
+            b["equity"] = _to_float(r.equity)
 
     out: dict[str, dict] = {}
     tickers_seen = set(cash_by_ticker) | set(income_by_ticker) | set(balance_by_ticker)
@@ -1115,21 +1163,28 @@ def build(
             )
             income_rows = f.get("income_rows", [])
             annual_income = _annual_income_rows(income_rows)
-            latest_income = (
-                annual_income[0]
-                if annual_income
-                else (income_rows[0] if income_rows else {})
+            # Pull each margin / EPS input from the newest annual row
+            # where that specific field is non-null. FMP preliminary
+            # rows (e.g. V 2026-03-31) zero out grossProfit/EPS while
+            # keeping revenue + operatingIncome; using annual[0] for
+            # everything blanks the whole quality column. See
+            # _load_fundamentals_latest for the loader-side fix.
+            search_rows = annual_income or income_rows
+            latest_eps = _pick_latest(search_rows, _eps_value)
+            latest_revenue = _pick_latest(
+                search_rows, lambda r: _to_float(r.get("revenue"))
+            )
+            latest_gross_profit = _pick_latest(
+                search_rows, lambda r: _to_float(r.get("grossProfit"))
+            )
+            latest_operating_income = _pick_latest(
+                search_rows, lambda r: _to_float(r.get("operatingIncome"))
             )
             eps_cagr = compute_eps_cagr_3y(income_rows)
-            peg = compute_peg(close, _eps_value(latest_income), eps_cagr)
-            revenue = _to_float(latest_income.get("revenue"))
-            gross_margin = compute_gross_margin(
-                revenue,
-                _to_float(latest_income.get("grossProfit")),
-            )
+            peg = compute_peg(close, latest_eps, eps_cagr)
+            gross_margin = compute_gross_margin(latest_revenue, latest_gross_profit)
             operating_margin = compute_gross_margin(
-                revenue,
-                _to_float(latest_income.get("operatingIncome")),
+                latest_revenue, latest_operating_income
             )
             gross_margin_trend = compute_gross_margin_trend(income_rows)
             balance = f.get("balance", {})
