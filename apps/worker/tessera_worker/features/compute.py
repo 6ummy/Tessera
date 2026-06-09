@@ -873,7 +873,12 @@ def _load_fundamentals_latest(tickers: list[str]) -> dict[str, dict]:
                payload ->> 'fp'                       AS fp,
                payload ->> 'weightedAverageShsOut'    AS shares_basic,
                payload ->> 'weightedAverageShsOutDil' AS shares_diluted,
-               payload ->> 'marketCap'                AS market_cap_inc
+               payload ->> 'marketCap'                AS market_cap_inc,
+               -- Yahoo-derived fallbacks (only populated on synthetic
+               -- rows written by yf_shares ingestor). compute uses these
+               -- when EDGAR-derived versions are None — see build().
+               payload ->> 'peg_yf'                   AS peg_yf,
+               payload ->> 'gross_margin_yf'          AS gross_margin_yf
         FROM fundamentals
         WHERE ticker = ANY(:t) AND filing_type = 'income'
         ORDER BY ticker, period_end DESC
@@ -965,6 +970,8 @@ def _load_fundamentals_latest(tickers: list[str]) -> dict[str, dict]:
             "shares_basic":        None,
             "shares_diluted":      None,
             "payload_mcap_income": None,
+            "peg_yf":              None,
+            "gross_margin_yf":     None,
         })
         if bucket_shares["shares_basic"] is None:
             bucket_shares["shares_basic"] = _to_float(r.shares_basic)
@@ -972,6 +979,10 @@ def _load_fundamentals_latest(tickers: list[str]) -> dict[str, dict]:
             bucket_shares["shares_diluted"] = _to_float(r.shares_diluted)
         if bucket_shares["payload_mcap_income"] is None:
             bucket_shares["payload_mcap_income"] = _to_float(r.market_cap_inc)
+        if bucket_shares["peg_yf"] is None:
+            bucket_shares["peg_yf"] = _to_float(r.peg_yf)
+        if bucket_shares["gross_margin_yf"] is None:
+            bucket_shares["gross_margin_yf"] = _to_float(r.gross_margin_yf)
 
     # Same fall-through pattern for balance: pick the freshest non-null
     # value per field across all available balance filings.
@@ -1005,6 +1016,8 @@ def _load_fundamentals_latest(tickers: list[str]) -> dict[str, dict]:
             "shares_diluted":      shares.get("shares_diluted"),
             "payload_mcap_cash":   mcap_payload.get(ticker),
             "payload_mcap_income": shares.get("payload_mcap_income"),
+            "peg_yf":              shares.get("peg_yf"),
+            "gross_margin_yf":     shares.get("gross_margin_yf"),
         }
     return out
 
@@ -1186,6 +1199,21 @@ def build(
             operating_margin = compute_gross_margin(
                 latest_revenue, latest_operating_income
             )
+            # yfinance-derived fallbacks: only used when our EDGAR-driven
+            # computation came up None. Service / payment-network filers
+            # (V, MA) genuinely don't tag GrossProfit in XBRL, and have
+            # no historical EPS series we can hit for trailing PEG, so
+            # Yahoo's pre-computed ratios are the only path to a number.
+            # Sanity-bound to the same envelope as our own outputs so a
+            # yf glitch can't ship a 500% margin into the LLM prompt.
+            if peg is None:
+                yf_peg = f.get("peg_yf")
+                if yf_peg is not None and 0 < yf_peg < PEG_SANITY_BOUND:
+                    peg = yf_peg
+            if gross_margin is None:
+                yf_gm = f.get("gross_margin_yf")
+                if yf_gm is not None and MARGIN_SANITY_LOW <= yf_gm <= MARGIN_SANITY_HIGH:
+                    gross_margin = yf_gm
             gross_margin_trend = compute_gross_margin_trend(income_rows)
             balance = f.get("balance", {})
             debt_to_equity = compute_debt_to_equity(

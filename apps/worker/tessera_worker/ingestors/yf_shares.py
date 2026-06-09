@@ -77,11 +77,23 @@ def _fetch_one(ticker: str) -> dict | None:
         return None
     shares = info.get("sharesOutstanding")
     mcap = info.get("marketCap")
-    if shares is None and mcap is None:
+    # Yahoo-derived ratios for tickers whose XBRL doesn't expose the
+    # inputs we need: peg (V has no historical EPS in us-gaap) and gross
+    # margin (V doesn't tag GrossProfit at all). compute.py uses these
+    # only as fallback when its own EDGAR-derived computation returns None.
+    # Yahoo's grossMargins for service businesses uses a non-GAAP-friendly
+    # definition (V ≈ 97% — basically revenue minus client incentives);
+    # acceptable for the "valuation at a glance" UI, less so for rigorous
+    # cross-ticker quality comparison.
+    peg = info.get("trailingPegRatio") or info.get("pegRatio")
+    gross_margins = info.get("grossMargins")
+    if shares is None and mcap is None and peg is None and gross_margins is None:
         return None
     return {
         "sharesOutstanding": shares,
         "marketCap":         mcap,
+        "pegRatio":          peg,
+        "grossMargins":      gross_margins,
     }
 
 
@@ -130,11 +142,19 @@ def ingest(tickers: Iterable[str]) -> IngestResult:
             continue
         shares = data.get("sharesOutstanding")
         mcap = data.get("marketCap")
+        peg = data.get("pegRatio")
+        gross_margins = data.get("grossMargins")
+        # Store with the same field names compute.py will look for in its
+        # yf-fallback branch. `peg_yf` / `gross_margin_yf` are dedicated
+        # keys so we don't accidentally clobber an EDGAR-derived value
+        # in a downstream || jsonb merge.
         payload = {
             "source":                    "yfinance",
             "weightedAverageShsOut":     shares,
             "weightedAverageShsOutDil":  shares,  # yf doesn't split diluted
             "marketCap":                 mcap,
+            "peg_yf":                    peg,
+            "gross_margin_yf":           gross_margins,
         }
         rows.append({
             "ticker":      tk,
