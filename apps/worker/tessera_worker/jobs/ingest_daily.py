@@ -38,6 +38,7 @@ from tessera_worker.ingestors import (
     newsapi_news,
     sec_edgar,
     sec_edgar_facts,
+    yf_history,
     yf_shares,
 )
 from tessera_worker.logging import configure_logging, get_logger
@@ -146,6 +147,29 @@ def _step_yf_shares() -> dict[str, object]:
     }
 
 
+def _step_yf_history() -> dict[str, object]:
+    """Weekly: pull annual income-statement history from yfinance for
+    the equity universe. Idempotent — JSONB merge so daily-pass values
+    (FMP / EDGAR) keep priority on overlapping keys; yf fills only the
+    NULL slots downstream computations need (eps_cagr_3y,
+    gross_margin_trend).
+
+    Cadence guard: only runs on Friday (weekday() == 4). yfinance's
+    income_stmt endpoint is slow + aggressively throttled, and annual
+    statements only refresh quarterly — daily would be wasteful and risk
+    Yahoo blocking. Manual invocation always runs regardless of day."""
+    if date.today().weekday() != 4:
+        return {"rows": 0, "tickers": 0, "skipped_reason": "non_friday"}
+    tickers = [t.ticker for t in by_asset_class("equity")]
+    r = yf_history.ingest(tickers)
+    return {
+        "rows": r.rows_upserted,
+        "tickers": r.tickers_processed,
+        "no_data": len(r.tickers_no_data),
+        "ms": r.duration_ms,
+    }
+
+
 def _step_edgar_facts() -> dict[str, object]:
     """Pull SEC XBRL companyfacts (structured GAAP fundamentals).
 
@@ -182,6 +206,7 @@ STEPS: dict[str, StepFn] = {
     "fundamentals":  _step_fundamentals,    # FMP — limited free-tier coverage
     "edgar_facts":   _step_edgar_facts,     # SEC XBRL — fills FMP gaps via JSONB merge
     "yf_shares":     _step_yf_shares,       # yfinance — last-resort shares + mcap
+    "yf_history":    _step_yf_history,      # yfinance — weekly annual income history
     "news":          _step_news,
     "filings":       _step_filings,         # SEC 10-K/10-Q text → GCS
     "features":      _step_features,
