@@ -88,7 +88,16 @@ CONCEPTS_CASHFLOW: dict[str, list[str]] = {
     "operatingCashFlow":           ["NetCashProvidedByUsedInOperatingActivities"],
     "netCashProvidedByInvestingActivities": ["NetCashProvidedByUsedInInvestingActivities"],
     "netCashProvidedByFinancingActivities": ["NetCashProvidedByUsedInFinancingActivities"],
-    "capitalExpenditure":          ["PaymentsToAcquirePropertyPlantAndEquipment"],
+    # Capex: PaymentsToAcquirePropertyPlantAndEquipment is the dominant
+    # GAAP concept, but service / payment-network / asset-light filers
+    # (V, MA, similar) report under PaymentsToAcquireProductiveAssets
+    # instead. Without this fallback V's freeCashFlow stays null even
+    # though OCF is fully populated.
+    "capitalExpenditure": [
+        "PaymentsToAcquirePropertyPlantAndEquipment",
+        "PaymentsToAcquireProductiveAssets",
+        "PaymentsForCapitalImprovements",
+    ],
     "commonStockRepurchased":      ["PaymentsForRepurchaseOfCommonStock"],
     "commonDividendsPaid":         ["PaymentsOfDividendsCommonStock", "PaymentsOfDividends"],
     "depreciationAndAmortization": ["DepreciationDepletionAndAmortization", "DepreciationAndAmortization"],
@@ -125,10 +134,18 @@ def _fetch_companyfacts(client: httpx.Client, cik: int) -> dict | None:
 
 
 def _extract_rows(ticker: str, companyfacts: dict) -> list[dict]:
-    """Walk us-gaap facts, group by (period_end, filing_type), return upsert rows."""
+    """Walk us-gaap facts, group by (period_end, filing_type), return upsert rows.
+
+    Also pulls `dei.EntityCommonStockSharesOutstanding` as a fallback for
+    `weightedAverageShsOut`. Service / payment-network filers (V, MA,
+    similar) sometimes omit the us-gaap WeightedAverageNumberOfShares*
+    concepts entirely and report shares only in the dei namespace; without
+    this, mcap can't be computed downstream.
+    """
     us_gaap = companyfacts.get("facts", {}).get("us-gaap", {})
     if not us_gaap:
         return []
+    dei = companyfacts.get("facts", {}).get("dei", {})
 
     # key = (period_end_str, filing_type, form, fy, fp) → field dict
     payloads: dict[tuple, dict] = {}
@@ -166,6 +183,30 @@ def _extract_rows(ticker: str, companyfacts: dict) -> list[dict]:
                     payload[our_name] = obs["val"]
                 # First matching xbrl_name wins for this our_name
                 break
+
+    # dei.EntityCommonStockSharesOutstanding fallback — only fills the
+    # weighted-average share-count fields when us-gaap left them blank.
+    # Point-in-time share count is acceptable for mcap (close × shares);
+    # we don't have option dilution from dei so diluted == basic in that
+    # fallback case. PEG / EPS-driven math still prefers the us-gaap
+    # weighted-average when present.
+    dei_shares = dei.get("EntityCommonStockSharesOutstanding")
+    if dei_shares:
+        for obs in dei_shares.get("units", {}).get("shares", []):
+            form = obs.get("form")
+            if form not in ("10-K", "10-Q"):
+                continue
+            obs_end = obs.get("end")
+            if not obs_end:
+                continue
+            for key, payload in payloads.items():
+                pe, ft, f_form, _fy, _fp = key
+                if pe == obs_end and ft == "income" and f_form == form:
+                    if payload.get("weightedAverageShsOut") is None:
+                        payload["weightedAverageShsOut"] = obs["val"]
+                    if payload.get("weightedAverageShsOutDil") is None:
+                        payload["weightedAverageShsOutDil"] = obs["val"]
+                    break
 
     # Derived field: freeCashFlow = operatingCashFlow - abs(capex)
     # Only when both components present and we're in the cash_flow row for
