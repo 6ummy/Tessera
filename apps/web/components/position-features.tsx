@@ -94,6 +94,7 @@ export function PositionFeatures({
             value: fmtPctSigned(f.gross_margin_trend),
           },
           { label: "Op margin", value: fmtPct(f.operating_margin) },
+          { label: "P/E (TTM)", value: fmtNum(f.pe_trailing, 1) },
         ],
       },
       {

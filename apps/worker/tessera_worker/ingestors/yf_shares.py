@@ -87,13 +87,21 @@ def _fetch_one(ticker: str) -> dict | None:
     # cross-ticker quality comparison.
     peg = info.get("trailingPegRatio") or info.get("pegRatio")
     gross_margins = info.get("grossMargins")
-    if shares is None and mcap is None and peg is None and gross_margins is None:
+    # P/E: prefer trailing (12-month actual) over forward (12-month estimate)
+    # since trailing matches our backwards-looking fcf_yield / margins UI.
+    # Forward kept as a separate field for personas (e.g. Cathie) who may
+    # want it; UI strip uses trailing by default.
+    pe_trailing = info.get("trailingPE")
+    pe_forward = info.get("forwardPE")
+    if all(v is None for v in (shares, mcap, peg, gross_margins, pe_trailing, pe_forward)):
         return None
     return {
         "sharesOutstanding": shares,
         "marketCap":         mcap,
         "pegRatio":          peg,
         "grossMargins":      gross_margins,
+        "trailingPE":        pe_trailing,
+        "forwardPE":         pe_forward,
     }
 
 
@@ -155,6 +163,8 @@ def ingest(tickers: Iterable[str]) -> IngestResult:
             "marketCap":                 mcap,
             "peg_yf":                    peg,
             "gross_margin_yf":           gross_margins,
+            "pe_trailing_yf":            data.get("trailingPE"),
+            "pe_forward_yf":             data.get("forwardPE"),
         }
         rows.append({
             "ticker":      tk,

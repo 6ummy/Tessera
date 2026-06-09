@@ -57,6 +57,8 @@ export type TickerFeatures = {
     debt_to_equity: number | null;
     gross_margin: number | null;
     gross_margin_trend: number | null;
+    pe_trailing: number | null;
+    pe_forward: number | null;
   } | null;
 };
 

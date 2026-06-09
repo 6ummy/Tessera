@@ -385,7 +385,8 @@ async def get_ticker_features(
                        vol_30d, rsi_14, sma_20, sma_50, volume_z,
                        fcf_yield, peg, market_cap_usd, operating_margin,
                        eps_cagr_3y, debt_to_equity,
-                       gross_margin, gross_margin_trend
+                       gross_margin, gross_margin_trend,
+                       pe_trailing, pe_forward
                 FROM ticker_features
                 WHERE ticker = :t
                 ORDER BY ts DESC
@@ -427,6 +428,8 @@ async def get_ticker_features(
             "debt_to_equity":     _f(row["debt_to_equity"]),
             "gross_margin":       _f(row["gross_margin"]),
             "gross_margin_trend": _f(row["gross_margin_trend"]),
+            "pe_trailing":        _f(row["pe_trailing"]),
+            "pe_forward":         _f(row["pe_forward"]),
         },
     }
 
