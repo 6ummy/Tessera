@@ -484,20 +484,35 @@ async def get_ticker_prices(
         rng = "20y"
     lookback, bucket = range_map[rng]
 
-    # time_bucket is a Timescale function; we average close within each
-    # bucket so we get a smooth line even when daily closes are noisy.
+    # We bucket via plain `date_trunc` + simple arithmetic instead of
+    # Timescale's `time_bucket` to keep the query portable and avoid the
+    # `||` operator in a SQL string (clashes with psycopg parameter
+    # binding in some paths and was the source of an earlier 500). The
+    # bucket interval and lookback days are both server-trusted integers
+    # (range_map above), so inlining them is safe.
     if lookback is None:
         where_clause = "ticker = :t"
-        params = {"t": ticker_u, "bucket": f"{bucket} days"}
+        params = {"t": ticker_u}
     else:
-        where_clause = "ticker = :t AND ts >= NOW() - (:lookback || ' days')::interval"
-        params = {"t": ticker_u, "bucket": f"{bucket} days", "lookback": str(lookback)}
+        where_clause = (
+            f"ticker = :t AND ts >= NOW() - INTERVAL '{int(lookback)} days'"
+        )
+        params = {"t": ticker_u}
+
+    # Bucket every Nth day from the earliest available row. floor((ts -
+    # epoch) / bucket_days) * bucket_days yields a deterministic bucket
+    # key independent of the data window, so re-querying with a smaller
+    # range still aligns to the same bucket boundaries.
+    bucket_days = int(bucket)
 
     with session_scope() as session:
         rows = session.execute(
             _sql(f"""
-                SELECT time_bucket(:bucket::interval, ts) AS bucket,
-                       AVG(close)::float                  AS close
+                SELECT to_timestamp(
+                           floor(EXTRACT(EPOCH FROM ts) / ({bucket_days} * 86400))
+                           * ({bucket_days} * 86400)
+                       )::date                  AS bucket,
+                       AVG(close)::float        AS close
                 FROM ohlcv_1d
                 WHERE {where_clause}
                 GROUP BY bucket
@@ -507,7 +522,7 @@ async def get_ticker_prices(
         ).all()
 
     points = [
-        {"date": r.bucket.date().isoformat(), "close": float(r.close)}
+        {"date": r.bucket.isoformat(), "close": float(r.close)}
         for r in rows
         if r.close is not None
     ]
