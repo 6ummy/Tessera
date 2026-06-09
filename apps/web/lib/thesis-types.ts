@@ -60,6 +60,15 @@ export type TickerFeatures = {
   } | null;
 };
 
+export type PricePoint = { date: string; close: number };
+
+export type TickerPrices = {
+  ticker: string;
+  name: string;
+  range: "1y" | "5y" | "10y" | "20y" | "max";
+  points: PricePoint[];
+};
+
 export type Report = {
   id: string;
   personaId: string;

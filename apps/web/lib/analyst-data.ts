@@ -2,7 +2,7 @@
 // Both routes proxy to the Cloud Run worker; both Edge-cached for 60s
 // at the CDN so the persona-detail-sheet's 4-persona fan-out is fast.
 
-import type { Proposal, Report, TickerFeatures } from "./thesis-types";
+import type { Proposal, Report, TickerFeatures, TickerPrices } from "./thesis-types";
 
 const FETCH_TIMEOUT_MS = 20_000;
 
@@ -78,6 +78,30 @@ export async function fetchTickerFeatures(
     });
     if ("ok" in body && body.ok === false) return null;
     return body as TickerFeatures;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export async function fetchTickerPrices(
+  ticker: string,
+  opts: { range?: "1y" | "5y" | "10y" | "20y" | "max"; signal?: AbortSignal } = {},
+): Promise<TickerPrices | null> {
+  const range = opts.range ?? "20y";
+  const url = `/api/prices/${encodeURIComponent(ticker.toUpperCase())}?range=${range}`;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
+  const signal = opts.signal
+    ? mergeSignals(opts.signal, ctrl.signal)
+    : ctrl.signal;
+  try {
+    const resp = await fetch(url, { signal });
+    if (!resp.ok) return null;
+    const body = await safeJson<TickerPrices | { ok: false }>(resp, { ok: false });
+    if ("ok" in body && body.ok === false) return null;
+    return body as TickerPrices;
   } catch {
     return null;
   } finally {

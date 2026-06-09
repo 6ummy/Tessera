@@ -1,9 +1,10 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ChevronDown, FileText } from "lucide-react";
-import type { Report } from "@/lib/thesis-types";
+import type { Report, TickerFeatures } from "@/lib/thesis-types";
 import type { Persona } from "@/lib/mock/personas";
 import { ACCENT_CLASS } from "@/lib/mock/personas";
+import { fetchTickerFeatures } from "@/lib/analyst-data";
 import { Badge } from "./ui/badge";
 import { cn } from "@/lib/utils";
 
@@ -69,6 +70,7 @@ export function ReportList({ reports, persona }: { reports: Report[]; persona: P
 
             {open && (
               <div className="border-t border-ink-900/[0.06] px-5 pb-5 pt-4">
+                {r.tickers[0] && <ThesisMetricsTable ticker={r.tickers[0]} />}
                 <div className="prose prose-sm max-w-none">
                   {r.body.map((p, i) => (
                     <p key={i} className="text-[14px] leading-relaxed text-ink-700">
@@ -117,4 +119,82 @@ export function ReportList({ reports, persona }: { reports: Report[]; persona: P
       })}
     </div>
   );
+}
+
+/**
+ * Compact 4-cell key-metrics strip rendered at the top of an opened
+ * thesis. Fetches the latest ticker_features for the report's primary
+ * ticker once (per mount) and shows the four numbers most readers
+ * scan first: price vs 52w trend, valuation, quality, durability.
+ */
+function ThesisMetricsTable({ ticker }: { ticker: string }) {
+  const [data, setData] = useState<TickerFeatures | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const ctrl = new AbortController();
+    setLoading(true);
+    fetchTickerFeatures(ticker, { signal: ctrl.signal }).then((d) => {
+      if (ctrl.signal.aborted) return;
+      setData(d);
+      setLoading(false);
+    });
+    return () => ctrl.abort();
+  }, [ticker]);
+
+  if (loading) {
+    return (
+      <div className="mb-4 grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-ink-900/[0.06] bg-ink-900/[0.06] sm:grid-cols-4">
+        {[0, 1, 2, 3].map((i) => (
+          <div key={i} className="h-12 animate-pulse bg-ink-900/[0.02]" />
+        ))}
+      </div>
+    );
+  }
+  const f = data?.features;
+  if (!f) return null;
+
+  const cells: { label: string; value: string }[] = [
+    { label: "1y return", value: fmtPctSigned(f.ret_1y) },
+    { label: "FCF yield", value: fmtPct(f.fcf_yield) },
+    { label: "PEG", value: fmtNum(f.peg, 2) },
+    { label: "Gross margin", value: fmtPct(f.gross_margin) },
+  ];
+
+  return (
+    <div className="mb-4">
+      <div className="mb-2 flex items-baseline justify-between">
+        <div className="text-[10px] uppercase tracking-[0.16em] text-ink-500">
+          {ticker} · key metrics
+        </div>
+        <div className="num text-[10px] text-ink-400">
+          as of {data?.asof ?? "—"}
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-ink-900/[0.06] bg-ink-900/[0.06] sm:grid-cols-4">
+        {cells.map((c) => (
+          <div key={c.label} className="bg-cream-50 px-3 py-2">
+            <div className="text-[10px] uppercase tracking-[0.14em] text-ink-500">
+              {c.label}
+            </div>
+            <div className="num mt-0.5 text-sm font-medium text-ink-900">{c.value}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function fmtPct(v: number | null | undefined): string {
+  if (v === null || v === undefined) return "—";
+  return `${(v * 100).toFixed(2)}%`;
+}
+function fmtPctSigned(v: number | null | undefined): string {
+  if (v === null || v === undefined) return "—";
+  const sign = v >= 0 ? "+" : "";
+  return `${sign}${(v * 100).toFixed(1)}%`;
+}
+function fmtNum(v: number | null | undefined, digits = 2): string {
+  if (v === null || v === undefined) return "—";
+  return v.toFixed(digits);
 }

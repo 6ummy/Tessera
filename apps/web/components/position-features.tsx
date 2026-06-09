@@ -3,6 +3,14 @@ import { useEffect, useState } from "react";
 import { fetchTickerFeatures } from "@/lib/analyst-data";
 import type { TickerFeatures } from "@/lib/thesis-types";
 import { cn } from "@/lib/utils";
+import { PriceHistoryChart } from "./price-history-chart";
+
+const ACCENT_TEXT_TO_HEX: Record<string, string> = {
+  "text-coral-600": "#D97757",
+  "text-sage-600": "#6B8E6B",
+  "text-plum-600": "#8B6B8E",
+  "text-ink-900": "#1F1E1B",
+};
 
 /**
  * Expandable feature grid for a position card. Lazy-fetches the latest
@@ -106,6 +114,8 @@ export function PositionFeatures({
       },
     ];
 
+  const chartColor = ACCENT_TEXT_TO_HEX[accent] ?? "#1F1E1B";
+
   return (
     <div className="mt-3 space-y-3 rounded-lg border border-ink-900/[0.06] bg-cream-50 px-3 py-3">
       <div className="flex items-baseline justify-between">
@@ -116,6 +126,7 @@ export function PositionFeatures({
           as of {data.asof ?? "—"}
         </div>
       </div>
+      <PriceHistoryChart ticker={data.ticker} color={chartColor} />
       {groups.map((g) => (
         <div key={g.title}>
           <div className="mb-1.5 text-[9px] uppercase tracking-[0.14em] text-ink-500">

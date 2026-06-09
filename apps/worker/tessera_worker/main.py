@@ -431,6 +431,92 @@ async def get_ticker_features(
     }
 
 
+@app.get("/api/prices/{ticker}")
+async def get_ticker_prices(
+    ticker: str,
+    range: str = "20y",
+    authorization: str | None = Header(default=None),
+) -> dict:
+    """Historical close prices for one ticker, downsampled for chart display.
+
+    Used by the expandable position card on /proposals + the persona
+    detail sheet to render a long-horizon price line. We pull from
+    ohlcv_1d (TimescaleDB hypertable) and bucket so the wire payload is
+    small (~250 points for 20y) regardless of how much history exists.
+
+    Query params:
+        range: one of "1y" | "5y" | "10y" | "20y" | "max" (default "20y").
+               Drives the SQL window AND the bucket size.
+
+    Response shape:
+        {
+          "ticker": "V",
+          "name":   "Visa Inc.",
+          "range":  "20y",
+          "points": [{ "date": "2006-03-19", "close": 4.86 }, …],
+        }
+    """
+    _require_webhook_auth(authorization)
+    ticker_u = ticker.upper()
+    from tessera_worker.db import session_scope
+    from sqlalchemy import text as _sql
+    from tessera_worker.universe import META_BY_TICKER
+
+    meta = META_BY_TICKER.get(ticker_u)
+    if not meta:
+        raise HTTPException(404, f"ticker not in universe: {ticker_u}")
+
+    # Range → (lookback_days_or_None, bucket_days).
+    # Bucket sizes are tuned to keep payload ~200–300 points: enough to
+    # see structure, small enough to stream cheap.
+    range_map = {
+        "1y":  (365,    1),
+        "5y":  (5 * 365,  7),
+        "10y": (10 * 365, 14),
+        "20y": (20 * 365, 30),
+        "max": (None,     30),
+    }
+    rng = range.lower() if range else "20y"
+    if rng not in range_map:
+        rng = "20y"
+    lookback, bucket = range_map[rng]
+
+    # time_bucket is a Timescale function; we average close within each
+    # bucket so we get a smooth line even when daily closes are noisy.
+    if lookback is None:
+        where_clause = "ticker = :t"
+        params = {"t": ticker_u, "bucket": f"{bucket} days"}
+    else:
+        where_clause = "ticker = :t AND ts >= NOW() - (:lookback || ' days')::interval"
+        params = {"t": ticker_u, "bucket": f"{bucket} days", "lookback": str(lookback)}
+
+    with session_scope() as session:
+        rows = session.execute(
+            _sql(f"""
+                SELECT time_bucket(:bucket::interval, ts) AS bucket,
+                       AVG(close)::float                  AS close
+                FROM ohlcv_1d
+                WHERE {where_clause}
+                GROUP BY bucket
+                ORDER BY bucket
+            """),
+            params,
+        ).all()
+
+    points = [
+        {"date": r.bucket.date().isoformat(), "close": float(r.close)}
+        for r in rows
+        if r.close is not None
+    ]
+
+    return {
+        "ticker": ticker_u,
+        "name":   meta.name,
+        "range":  rng,
+        "points": points,
+    }
+
+
 def _reshape_report_row(
     row_id: str, persona_id: str, date_iso: str, parsed: dict,
 ) -> dict:
