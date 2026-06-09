@@ -1,0 +1,71 @@
+# Tessera CODEOWNERS
+#
+# GitHub auto-assigns reviewers when a PR touches these paths. Owners are
+# the people responsible for maintaining quality + answering "why is this
+# the way it is" questions later.
+#
+# Format: <path glob>   @gh-handle [@gh-handle ...]
+# Last match in this file wins (later entries override earlier ones).
+# See https://docs.github.com/en/repositories/managing-your-repositories-settings-and-features/customizing-your-repository/about-code-owners
+#
+# Track map (kept in sync with CONTRIBUTING.md §0):
+#   Frontend     — 한솔, 윤채       (@limserenahansol, @yunchai-build)
+#   LLM Pipeline — 한솔            (@limserenahansol)
+#   Quant        — 예슬, 준원       (@genius-chang, @jlee0810)
+#   Infra        — 준원            (@jlee0810)
+#   All / coordination — 정우       (@6ummy)
+#
+# 정우는 모든 PR에 옵저버로 들어가므로 fallback owner로 마지막에 등록한다
+# (catch-all). 트랙별 owner가 먼저 ping되고 정우는 보조.
+
+# ──────────────────────────────────────────────────────────────────────
+# Catch-all: 정우 + 트랙 unclear한 변경은 정우가 우선 검토 후 라우팅.
+# ──────────────────────────────────────────────────────────────────────
+*                                                @6ummy
+
+# ──────────────────────────────────────────────────────────────────────
+# Frontend — Next.js / Vercel
+# ──────────────────────────────────────────────────────────────────────
+/apps/web/                                       @limserenahansol @yunchai-build @6ummy
+/apps/web/vercel.json                            @6ummy @jlee0810
+/apps/web/app/api/cron/                          @6ummy @jlee0810
+
+# ──────────────────────────────────────────────────────────────────────
+# LLM Pipeline — Anthropic SDK, prompt assembly, citation/persona schemas
+# ──────────────────────────────────────────────────────────────────────
+/apps/worker/tessera_worker/agents/              @limserenahansol @6ummy
+/apps/worker/tessera_worker/jobs/persona_batch.py @limserenahansol @6ummy
+/apps/worker/tessera_worker/jobs/hallucination_canary.py @limserenahansol @6ummy
+/packages/shared/                                @limserenahansol @6ummy
+/personalities.md                                @limserenahansol @genius-chang @jlee0810 @yunchai-build @6ummy
+
+# ──────────────────────────────────────────────────────────────────────
+# Quant — feature engineering, ingestors, fundamentals fall-through
+# ──────────────────────────────────────────────────────────────────────
+/apps/worker/tessera_worker/features/            @genius-chang @jlee0810 @6ummy
+/apps/worker/tessera_worker/ingestors/           @genius-chang @jlee0810 @6ummy
+/apps/worker/tessera_worker/risk/                @genius-chang @jlee0810 @6ummy
+/apps/worker/tests/test_features.py              @genius-chang @jlee0810 @6ummy
+
+# ──────────────────────────────────────────────────────────────────────
+# Infra — Cloud Run, GCP secrets, deploy scripts, CI
+# ──────────────────────────────────────────────────────────────────────
+/apps/worker/Dockerfile                          @jlee0810 @6ummy
+/apps/worker/scripts/deploy_cloud_run.ps1        @jlee0810 @6ummy
+/cloudbuild.yaml                                 @jlee0810 @6ummy
+/.github/                                        @jlee0810 @6ummy
+
+# ──────────────────────────────────────────────────────────────────────
+# Schema & migrations — additive only; 정우 + Quant 양쪽이 확인
+# ──────────────────────────────────────────────────────────────────────
+/migrations/                                     @genius-chang @jlee0810 @6ummy
+
+# ──────────────────────────────────────────────────────────────────────
+# Docs — 누구나 작은 수정은 self-merge 가능, 큰 변경은 정우 review
+# ──────────────────────────────────────────────────────────────────────
+/README.md                                       @6ummy
+/architecture.md                                 @6ummy
+/Plan.md                                         @6ummy
+/CONTRIBUTING.md                                 @6ummy
+/CODEOWNERS                                      @6ummy
+/docs/                                           @6ummy

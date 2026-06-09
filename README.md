@@ -76,6 +76,7 @@ psql "$DATABASE_URL" -f migrations/001_init.sql
 psql "$DATABASE_URL" -f migrations/002_persona_memory_vector_1024.sql
 psql "$DATABASE_URL" -f migrations/003_backtest_reports.sql
 psql "$DATABASE_URL" -f migrations/004_quality_features.sql
+psql "$DATABASE_URL" -f migrations/005_pe_ratios.sql
 ```
 
 ### Production runtime (cloud)
@@ -103,7 +104,7 @@ See `architecture.md` §6 "Daily data flow" for the full diagram.
 | **Frontend MVP** | ✅ shipped | 4 routes, 4 personas with photos + bios + chat UI, all on Vercel |
 | **A — Data backbone** (wk 1) | ✅ shipped | Ingestors + features + Neon schema + Cloud Run worker + Sentry |
 | **B — Real LLM theses** (wks 2–3) | ✅ shipped | Weekly persona batch, live reports/proposals, SSE chat, pgvector recall |
-| **C — Paper execution** (wks 4–5) | 🚧 in progress | Risk gateway + paper engine + real P&L; quality features pre-shipped |
+| **C — Paper execution** (wks 4–5) | 🚧 in progress | Risk gateway + paper engine + real P&L; quality features pre-shipped; **data resilience layer** (3-tier fundamentals fall-through FMP → EDGAR XBRL → yfinance + per-field newest-non-null walk) shipped 2026-06-09 |
 | **D — User auth + follow** (wk 6) | ⏳ planned | Firebase Auth + 3 F&F users |
 | **E — Compliance** (wk 6, parallel) | ⏳ planned | Securities-lawyer consult |
 | **F — Live trading** (wk 7+, optional) | ⏳ planned | Alpaca OAuth, behind feature flag |

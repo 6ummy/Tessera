@@ -250,6 +250,7 @@ no broker, no LLM. It exists to validate UX before backend investment.
 | **NewsAPI** | API key | Free tier (100 req/day) | Ticker-tagged headlines + body excerpts | Daily, last 24h | `news` |
 | **SEC EDGAR** | `User-Agent` header (name + contact email) | Free, unmetered | 10-K (annual) + 10-Q (quarterly) full filings | Weekly (skip if accession already stored) | `filings` (meta + 8KB excerpt) + GCS (raw HTML) |
 | **SEC XBRL companyfacts** | same `User-Agent` | Free, unmetered | Structured GAAP fundamentals — revenue, op income, FCF, EPS, shares, balance sheet items, etc. SEC's pre-parsed XBRL JSON, no XML parsing needed. 39/42 tickers (vs FMP 20/42). | Daily (cheap, idempotent) | `fundamentals` (JSONB merge with FMP) |
+| **yfinance** (Yahoo, unofficial) | None | Free, scraped — no SLA | Last-resort fallback for `sharesOutstanding`, `marketCap`, `trailingPegRatio`, `grossMargins`, `trailingPE`, `forwardPE`. Used only when FMP + EDGAR leave the field blank (service / payment-network filers like V, MA whose XBRL doesn't expose these concepts). | Daily, as a synthetic `(ticker, today, income)` row in `fundamentals` (source='yfinance') | `fundamentals` (JSONB merge; compute reads as final fall-through) |
 
 **Why some have keys and some don't**
 
@@ -270,9 +271,60 @@ no broker, no LLM. It exists to validate UX before backend investment.
 |---|---|
 | Binance (instead of Coinbase) | US regulatory restriction — Binance.com blocks US residents |
 | CoinGecko / CMC | Aggregators — prices are weighted averages across venues, not real trade prices |
-| Yahoo Finance scrape | No stable API, ToS-grey area, anti-bot defenses |
+| Yahoo Finance scrape as primary | No stable API, ToS-grey area, anti-bot defenses. Re-introduced 2026-06-09 as a *fallback-only* path via `yfinance` for fields no other source provides (V's shares + grossMargins), bounded by the same sanity envelope as our own computations. Not trusted for primary feeds. |
 | Polygon.io | Better data but paid ($30+/mo) — Alpaca free covers Phase A/B needs |
 | IEX Cloud | Sunsetting in 2024 |
+
+### Data resilience layer — 3-tier fall-through + cross-validation
+
+A core lesson from Phase B was that **single-source fundamentals fail unpredictably across the universe**: FMP free tier blocks some tickers, FMP-served filings sometimes ship preliminary rows with most fields null, EDGAR's GAAP-concept tagging varies by filer (Visa reports capex under `PaymentsToAcquireProductiveAssets` not `PaymentsToAcquirePropertyPlantAndEquipment`), and service businesses like V / MA don't tag `GrossProfit` in XBRL at all. The "right" answer for one ticker is the wrong fallback for another.
+
+So instead of picking a primary source and accepting its gaps, the worker applies a **layered resilience pattern**:
+
+```
+                primary           gap-fill          last-resort
+  ┌────────┐   ┌─────────────┐   ┌──────────────┐
+  │  FMP   │ → │ SEC XBRL    │ → │ yfinance     │ →  fundamentals
+  │ (~5y)  │   │ (~9y, free) │   │ (synthetic   │     (jsonb merge,
+  │ jsonb  │   │ jsonb merge │   │  today row)  │      source tag)
+  └────────┘   └─────────────┘   └──────────────┘
+       │             │                  │
+       └──────────────┴──────────────────┘
+                     │
+                     ▼
+          ┌──────────────────────────┐
+          │  features/compute.py     │
+          │  per-field newest-       │
+          │  non-null walk +         │
+          │  cross-source validation │
+          └──────────────────────────┘
+                     │
+                     ▼
+              ticker_features
+              (UI / LLM / risk)
+```
+
+**Three layers, each idempotent:**
+
+1. **FMP** (`fmp_fundamentals.py`) — annual income / balance / cash-flow filings as raw JSON. 30-day cache per ticker so the quota isn't burnt daily on quarterly data.
+2. **SEC XBRL companyfacts** (`sec_edgar_facts.py`) — for every us-gaap concept we care about, walks alternative concept names in priority order (e.g. revenue tries `RevenueFromContractWithCustomerExcludingAssessedTax`, then `Revenues`, then `SalesRevenueNet`). For capex specifically the priority is `PaymentsToAcquirePropertyPlantAndEquipment` → `PaymentsToAcquireProductiveAssets` → `PaymentsForCapitalImprovements`. dei.EntityCommonStockSharesOutstanding is consulted as a shares-outstanding fallback. JSONB-merge upserts preserve FMP-only fields where they exist.
+3. **yfinance** (`yf_shares.py`) — Yahoo's own pre-computed ratios pulled from `yf.Ticker(t).info`: `sharesOutstanding`, `marketCap`, `trailingPegRatio` / `pegRatio`, `grossMargins`, `trailingPE`, `forwardPE`. Writes a single synthetic income row keyed `(ticker, today, income)` so it sits next to the EDGAR / FMP rows without colliding (different period_end). yfinance is **only consulted by compute** when the EDGAR-derived path returned None — never as primary truth. Same sanity envelope (PEG ≤ 100, margins in [-1, 1], P/E ≤ 500) applies; a Yahoo glitch can't ship absurd values into the LLM prompt.
+
+**At read time** (`features/compute.py::_load_fundamentals_latest`):
+
+- For each field group, walks the available rows **newest-first and fills per-field independently from the first non-null observation**. A `shares_basic` from FY2024 plus a `marketCap` from today's yfinance row is a coherent estimate, not a corruption.
+- For `marketCap` specifically there are up to **four candidates** (`close × diluted`, `close × basic`, payload mcap from cash-flow, payload mcap from income). `estimate_market_cap()` uses the reusable `cross_validated()` helper: if candidates agree within `max_spread=2.0×` we trust the most-current; if they disagree we **pick the largest and log the disagreement** with all candidates and the chosen value. Rationale: undercount errors (missing share class, wrong-unit shares) are more common than overcount, and larger mcap → lower fcf_yield is the more conservative direction for the LLM prompt.
+- The same `cross_validated()` helper is the foundation for broader cross-source validation as we add it: an EDGAR-computed gross_margin can be sanity-checked against a yfinance grossMargins, an FMP debt-to-equity against an EDGAR-derived one. Today only mcap uses the helper; the framework is in place.
+
+**Why not collapse this into a single ingestor?** Each layer is independently observable. If yf_shares fails for a week, FMP + EDGAR keep flowing. If EDGAR adds a new concept, we add one line to `CONCEPTS_INCOME` without touching anything else. The fall-through is deterministic and replayable — re-running `build(tickers)` against a fixed snapshot gives byte-identical output.
+
+**Debugging missing fields**: when a ticker shows blanks in the UI, the worker ships three single-purpose scripts that walk the same fall-through and report exactly where data drops out:
+
+- `scripts/inspect_ticker_features.py V` — single ticker end-to-end: latest `ticker_features` row (what the UI reads), `fundamentals` coverage per filing_type, field presence in the latest payloads, and a dry-run compute against the current DB.
+- `scripts/inspect_v_rows.py` — recent payload fields per filing_type for one ticker.
+- `scripts/dump_v_xbrl_concepts.py` and `scripts/dump_v_dei.py` — peek at every concept a filer actually reports under us-gaap / dei, marking which ones our mapping already covers.
+
+These were built on the V (Visa) debug session 2026-06-09 that drove the layered design; they generalize to any ticker.
 
 ### How to read the data we've stored
 
@@ -512,8 +564,13 @@ apps/
         newsapi_news.py             # ticker-tagged headlines + bodies
         sec_edgar.py                # 10-K + 10-Q filings → Neon + GCS
         sec_edgar_facts.py          # XBRL companyfacts → fundamentals (FMP gap)
+        yf_shares.py                # yfinance synthetic row — shares /
+                                    # mcap / peg / grossMargins / PE last-
+                                    # resort fall-through (Phase C)
       features/
-        compute.py                  # deterministic feature builder
+        compute.py                  # deterministic feature builder; per-
+                                    # field newest-non-null walk +
+                                    # cross_validated() helper
       agents/                       # (Phase B — empty)
       risk/                         # (Phase C — empty)
       jobs/
@@ -523,6 +580,13 @@ apps/
       check_connections.py          # smoke test all 6 services
       ingest_spy_canary.py          # acceptance test (0.49 bps vs Yahoo)
       run_universe_ingest_and_features.py  # end-to-end debug runner
+      deploy_cloud_run.ps1          # build + deploy worker (Cloud Build → Run)
+      inspect_ticker_features.py    # single-ticker fundamentals lineage
+                                    # diagnostic (where did a value drop out?)
+      inspect_v_rows.py             # recent payload fields per filing_type
+      dump_v_xbrl_concepts.py       # every us-gaap concept a filer reports,
+                                    # marking which our mapping covers
+      dump_v_dei.py                 # peek at dei namespace coverage
     tests/
       test_features.py              # 13 hypothesis property tests
 
@@ -535,6 +599,10 @@ packages/
 
 migrations/
   001_init.sql                      # v1 schema (Timescale + pgvector + 14 tables)
+  002_persona_memory_vector_1024.sql  # pgvector dim bump for Voyage 3
+  003_backtest_reports.sql          # backtest run history
+  004_quality_features.sql          # PEG, mcap, EPS CAGR, D/E, GM, GM trend
+  005_pe_ratios.sql                 # P/E trailing + forward (Phase C 06-09)
 
 docs/                               # phase retros (Phase B-onwards)
 build-deck.js                       # generates tessera-deck.pptx
