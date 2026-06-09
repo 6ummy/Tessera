@@ -327,8 +327,15 @@ PR 보내기 전에 본인 트랙 체크 항목을 다 통과해야 합니다.
 ### Quant
 - [ ] Property test 추가 (`hypothesis`)
 - [ ] Canary assert 추가 (외부 데이터와 10 bps 이내)
-- [ ] `pytest tests/` 13/13 + 신규 통과
+- [ ] `pytest tests/` (현재 173개) + 신규 통과
 - [ ] feature 추가 시 schema 마이그레이션 동반 (NULL 허용 column으로)
+- [ ] **새 fundamentals 필드는 3-tier resilience 순서로 추가** — 자세한 패턴은 `architecture.md §6 "Data resilience"` 참고:
+  1. **EDGAR XBRL 매핑부터** (`ingestors/sec_edgar_facts.py::CONCEPTS_*`). 가능한 GAAP concept name을 priority list로 등록. 무료 + canonical.
+  2. EDGAR가 universe의 의미있는 비중에서 null이면 **FMP 매핑 확장** (`ingestors/fmp_fundamentals.py` payload는 그대로 들어가니까 컬럼 매핑만 추가).
+  3. 그래도 비는 케이스가 있으면 **yfinance fallback** (`ingestors/yf_shares.py` payload 키 + `compute.py` fall-through 로직).
+- [ ] **`compute.py`에서 yfinance 호출 금지** — yfinance는 ingestor side에 격리. compute는 순수 SQL만 읽는다 (deterministic + replayable 유지).
+- [ ] **새 sanity bound 정의** — 새 비율 필드라면 compute 상수(`*_SANITY_BOUND`)로 등록하고 EDGAR / yf 양쪽 경로에서 똑같이 적용.
+- [ ] **빈칸 디버깅 시작점**: `scripts/inspect_ticker_features.py <TICKER>` — 4섹션(latest row / coverage / payload presence / dry-run compute) 보고 어느 단계에서 데이터가 떨어졌는지 즉시 보임.
 
 ### Infra
 - [ ] Dockerfile 변경 시 local build 성공

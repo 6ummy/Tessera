@@ -44,6 +44,16 @@ class IngestResult:
     duration_ms: int = 0
 
 
+def _to_yahoo_symbol(ticker: str) -> str:
+    """Map our universe ticker to Yahoo Finance's symbol convention.
+
+    Yahoo uses `-` as the class separator (BRK-B, BF-B) where SEC / Alpaca
+    / our universe use `.` (BRK.B). Without the swap yfinance returns
+    empty info for these dual-class names.
+    """
+    return ticker.replace(".", "-")
+
+
 def _fetch_one(ticker: str) -> dict | None:
     """Return {sharesOutstanding, marketCap} from yfinance, or None on failure.
 
@@ -58,18 +68,40 @@ def _fetch_one(ticker: str) -> dict | None:
         log.error("yf_shares.yfinance_not_installed",
                   hint="pip install yfinance")
         return None
+    yahoo_symbol = _to_yahoo_symbol(ticker)
     try:
-        info = yf.Ticker(ticker).info
+        info = yf.Ticker(yahoo_symbol).info
     except Exception as e:
-        log.warning("yf_shares.fetch_failed", ticker=ticker, err=str(e))
+        log.warning("yf_shares.fetch_failed", ticker=ticker,
+                    yahoo_symbol=yahoo_symbol, err=str(e))
         return None
     shares = info.get("sharesOutstanding")
     mcap = info.get("marketCap")
-    if shares is None and mcap is None:
+    # Yahoo-derived ratios for tickers whose XBRL doesn't expose the
+    # inputs we need: peg (V has no historical EPS in us-gaap) and gross
+    # margin (V doesn't tag GrossProfit at all). compute.py uses these
+    # only as fallback when its own EDGAR-derived computation returns None.
+    # Yahoo's grossMargins for service businesses uses a non-GAAP-friendly
+    # definition (V ≈ 97% — basically revenue minus client incentives);
+    # acceptable for the "valuation at a glance" UI, less so for rigorous
+    # cross-ticker quality comparison.
+    peg = info.get("trailingPegRatio") or info.get("pegRatio")
+    gross_margins = info.get("grossMargins")
+    # P/E: prefer trailing (12-month actual) over forward (12-month estimate)
+    # since trailing matches our backwards-looking fcf_yield / margins UI.
+    # Forward kept as a separate field for personas (e.g. Cathie) who may
+    # want it; UI strip uses trailing by default.
+    pe_trailing = info.get("trailingPE")
+    pe_forward = info.get("forwardPE")
+    if all(v is None for v in (shares, mcap, peg, gross_margins, pe_trailing, pe_forward)):
         return None
     return {
         "sharesOutstanding": shares,
         "marketCap":         mcap,
+        "pegRatio":          peg,
+        "grossMargins":      gross_margins,
+        "trailingPE":        pe_trailing,
+        "forwardPE":         pe_forward,
     }
 
 
@@ -118,11 +150,21 @@ def ingest(tickers: Iterable[str]) -> IngestResult:
             continue
         shares = data.get("sharesOutstanding")
         mcap = data.get("marketCap")
+        peg = data.get("pegRatio")
+        gross_margins = data.get("grossMargins")
+        # Store with the same field names compute.py will look for in its
+        # yf-fallback branch. `peg_yf` / `gross_margin_yf` are dedicated
+        # keys so we don't accidentally clobber an EDGAR-derived value
+        # in a downstream || jsonb merge.
         payload = {
             "source":                    "yfinance",
             "weightedAverageShsOut":     shares,
             "weightedAverageShsOutDil":  shares,  # yf doesn't split diluted
             "marketCap":                 mcap,
+            "peg_yf":                    peg,
+            "gross_margin_yf":           gross_margins,
+            "pe_trailing_yf":            data.get("trailingPE"),
+            "pe_forward_yf":             data.get("forwardPE"),
         }
         rows.append({
             "ticker":      tk,

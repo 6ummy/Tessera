@@ -873,7 +873,14 @@ def _load_fundamentals_latest(tickers: list[str]) -> dict[str, dict]:
                payload ->> 'fp'                       AS fp,
                payload ->> 'weightedAverageShsOut'    AS shares_basic,
                payload ->> 'weightedAverageShsOutDil' AS shares_diluted,
-               payload ->> 'marketCap'                AS market_cap_inc
+               payload ->> 'marketCap'                AS market_cap_inc,
+               -- Yahoo-derived fallbacks (only populated on synthetic
+               -- rows written by yf_shares ingestor). compute uses these
+               -- when EDGAR-derived versions are None — see build().
+               payload ->> 'peg_yf'                   AS peg_yf,
+               payload ->> 'gross_margin_yf'          AS gross_margin_yf,
+               payload ->> 'pe_trailing_yf'           AS pe_trailing_yf,
+               payload ->> 'pe_forward_yf'            AS pe_forward_yf
         FROM fundamentals
         WHERE ticker = ANY(:t) AND filing_type = 'income'
         ORDER BY ticker, period_end DESC
@@ -965,6 +972,10 @@ def _load_fundamentals_latest(tickers: list[str]) -> dict[str, dict]:
             "shares_basic":        None,
             "shares_diluted":      None,
             "payload_mcap_income": None,
+            "peg_yf":              None,
+            "gross_margin_yf":     None,
+            "pe_trailing_yf":      None,
+            "pe_forward_yf":       None,
         })
         if bucket_shares["shares_basic"] is None:
             bucket_shares["shares_basic"] = _to_float(r.shares_basic)
@@ -972,6 +983,14 @@ def _load_fundamentals_latest(tickers: list[str]) -> dict[str, dict]:
             bucket_shares["shares_diluted"] = _to_float(r.shares_diluted)
         if bucket_shares["payload_mcap_income"] is None:
             bucket_shares["payload_mcap_income"] = _to_float(r.market_cap_inc)
+        if bucket_shares["peg_yf"] is None:
+            bucket_shares["peg_yf"] = _to_float(r.peg_yf)
+        if bucket_shares["gross_margin_yf"] is None:
+            bucket_shares["gross_margin_yf"] = _to_float(r.gross_margin_yf)
+        if bucket_shares["pe_trailing_yf"] is None:
+            bucket_shares["pe_trailing_yf"] = _to_float(r.pe_trailing_yf)
+        if bucket_shares["pe_forward_yf"] is None:
+            bucket_shares["pe_forward_yf"] = _to_float(r.pe_forward_yf)
 
     # Same fall-through pattern for balance: pick the freshest non-null
     # value per field across all available balance filings.
@@ -1005,6 +1024,10 @@ def _load_fundamentals_latest(tickers: list[str]) -> dict[str, dict]:
             "shares_diluted":      shares.get("shares_diluted"),
             "payload_mcap_cash":   mcap_payload.get(ticker),
             "payload_mcap_income": shares.get("payload_mcap_income"),
+            "peg_yf":              shares.get("peg_yf"),
+            "gross_margin_yf":     shares.get("gross_margin_yf"),
+            "pe_trailing_yf":      shares.get("pe_trailing_yf"),
+            "pe_forward_yf":       shares.get("pe_forward_yf"),
         }
     return out
 
@@ -1051,12 +1074,14 @@ def _upsert_fundamental_features(per_ticker: dict[str, dict]) -> int:
         INSERT INTO ticker_features (
             ticker, ts,
             fcf_yield, peg, market_cap_usd, operating_margin, eps_cagr_3y,
-            debt_to_equity, gross_margin, gross_margin_trend
+            debt_to_equity, gross_margin, gross_margin_trend,
+            pe_trailing, pe_forward
         )
         VALUES (
             :ticker, :ts,
             :fcf_yield, :peg, :market_cap_usd, :operating_margin, :eps_cagr_3y,
-            :debt_to_equity, :gross_margin, :gross_margin_trend
+            :debt_to_equity, :gross_margin, :gross_margin_trend,
+            :pe_trailing, :pe_forward
         )
         ON CONFLICT (ticker, ts) DO UPDATE SET
             fcf_yield          = COALESCE(EXCLUDED.fcf_yield, ticker_features.fcf_yield),
@@ -1070,7 +1095,9 @@ def _upsert_fundamental_features(per_ticker: dict[str, dict]) -> int:
             gross_margin       = COALESCE(EXCLUDED.gross_margin, ticker_features.gross_margin),
             gross_margin_trend = COALESCE(
                 EXCLUDED.gross_margin_trend, ticker_features.gross_margin_trend
-            )
+            ),
+            pe_trailing        = COALESCE(EXCLUDED.pe_trailing, ticker_features.pe_trailing),
+            pe_forward         = COALESCE(EXCLUDED.pe_forward, ticker_features.pe_forward)
     """)
     written = 0
     with session_scope() as session:
@@ -1089,6 +1116,8 @@ def _upsert_fundamental_features(per_ticker: dict[str, dict]) -> int:
                 "debt_to_equity":     _f(fields.get("debt_to_equity")),
                 "gross_margin":       _f(fields.get("gross_margin")),
                 "gross_margin_trend": _f(fields.get("gross_margin_trend")),
+                "pe_trailing":        _f(fields.get("pe_trailing")),
+                "pe_forward":         _f(fields.get("pe_forward")),
             })
             written += 1
     return written
@@ -1186,6 +1215,38 @@ def build(
             operating_margin = compute_gross_margin(
                 latest_revenue, latest_operating_income
             )
+            # yfinance-derived fallbacks: only used when our EDGAR-driven
+            # computation came up None. Service / payment-network filers
+            # (V, MA) genuinely don't tag GrossProfit in XBRL, and have
+            # no historical EPS series we can hit for trailing PEG, so
+            # Yahoo's pre-computed ratios are the only path to a number.
+            # Sanity-bound to the same envelope as our own outputs so a
+            # yf glitch can't ship a 500% margin into the LLM prompt.
+            if peg is None:
+                yf_peg = f.get("peg_yf")
+                if yf_peg is not None and 0 < yf_peg < PEG_SANITY_BOUND:
+                    peg = yf_peg
+            if gross_margin is None:
+                yf_gm = f.get("gross_margin_yf")
+                if yf_gm is not None and MARGIN_SANITY_LOW <= yf_gm <= MARGIN_SANITY_HIGH:
+                    gross_margin = yf_gm
+            # P/E: try close / latest_eps first (EDGAR-driven path), then
+            # yfinance trailingPE as fallback. Sanity-bound at 500 to drop
+            # the occasional restatement/transition quarter outlier
+            # (Yahoo sometimes shows 4000+ for newly-listed names).
+            pe_trailing = None
+            if close is not None and latest_eps is not None and latest_eps > 0:
+                candidate = close / latest_eps
+                if 0 < candidate < 500:
+                    pe_trailing = candidate
+            if pe_trailing is None:
+                yf_pe = f.get("pe_trailing_yf")
+                if yf_pe is not None and 0 < yf_pe < 500:
+                    pe_trailing = yf_pe
+            pe_forward = None
+            yf_pe_fwd = f.get("pe_forward_yf")
+            if yf_pe_fwd is not None and 0 < yf_pe_fwd < 500:
+                pe_forward = yf_pe_fwd
             gross_margin_trend = compute_gross_margin_trend(income_rows)
             balance = f.get("balance", {})
             debt_to_equity = compute_debt_to_equity(
@@ -1204,6 +1265,8 @@ def build(
                 "gross_margin": gross_margin,
                 "gross_margin_trend": gross_margin_trend,
                 "operating_margin": operating_margin,
+                "pe_trailing": pe_trailing,
+                "pe_forward": pe_forward,
             }
             if not any(v is not None for k, v in fields.items() if k != "ts"):
                 continue
