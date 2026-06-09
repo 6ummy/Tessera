@@ -44,6 +44,16 @@ class IngestResult:
     duration_ms: int = 0
 
 
+def _to_yahoo_symbol(ticker: str) -> str:
+    """Map our universe ticker to Yahoo Finance's symbol convention.
+
+    Yahoo uses `-` as the class separator (BRK-B, BF-B) where SEC / Alpaca
+    / our universe use `.` (BRK.B). Without the swap yfinance returns
+    empty info for these dual-class names.
+    """
+    return ticker.replace(".", "-")
+
+
 def _fetch_one(ticker: str) -> dict | None:
     """Return {sharesOutstanding, marketCap} from yfinance, or None on failure.
 
@@ -58,10 +68,12 @@ def _fetch_one(ticker: str) -> dict | None:
         log.error("yf_shares.yfinance_not_installed",
                   hint="pip install yfinance")
         return None
+    yahoo_symbol = _to_yahoo_symbol(ticker)
     try:
-        info = yf.Ticker(ticker).info
+        info = yf.Ticker(yahoo_symbol).info
     except Exception as e:
-        log.warning("yf_shares.fetch_failed", ticker=ticker, err=str(e))
+        log.warning("yf_shares.fetch_failed", ticker=ticker,
+                    yahoo_symbol=yahoo_symbol, err=str(e))
         return None
     shares = info.get("sharesOutstanding")
     mcap = info.get("marketCap")
