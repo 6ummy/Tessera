@@ -947,9 +947,15 @@ def _load_fundamentals_latest(tickers: list[str]) -> dict[str, dict]:
 
     income_by_ticker: dict[str, list[dict]] = {}
     shares_by_ticker: dict[str, dict] = {}
+    # Income cap raised from 8 → 24 so we always carry at least 4 annual
+    # rows for filers that mix quarterly + annual in the same table.
+    # V is the canonical case: 8-row window holds 6 quarters + 2 FY rows,
+    # so `_annual_income_rows` returns only 2 and `compute_eps_cagr_3y`
+    # bails on `len(annual) < 4`. With 24 we cover 4 fiscal years of
+    # quarterly+annual reliably.
     for r in inc_rows:
         bucket = income_by_ticker.setdefault(r.ticker, [])
-        if len(bucket) < 8:
+        if len(bucket) < 24:
             bucket.append({
                 "period_end":      r.period_end,
                 "epsDiluted":      _to_float(r.eps_diluted),
