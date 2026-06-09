@@ -58,6 +58,7 @@ def main(ticker: str) -> int:
                    fcf_yield, peg, market_cap_usd,
                    eps_cagr_3y, debt_to_equity,
                    gross_margin, gross_margin_trend, operating_margin,
+                   pe_trailing, pe_forward,
                    ret_30d, ret_1y, vol_30d, rsi_14
             FROM ticker_features
             WHERE ticker = :t
