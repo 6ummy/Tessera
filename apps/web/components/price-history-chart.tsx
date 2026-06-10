@@ -20,7 +20,7 @@ const RANGES: Range[] = ["1y", "5y", "10y", "20y"];
 export function PriceHistoryChart({
   ticker,
   color,
-  defaultRange = "20y",
+  defaultRange = "1y",
 }: {
   ticker: string;
   color: string;
@@ -57,26 +57,10 @@ export function PriceHistoryChart({
 
   return (
     <div className="mt-3 rounded-lg border border-ink-900/[0.06] bg-cream-50 px-3 py-3">
-      <div className="mb-2 flex items-center justify-between gap-3">
-        <div className="flex items-baseline gap-3">
-          <div className="text-[10px] uppercase tracking-[0.16em] text-ink-500">
-            Price history
-          </div>
-          {totalReturn !== null && firstClose !== null && lastClose !== null && (
-            <div className="num text-[11px] text-ink-600">
-              ${firstClose.toFixed(2)} → ${lastClose.toFixed(2)}{" "}
-              <span
-                className={cn(
-                  "font-medium",
-                  totalReturn >= 0 ? "text-sage-600" : "text-coral-600",
-                )}
-              >
-                ({totalReturn >= 0 ? "+" : ""}
-                {(totalReturn * 100).toFixed(0)}%)
-              </span>
-            </div>
-          )}
-        </div>
+      {/* Range tabs sit on top of the return summary so the narrow card
+          width doesn't push them off-screen. Default range is 1y — the
+          most-common reading frame; users opt in to deeper history. */}
+      <div className="mb-2 space-y-1.5">
         <div className="inline-flex items-center gap-0.5 rounded-full bg-ink-900/[0.05] p-0.5">
           {RANGES.map((r) => (
             <button
@@ -93,6 +77,20 @@ export function PriceHistoryChart({
             </button>
           ))}
         </div>
+        {totalReturn !== null && firstClose !== null && lastClose !== null && (
+          <div className="num text-[11px] text-ink-600">
+            ${firstClose.toFixed(2)} → ${lastClose.toFixed(2)}{" "}
+            <span
+              className={cn(
+                "font-medium",
+                totalReturn >= 0 ? "text-sage-600" : "text-coral-600",
+              )}
+            >
+              ({totalReturn >= 0 ? "+" : ""}
+              {(totalReturn * 100).toFixed(0)}%)
+            </span>
+          </div>
+        )}
       </div>
 
       {loading ? (

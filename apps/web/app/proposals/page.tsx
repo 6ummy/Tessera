@@ -77,8 +77,10 @@ export default function ProposalsPage() {
   }, []);
 
   // Cross-persona index: ticker → every report from any persona that
-  // tags this ticker. Sorted newest-first so the most recent take is
-  // surfaced at the top of the expanded card.
+  // tags this ticker. Dedupes by (persona, ticker) — when the same batch
+  // gets re-triggered (manual + auto) the worker writes a fresh
+  // analyst_reports row each time; without the dedupe the UI shows the
+  // same thesis stacked. Keeps only the newest entry per persona.
   const thesisByTicker = useMemo<Record<string, RelatedThesisEntry[]>>(() => {
     const out: Record<string, RelatedThesisEntry[]> = {};
     for (const persona of PERSONAS) {
@@ -91,7 +93,14 @@ export default function ProposalsPage() {
       }
     }
     for (const k of Object.keys(out)) {
+      // Sort newest-first, then keep one entry per persona (the newest).
       out[k].sort((a, b) => (a.report.date < b.report.date ? 1 : -1));
+      const seen = new Set<string>();
+      out[k] = out[k].filter(({ persona }) => {
+        if (seen.has(persona.id)) return false;
+        seen.add(persona.id);
+        return true;
+      });
     }
     return out;
   }, [reportsByPersona]);
