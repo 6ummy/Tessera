@@ -20,6 +20,7 @@
  */
 
 import { NextResponse } from "next/server";
+import { buildWorkerAuthHeader, workerBaseUrl } from "@/lib/gcp-auth";
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
@@ -38,8 +39,8 @@ export async function POST(
     );
   }
 
-  const workerUrl = process.env.WORKER_WEBHOOK_URL;
-  if (!workerUrl) {
+  const base = workerBaseUrl();
+  if (!base) {
     return NextResponse.json(
       {
         ok: false,
@@ -60,9 +61,8 @@ export async function POST(
 
   // Forward to the worker's /api/chat/<persona> endpoint. The worker
   // returns text/event-stream; we pipe it through unchanged.
-  const chatUrl = workerUrl.replace(/\/jobs\/[^/]+\/?$/, "")
-    .replace(/\/$/, "") + `/api/chat/${personaId}`;
-  const workerSecret = process.env.WORKER_WEBHOOK_SECRET;
+  const chatUrl = `${base}/api/chat/${personaId}`;
+  const authHeader = await buildWorkerAuthHeader(base);
 
   let upstream: Response;
   try {
@@ -70,7 +70,7 @@ export async function POST(
       method: "POST",
       headers: {
         "content-type": "application/json",
-        ...(workerSecret ? { authorization: `Bearer ${workerSecret}` } : {}),
+        ...authHeader,
       },
       body: JSON.stringify({
         message: body.message,

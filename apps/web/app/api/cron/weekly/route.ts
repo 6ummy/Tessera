@@ -18,6 +18,7 @@
  */
 
 import { NextResponse } from "next/server";
+import { buildWorkerAuthHeader, workerBaseUrl } from "@/lib/gcp-auth";
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
@@ -35,10 +36,10 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
 
-  const workerUrl = process.env.WORKER_WEBHOOK_URL;
+  const base = workerBaseUrl();
   const triggeredAt = new Date().toISOString();
 
-  if (!workerUrl) {
+  if (!base) {
     return NextResponse.json({
       ok: true,
       triggeredAt,
@@ -49,16 +50,15 @@ export async function GET(req: Request) {
   }
 
   // The weekly batch lives at /jobs/persona-batch (not /jobs/ingest-daily).
-  const personaBatchUrl = workerUrl.replace(/\/jobs\/[^/]+\/?$/, "") +
-    "/jobs/persona-batch";
-  const workerAuth = process.env.WORKER_WEBHOOK_SECRET;
+  const personaBatchUrl = `${base}/jobs/persona-batch`;
+  const authHeader = await buildWorkerAuthHeader(base);
 
   try {
     const r = await fetch(personaBatchUrl, {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        ...(workerAuth ? { authorization: `Bearer ${workerAuth}` } : {}),
+        ...authHeader,
       },
       body: JSON.stringify({ triggeredAt, source: "vercel-cron-weekly" }),
       signal: AbortSignal.timeout(8_000),

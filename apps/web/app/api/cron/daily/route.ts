@@ -19,6 +19,7 @@
  */
 
 import { NextResponse } from "next/server";
+import { buildWorkerAuthHeader, workerBaseUrl } from "@/lib/gcp-auth";
 
 export const runtime = "edge"; // tiny payload, no Node APIs needed
 export const dynamic = "force-dynamic";
@@ -37,10 +38,10 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
 
-  const workerUrl = process.env.WORKER_WEBHOOK_URL;
+  const base = workerBaseUrl();
   const triggeredAt = new Date().toISOString();
 
-  if (!workerUrl) {
+  if (!base) {
     // Phase A: worker not deployed yet. Acknowledge the cron without doing work.
     return NextResponse.json({
       ok: true,
@@ -50,15 +51,17 @@ export async function GET(req: Request) {
     });
   }
 
-  // Fire-and-forget POST to the worker. We don't await long: the worker
-  // returns 202 immediately and continues in the background.
-  const workerAuth = process.env.WORKER_WEBHOOK_SECRET;
+  // The original WORKER_WEBHOOK_URL may have been set with a trailing
+  // /jobs/ingest-daily for historical reasons; workerBaseUrl() strips
+  // that, so re-append explicitly here.
+  const target = `${base}/jobs/ingest-daily`;
+  const authHeader = await buildWorkerAuthHeader(base);
   try {
-    const r = await fetch(workerUrl, {
+    const r = await fetch(target, {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        ...(workerAuth ? { authorization: `Bearer ${workerAuth}` } : {}),
+        ...authHeader,
       },
       body: JSON.stringify({ triggeredAt, source: "vercel-cron" }),
       // Vercel edge has a per-fetch timeout; keep this short.
