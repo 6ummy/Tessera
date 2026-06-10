@@ -626,9 +626,14 @@ def _reshape_report_row(
             elif conv >= 0.65: conv_label = "Buy"
             elif conv >= 0.50: conv_label = "Hold"
             else:              conv_label = "Watch"
-        title = f"{persona_id.title()} · {ticker} · {side}"
-        if conv_label:
-            title += f" ({conv_label})"
+        # Drop the raw `side` token when we have a conviction label and
+        # the side is buy-ish — "buy (Strong buy)" reads redundant since
+        # the label already carries the direction. For non-buy sides
+        # (trim / sell) the side is the more informative thing to show.
+        if conv_label and side in ("buy", "hold", "add"):
+            title = f"{persona_id.title()} · {ticker} · {conv_label}"
+        else:
+            title = f"{persona_id.title()} · {ticker} · {side}"
         thesis_md = first_pos.get("thesis_md") or ""
     else:
         title = f"{persona_id.title()} · {date_iso}"
