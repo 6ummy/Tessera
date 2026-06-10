@@ -83,7 +83,7 @@ Return ONLY a JSON object with this shape:
       "target_weight": <fraction 0..0.20>,
       "horizon_days": <int>,
       "conviction": <0..1, from the research note>,
-      "thesis_md": "<one-paragraph SIZING reasoning: why THIS weight vs other candidates>",
+      "thesis_md": "<1-2 sentences of SIZING reasoning only — why THIS weight vs the other candidates. Do NOT repeat the full research thesis; that's already on file. Keep total length under 500 characters.>",
       "what_would_make_me_wrong": ["<short bullet>", ...]
     }}
   ],
@@ -138,9 +138,15 @@ def call_anthropic_construction(
     user_content = build_construction_prompt(persona, research_payload, as_of)
 
     t0 = time.perf_counter()
+    # max_tokens=16000: the construction output is structured JSON over
+    # the full sized book (10-20 proposals for stock pickers), each with
+    # a sizing-reasoning blurb. Cathie's 14-ticker batch on 2026-06-10
+    # hit max_tokens=4096 mid-string, returning unparseable JSON. Sonnet
+    # 4.6 supports up to 64k output tokens; 16k leaves headroom without
+    # paying for tokens we don't use.
     resp = client.messages.create(
         model=settings.llm_model_thesis,
-        max_tokens=4096,
+        max_tokens=16000,
         system=[{
             "type": "text",
             "text": system_prompt,
