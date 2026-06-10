@@ -34,6 +34,7 @@ from tessera_worker.ingestors import (
     alpaca_eod,
     coinbase_eod,
     fmp_fundamentals,
+    fmp_key_metrics,
     fred_macro,
     newsapi_news,
     sec_edgar,
@@ -129,6 +130,24 @@ def _step_filings() -> dict[str, object]:
         "filings": r.filings_upserted,
         "bytes_uploaded": r.bytes_uploaded,
         "missing_cik": len(r.tickers_missing_cik),
+        "ms": r.duration_ms,
+    }
+
+
+def _step_fmp_key_metrics() -> dict[str, object]:
+    """Pull TTM key metrics (current marketCap + freeCashFlowYieldTTM +
+    PE/ROE/etc) from FMP. Adds a 5th candidate to estimate_market_cap()
+    and gives compute.py a cross-check for its own fcf_yield computation.
+
+    Cheap call (1 request per ticker, ~50 requests for the equity
+    universe). Daily refresh is appropriate — marketCap shifts with
+    close, and FMP recomputes the TTM ratios daily too."""
+    tickers = [t.ticker for t in by_asset_class("equity")]
+    r = fmp_key_metrics.ingest(tickers)
+    return {
+        "rows": r.rows_upserted,
+        "tickers": r.tickers_processed,
+        "no_data": len(r.tickers_no_data),
         "ms": r.duration_ms,
     }
 
@@ -251,6 +270,7 @@ STEPS: dict[str, StepFn] = {
     "macro":         _step_macro,
     "fundamentals":  _step_fundamentals,    # FMP — limited free-tier coverage
     "edgar_facts":   _step_edgar_facts,     # SEC XBRL — fills FMP gaps via JSONB merge
+    "fmp_key_metrics": _step_fmp_key_metrics, # FMP TTM mcap/ratios — daily 5th mcap candidate
     "yf_shares":     _step_yf_shares,       # yfinance — last-resort shares + mcap
     "yf_history":    _step_yf_history,      # yfinance — weekly annual income history
     "news":          _step_news,
