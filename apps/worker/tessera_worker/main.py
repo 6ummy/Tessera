@@ -364,6 +364,50 @@ async def get_persona_proposal(
         key=lambda p: -p["weight"],  # heaviest first
     )
 
+    # ─────────────────────────────────────────────────────────────────
+    # Conservation-of-NAV safeguard.
+    #
+    # Each per-ticker LLM call sizes its position independently and
+    # reports its own view of `cash_target`. There is no cross-cell
+    # coordination, so for stock-picker personas the book routinely
+    # arrives incoherent: Warren's last run sized 8% BRK.B, watchlisted
+    # the other 9 at 0%, and averaged cash_target = 12% — total 20%,
+    # with 80% silently lost. The UI then shows a book that doesn't add
+    # up.
+    #
+    # We treat the gap as cash. This is faithful for value-style picks
+    # (Warren explicitly: "if I don't see a bargain, I hold cash") and
+    # for any persona that genuinely couldn't fill its book this week.
+    # Ray's RegimeReport is single-cell — its allocations are already
+    # coordinated to sum to 100%, so the safeguard is a no-op there.
+    #
+    # Over-allocation (sum_positions > 1.0) is rare but possible if a
+    # persona's risk gateway hasn't shipped yet to enforce
+    # single-name / sector caps. Scale proportionally and zero cash.
+    # Logged loudly so an operator can audit.
+    # ─────────────────────────────────────────────────────────────────
+    sum_positions = sum(p["weight"] for p in positions)
+    total = sum_positions + cash_weight
+    if abs(total - 1.0) > 0.01:
+        if sum_positions > 1.0:
+            log.warning("proposals.over_allocation",
+                        persona=persona_id,
+                        sum_positions=round(sum_positions, 4),
+                        cash_reported=round(cash_weight, 4))
+            scale = 1.0 / sum_positions
+            for p in positions:
+                p["weight"] *= scale
+            cash_weight = 0.0
+        else:
+            inferred_cash = max(0.0, 1.0 - sum_positions)
+            log.info("proposals.cash_inferred",
+                     persona=persona_id,
+                     sum_positions=round(sum_positions, 4),
+                     cash_reported=round(cash_weight, 4),
+                     cash_inferred=round(inferred_cash, 4),
+                     gap=round(1.0 - total, 4))
+            cash_weight = inferred_cash
+
     return {
         "personaId": persona_id,
         "asOf": latest_as_of,
