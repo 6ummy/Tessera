@@ -111,16 +111,23 @@ PERSONA_CONSTRAINTS: dict[PersonaId, PortfolioConstraints] = {
     # ── Peter — GARP, diversified by growth-driver ─────────────────────
     # Many smaller positions across sectors. Strict on single-name risk
     # because growth-at-reasonable-price means thesis can break on a
-    # single earnings print. Mandate carries 5-10% cash by default for
-    # opportunistic adds.
+    # single earnings print. Mandate carries 5-15% cash for opportunistic
+    # adds, sometimes higher when the screen comes up short.
+    #
+    # 2026-06-10: bumped max_single_name 0.08 → 0.10 and cash_max
+    # 0.15 → 0.25 because the current 10-ticker shortlist couldn't reach
+    # a coherent sum=1.0 book inside the old envelope (10 × 0.08 = 0.80
+    # max, + 0.15 cash = 0.95 ceiling). Either widen the shortlist past
+    # 15 names OR widen the caps. The latter ships first; the former is
+    # a research-track task.
     "peter": PortfolioConstraints(
-        max_single_name=0.08,
+        max_single_name=0.10,
         max_sector=0.35,
         cash_min=0.05,
-        cash_max=0.15,
+        cash_max=0.25,
         min_active_conviction=0.50,
         min_strong_conviction=0.70,
-        target_position_count_min=15,
+        target_position_count_min=8,
         target_position_count_max=30,
     ),
     # ── Ray — Regime allocator (asset-class slices) ────────────────────

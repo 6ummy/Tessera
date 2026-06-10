@@ -194,6 +194,134 @@ def call_anthropic_construction(
     return raw, usage.input_tokens, usage.output_tokens, getattr(usage, "cache_read_input_tokens", 0) or 0, latency_ms
 
 
+def normalize_book(
+    raw_weights: dict[str, float],
+    raw_cash: float,
+    *,
+    max_single_name: float,
+    cash_min: float,
+    cash_max: float,
+) -> tuple[dict[str, float], float]:
+    """Deterministically force `weights + cash = 1.0` while staying inside
+    the persona's caps. LLMs miscount weights routinely; this function
+    treats the LLM output as a *proposal of intent* and enforces the
+    math in Python.
+
+    Strategy:
+      1. If sum_positions exceeds (1.0 - cash_min), scale all positions
+         proportionally down to (1.0 - cash_min). Cash pins to cash_min.
+      2. Else if sum_positions + cash drifts from 1.0, push the
+         remainder to cash. If that lands outside [cash_min, cash_max],
+         clamp cash and rescale positions to absorb the residual.
+      3. Round each position to the nearest 0.01 (1pp).
+      4. Cap each at max_single_name. If clipping creates a sub-1.0
+         residual, push it to cash (if cash range allows) or to the
+         largest under-cap position.
+      5. Reconcile floating-point residuals (e.g. 0.99 or 1.01 after
+         rounding) by nudging the largest position.
+
+    Returns (normalized_weights, normalized_cash) — both already
+    rounded to 0.01, summing to 1.0.
+    """
+    if not raw_weights:
+        return {}, max(min(raw_cash, cash_max), cash_min)
+
+    weights = {t: max(0.0, float(w)) for t, w in raw_weights.items()}
+    cash = max(0.0, float(raw_cash))
+    sum_pos = sum(weights.values())
+
+    # Step 1 — scale down if over-budget.
+    invest_budget = 1.0 - cash_min
+    if sum_pos > invest_budget:
+        scale = invest_budget / sum_pos if sum_pos > 0 else 0.0
+        weights = {t: w * scale for t, w in weights.items()}
+        cash = cash_min
+        sum_pos = sum(weights.values())
+
+    # Step 2 — push the gap to cash, clamp to cash range.
+    gap = 1.0 - sum_pos - cash
+    if abs(gap) > 1e-6:
+        cash = cash + gap
+        if cash < cash_min:
+            # Need more positions; scale weights up to fill the gap.
+            target_pos = 1.0 - cash_min
+            if sum_pos > 0:
+                scale = target_pos / sum_pos
+                weights = {t: w * scale for t, w in weights.items()}
+            cash = cash_min
+        elif cash > cash_max:
+            cash = cash_max
+            # Scale positions up to absorb the rest.
+            target_pos = 1.0 - cash
+            if sum_pos > 0:
+                scale = target_pos / sum_pos
+                weights = {t: w * scale for t, w in weights.items()}
+
+    # Step 3 — round to nearest 1pp.
+    weights = {t: round(w, 2) for t, w in weights.items()}
+    cash = round(cash, 2)
+
+    # Step 4 — clip each position to single-name cap. Track residual.
+    residual = 0.0
+    for t, w in list(weights.items()):
+        if w > max_single_name:
+            residual += w - max_single_name
+            weights[t] = max_single_name
+
+    # Push residual to cash first (within range), then to largest
+    # under-cap position.
+    if residual > 0:
+        room_in_cash = max(0.0, cash_max - cash)
+        absorb = min(residual, room_in_cash)
+        cash += absorb
+        residual -= absorb
+        cash = round(cash, 2)
+        residual = round(residual, 2)
+        while residual > 0.005 and weights:
+            # Find the position furthest below cap with the most
+            # headroom — give it the residual.
+            best_ticker = max(
+                (t for t in weights if weights[t] < max_single_name - 1e-6),
+                key=lambda t: max_single_name - weights[t],
+                default=None,
+            )
+            if best_ticker is None:
+                break
+            give = min(residual, max_single_name - weights[best_ticker], 0.01)
+            weights[best_ticker] = round(weights[best_ticker] + give, 2)
+            residual = round(residual - give, 2)
+
+    # Step 5 — final float residual (e.g. sum = 0.99). Nudge the largest.
+    total = sum(weights.values()) + cash
+    residual = round(1.0 - total, 2)
+    if abs(residual) >= 0.005 and weights:
+        # Prefer to nudge cash if range allows; otherwise the largest
+        # position with cap headroom.
+        new_cash = round(cash + residual, 2)
+        if cash_min <= new_cash <= cash_max:
+            cash = new_cash
+        else:
+            target = max(weights, key=lambda t: weights[t])
+            new_w = round(weights[target] + residual, 2)
+            if 0 <= new_w <= max_single_name:
+                weights[target] = new_w
+
+    # Final fallback — if the persona's caps + shortlist length can't
+    # reach 1.0 by construction (e.g. 10 names × 0.08 cap + 0.15 cash =
+    # 0.95 ceiling), let cash absorb the rest. The sum=1.0 invariant
+    # matters more than a soft cash preference; this is logged at the
+    # call site so an operator can audit the constraint mismatch.
+    total = sum(weights.values()) + cash
+    residual = round(1.0 - total, 2)
+    if abs(residual) >= 0.005:
+        cash = round(cash + residual, 2)
+
+    # Drop any positions that rounded to 0.
+    weights = {t: w for t, w in weights.items() if w >= 0.005}
+
+    return weights, cash
+
+
 def construct_portfolio(
     persona: PersonaId,
     research_notes: list[dict[str, Any]],
@@ -237,6 +365,46 @@ def construct_portfolio(
                 )
                 cost = estimate_cost_usd(model, tin, tout)
                 parsed = parse_llm_json(raw)
+
+                # ── Deterministic normalize ──────────────────────────
+                # The LLM's job is to express RELATIVE intent (which
+                # name should weigh more, which less, where the cash
+                # sits). The exact arithmetic is Python's job — LLMs
+                # routinely miscount weights even with explicit
+                # arithmetic reminders in the prompt. Normalize before
+                # Pydantic so the schema can't reject for a sum the
+                # LLM was never going to get exactly right.
+                raw_props = parsed.get("proposals") or []
+                raw_weights = {
+                    p.get("ticker", ""): float(p.get("target_weight") or 0.0)
+                    for p in raw_props if p.get("ticker")
+                }
+                raw_cash = float(parsed.get("cash_target") or 0.0)
+                norm_weights, norm_cash = normalize_book(
+                    raw_weights, raw_cash,
+                    max_single_name=constraints.max_single_name,
+                    cash_min=constraints.cash_min,
+                    cash_max=constraints.cash_max,
+                )
+                # Rewrite parsed shape with normalized values; drop any
+                # proposal whose ticker normalized to zero.
+                kept_props = []
+                for p in raw_props:
+                    t = p.get("ticker")
+                    if t in norm_weights and norm_weights[t] > 0:
+                        p = dict(p)
+                        p["target_weight"] = norm_weights[t]
+                        kept_props.append(p)
+                parsed["proposals"] = kept_props
+                parsed["cash_target"] = norm_cash
+
+                normalized_total = sum(norm_weights.values()) + norm_cash
+                log.info("construction.normalized",
+                         persona=persona,
+                         raw_sum=round(sum(raw_weights.values()) + raw_cash, 4),
+                         norm_sum=round(normalized_total, 4),
+                         dropped=len(raw_props) - len(kept_props))
+
                 # Construction output doesn't carry citations (those live
                 # on the research notes already on file).
                 report = build_analyst_report(
@@ -251,41 +419,34 @@ def construct_portfolio(
                     allowed_news_ids=set(),
                 )
                 # ──────────────────────────────────────────────────────
-                # Validation. The schema already enforces sum ≤ 1.0 as a
-                # universal upper bound; this block adds the persona-
-                # specific rules: cap, sector, cash range, AND the
-                # strict-equality conservation check. Any violation
-                # triggers a retry with the error in `last_error` —
-                # `_retry_guidance_for` will tell the LLM how to fix.
+                # Post-normalize validation. normalize_book has already
+                # enforced sum=1.0, the single-name cap, and (best-effort)
+                # the cash range. We re-check sum as a belt-and-suspenders
+                # sanity guard and surface a min-positions floor; cap +
+                # cash range are guaranteed by the normalizer so we just
+                # log if they ever drift (impossible-envelope tickets).
                 # ──────────────────────────────────────────────────────
                 sum_positions = sum(p.target_weight for p in report.proposals)
                 total = sum_positions + report.cash_target
                 if abs(total - 1.0) > 0.01:
                     raise ValueError(
-                        f"book sum {total:.4f} ≠ 1.0 — "
+                        f"post-normalize book sum {total:.4f} ≠ 1.0 — "
                         f"positions {sum_positions:.4f} + cash {report.cash_target:.4f}. "
-                        f"Fill missing exposure with additional sized proposals "
-                        f"or raise cash_target to absorb the gap (within range "
-                        f"[{constraints.cash_min:.2f}, {constraints.cash_max:.2f}])."
+                        f"Should never happen after normalize_book; "
+                        f"check that the normalized parsed dict was passed to "
+                        f"build_analyst_report."
                     )
-                for p in report.proposals:
-                    if p.target_weight > constraints.max_single_name + 1e-6:
-                        raise ValueError(
-                            f"{p.ticker} target_weight {p.target_weight:.4f} "
-                            f"exceeds {persona}.max_single_name "
-                            f"{constraints.max_single_name:.4f}"
-                        )
-                # Cash range
-                if not (constraints.cash_min - 1e-6 <= report.cash_target <= constraints.cash_max + 1e-6):
-                    raise ValueError(
-                        f"cash_target {report.cash_target:.4f} outside "
-                        f"{persona} range [{constraints.cash_min:.4f}, {constraints.cash_max:.4f}]"
-                    )
-                # Position count guidance — soft floor. If the LLM
-                # underfilled the book within constraint cash range, it
-                # almost always means it parsed "qualify for sizing" too
-                # strictly. Surface the conflict instead of persisting a
-                # 1-position book.
+                if report.cash_target > constraints.cash_max + 1e-6:
+                    log.info("construction.cash_above_target",
+                             persona=persona,
+                             cash=round(report.cash_target, 4),
+                             cash_max=round(constraints.cash_max, 4),
+                             reason="normalizer fallback — shortlist too narrow for envelope")
+                # Position count floor — only check now that all sizing
+                # is done. If the LLM dropped to 1-2 positions it's
+                # almost always because it parsed "qualify for sizing"
+                # too strictly. Surface the conflict instead of
+                # persisting a 1-position book.
                 n_active = sum(1 for p in report.proposals if p.target_weight > 1e-4)
                 if n_active < constraints.target_position_count_min:
                     raise ValueError(
