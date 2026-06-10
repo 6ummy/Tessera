@@ -614,10 +614,21 @@ def _reshape_report_row(
         ticker = first_pos.get("ticker") or first_pos.get("instrument") or "?"
         side = first_pos.get("side") or "allocate"
         conv = first_pos.get("conviction")
-        conv_str = f"conv {conv:.2f}" if isinstance(conv, (int, float)) else ""
+        # Readable conviction tier rather than the raw 0.55 number.
+        # Bins line up with how PMs talk to one another: a "Strong buy"
+        # is a top-of-book conviction (≥0.80), "Buy" is a real position
+        # (0.65–0.80), "Hold" is keep-but-don't-add (0.50–0.65), and
+        # "Watch" is research-only (<0.50). The risk gateway uses the
+        # same thresholds when it decides whether to size the slot.
+        conv_label = ""
+        if isinstance(conv, (int, float)):
+            if   conv >= 0.80: conv_label = "Strong buy"
+            elif conv >= 0.65: conv_label = "Buy"
+            elif conv >= 0.50: conv_label = "Hold"
+            else:              conv_label = "Watch"
         title = f"{persona_id.title()} · {ticker} · {side}"
-        if conv_str:
-            title += f" ({conv_str})"
+        if conv_label:
+            title += f" ({conv_label})"
         thesis_md = first_pos.get("thesis_md") or ""
     else:
         title = f"{persona_id.title()} · {date_iso}"
