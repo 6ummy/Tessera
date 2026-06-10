@@ -662,6 +662,56 @@ def run_regime_thesis(
         raise RuntimeError("unreachable")
 
 
+def run_research(
+    persona: PersonaId,
+    ticker: str,
+    *,
+    as_of: date | None = None,
+) -> dict[str, Any] | None:
+    """Pass-1 research call for the 2-pass architecture.
+
+    V1 implementation: reuses `run_thesis()` (so we get all the prompt
+    plumbing for free) but DOES NOT PERSIST, and reshapes the output to
+    a TickerResearch-style dict suitable for `construct_portfolio`. The
+    sizing fields the thesis call produces (target_weight, cash_target,
+    side) are dropped — Pass 2 is the only place sizing happens.
+
+    A lighter dedicated research prompt (with explicit bull/bear sections
+    and no sizing instructions) is a v2 follow-up; the immediate goal is
+    to land the 2-pass FLOW so the construction call has notes to act on.
+    Returns None on failure (don't take down the rest of the batch).
+    """
+    try:
+        report = run_thesis(persona, ticker, as_of=as_of, persist=False)
+    except Exception as e:
+        log.warning("run_research.failed", persona=persona, ticker=ticker, err=str(e))
+        return None
+    if not report.proposals:
+        return None
+    p = report.proposals[0]
+    # Derive bull/bear from thesis_md + what_would_make_me_wrong when the
+    # research prompt doesn't yet split them. The construction prompt
+    # consumes either pattern equally.
+    thesis_paras = [s.strip() for s in p.thesis_md.split("\n\n") if s.strip()]
+    bull = thesis_paras[0] if thesis_paras else p.thesis_md[:500]
+    bear = (
+        "; ".join(p.what_would_make_me_wrong)
+        if p.what_would_make_me_wrong
+        else "(no explicit bear case stated)"
+    )
+    return {
+        "ticker": p.ticker,
+        "conviction": p.conviction,
+        "thesis_md": p.thesis_md,
+        "bull_case": bull[:1000],
+        "bear_case": bear[:1000],
+        "what_would_make_me_wrong": p.what_would_make_me_wrong,
+        "cost_usd": report.cost_usd,
+        "tokens_in": report.tokens_in,
+        "tokens_out": report.tokens_out,
+    }
+
+
 def main() -> int:
     """CLI: python -m tessera_worker.agents.anthropic_runner <persona> [ticker]
     Ray takes no ticker (portfolio-level): `... ray`

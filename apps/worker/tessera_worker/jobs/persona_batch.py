@@ -165,6 +165,130 @@ def run_one(
         result.bump(persona, "errors")
 
 
+def run_batch_v2(
+    *, personas: list[PersonaId] | None = None,
+    dry_run: bool = False, as_of: date | None = None,
+    max_cost: float = 5.0,
+) -> BatchResult:
+    """2-pass batch runner. For each stock-picker persona: research each
+    ticker in the shortlist (lightweight, doesn't persist), then ONE
+    construction call that takes all research notes + persona caps and
+    outputs a coherent portfolio (proposals + cash = 1.0, Pydantic-
+    enforced). Ray is unchanged — his regime call is already single-pass.
+
+    Persists ONE analyst_reports row per persona per batch (vs the old
+    N-rows-per-persona pattern). Aggregator at /api/proposals already
+    handles this — most-recent row wins.
+    """
+    personas = personas or ["warren", "cathie", "peter", "ray"]
+    as_of = as_of or date.today()
+    result = BatchResult()
+
+    log.info("persona_batch_v2.start", personas=personas, dry_run=dry_run,
+             as_of=str(as_of), max_cost=max_cost)
+
+    if dry_run:
+        for persona in personas:
+            tickers = PERSONA_SHORTLISTS.get(persona, []) or ["PORTFOLIO"]
+            for ticker in tickers:
+                result.attempted += 1
+                result.bump(persona, "attempted")
+                result.persisted += 1
+                result.bump(persona, "persisted")
+        return result
+
+    # Lazy imports — these pull in the Anthropic SDK and shouldn't cost
+    # cold-start time on test discovery.
+    from tessera_worker.agents.anthropic_runner import (
+        LlmDailyBudgetExceeded, LlmDisabledError,
+        run_regime_thesis, run_research,
+    )
+    from tessera_worker.agents.portfolio_construction import construct_portfolio
+
+    try:
+        for persona in personas:
+            if result.total_cost_usd >= max_cost:
+                result.aborted_reason = (
+                    f"per-run max-cost ${max_cost} reached before {persona}"
+                )
+                log.warning("persona_batch_v2.max_cost_hit",
+                            spent=result.total_cost_usd, max=max_cost)
+                break
+
+            if persona == "ray":
+                # Ray: single regime call, persists itself.
+                result.attempted += 1
+                result.bump("ray", "attempted")
+                try:
+                    rep = run_regime_thesis(as_of=as_of)
+                    result.persisted += 1
+                    result.bump("ray", "persisted")
+                    result.total_cost_usd += float(rep.cost_usd)
+                    result.bump("ray", "cost_usd", float(rep.cost_usd))
+                except (LlmDailyBudgetExceeded, LlmDisabledError) as e:
+                    result.aborted_reason = str(e)
+                    raise
+                except Exception as e:
+                    result.errors += 1
+                    result.bump("ray", "errors")
+                    log.warning("persona_batch_v2.ray_failed", error=str(e))
+                continue
+
+            # Stock-picker: Pass 1 — research per ticker
+            research_notes: list[dict] = []
+            for ticker in PERSONA_SHORTLISTS.get(persona, []):
+                if result.total_cost_usd >= max_cost:
+                    result.aborted_reason = (
+                        f"per-run max-cost ${max_cost} reached mid-{persona}-research"
+                    )
+                    log.warning("persona_batch_v2.max_cost_hit_mid_research",
+                                spent=result.total_cost_usd, max=max_cost)
+                    break
+                result.attempted += 1
+                result.bump(persona, "attempted")
+                note = run_research(persona, ticker, as_of=as_of)
+                if note is None:
+                    result.errors += 1
+                    result.bump(persona, "errors")
+                    continue
+                # Track cost from the research call (cell didn't persist).
+                cell_cost = float(note.get("cost_usd", 0.0))
+                result.total_cost_usd += cell_cost
+                result.bump(persona, "cost_usd", cell_cost)
+                research_notes.append(note)
+
+            if not research_notes:
+                log.warning("persona_batch_v2.no_research", persona=persona)
+                continue
+
+            # Pass 2 — construction call. Persists ONE AnalystReport row.
+            try:
+                construction_report = construct_portfolio(
+                    persona, research_notes, as_of=as_of,
+                )
+                result.persisted += 1
+                result.bump(persona, "persisted")
+                result.total_cost_usd += float(construction_report.cost_usd)
+                result.bump(persona, "cost_usd", float(construction_report.cost_usd))
+                log.info("persona_batch_v2.construction_ok",
+                         persona=persona,
+                         n_research=len(research_notes),
+                         n_proposals=len(construction_report.proposals),
+                         cash_target=construction_report.cash_target)
+            except (LlmDailyBudgetExceeded, LlmDisabledError) as e:
+                result.aborted_reason = str(e)
+                raise
+            except Exception as e:
+                result.errors += 1
+                result.bump(persona, "errors")
+                log.warning("persona_batch_v2.construction_failed",
+                            persona=persona, error=str(e))
+    except Exception as e:
+        log.warning("persona_batch_v2.aborted", reason=str(e))
+
+    return result
+
+
 def run_batch(
     *, personas: list[PersonaId] | None = None,
     dry_run: bool = False, as_of: date | None = None,
