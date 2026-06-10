@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, Sparkles, Users } from "lucide-react";
 import { PERSONAS, ACCENT_CLASS, type Persona } from "@/lib/mock/personas";
@@ -229,16 +229,44 @@ export default function ProposalsPage() {
                             No positions published yet for {persona.name}.
                           </div>
                         ) : (
-                          prop.positions.map((pos) => {
+                          (() => {
+                            // Split active (target_weight > 0) from
+                            // watchlist (weight = 0 — LLM analyzed but
+                            // decided "not buying right now"). Some
+                            // personas like Warren are picky enough that
+                            // most of their shortlist lands as watchlist;
+                            // surfacing those as 0% positions inflates the
+                            // card without information. Watchlist sits at
+                            // the bottom under a divider so the active
+                            // book is what the eye lands on.
+                            const ACTIVE_THRESHOLD = 0.001; // < 0.1% = watchlist
+                            const active = prop.positions.filter(
+                              (p) => p.weight >= ACTIVE_THRESHOLD,
+                            );
+                            const watchlist = prop.positions.filter(
+                              (p) => p.weight < ACTIVE_THRESHOLD,
+                            );
+                            return [...active, ...watchlist].map((pos, i, arr) => {
+                            const isWatch = pos.weight < ACTIVE_THRESHOLD;
+                            const showWatchHeader =
+                              isWatch && i === active.length && active.length > 0;
                             const key = `${persona.id}:${pos.ticker}`;
                             const isOpen = expanded.has(key);
                             return (
+                              <Fragment key={pos.ticker}>
+                                {showWatchHeader && (
+                                  <div className="border-t-2 border-dashed border-ink-900/[0.08] bg-ink-900/[0.02] px-5 py-2">
+                                    <div className="text-[10px] uppercase tracking-[0.16em] text-ink-500">
+                                      Watchlist · not buying now
+                                    </div>
+                                  </div>
+                                )}
                               <div
-                                key={pos.ticker}
                                 onMouseEnter={() => setHighlight(pos.ticker)}
                                 onMouseLeave={() => setHighlight(null)}
                                 className={cn(
                                   "transition-colors",
+                                  isWatch && "opacity-55",
                                   highlight === pos.ticker
                                     ? "bg-coral-50"
                                     : "hover:bg-ink-900/[0.025]",
@@ -298,8 +326,10 @@ export default function ProposalsPage() {
                                   </div>
                                 )}
                               </div>
+                              </Fragment>
                             );
-                          })
+                          });
+                          })()
                         )}
                       </div>
                     </div>

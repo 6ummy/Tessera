@@ -69,6 +69,15 @@ PERSONA_SHORTLISTS: dict[str, list[str]] = {
     "cathie": [
         "NVDA", "TSLA", "PLTR", "COIN", "CRWD",
         "SHOP", "ASML", "AMD", "AVGO", "ANET",
+        # Crypto sleeve candidates — Cathie's prompt sizes them under the
+        # "Crypto allocation (4th asset class)" rules (0-20% sleeve cap,
+        # ≤10% per coin, BTC+ETH ≥50% of any non-zero sleeve, no
+        # stablecoins). Selection biased toward themes she'll have
+        # narrative tools for: programmable settlement (ETH, SOL), oracle
+        # infrastructure (LINK), high-throughput L1 (SOL), monetary base
+        # (BTC). Adding all 8 from the universe would burn budget on
+        # names she won't underwrite anyway.
+        "BTC/USD", "ETH/USD", "SOL/USD", "LINK/USD",
     ],
     "peter": [
         "COST", "HD", "DECK", "BKNG", "URI",
