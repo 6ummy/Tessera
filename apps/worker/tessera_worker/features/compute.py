@@ -66,6 +66,32 @@ TRADING_DAYS_PER_YEAR = 252
 # Ratios are official sponsor-bank disclosures; if a name is added to the
 # universe and its ratio isn't listed here, we fall back to 1 with a warning.
 # ─────────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────
+# Dual-class / multi-class equities: the "right" market cap aggregates ALL
+# share classes, not just the one our ticker happens to track. yfinance /
+# FMP / EDGAR all report the *company*-level marketCap on their `payload`
+# fields, while `close × diluted_shares` only captures the share class
+# associated with the listed ticker.
+#
+# GOOGL is the canonical case: $323 × 6.7B Class-A diluted ≈ $2.16T, but
+# Alphabet's actual company mcap (Class A + Class B + Class C) is ~$4.4T.
+# Without an override, cross_validated() logs a 2.06× disagreement warning
+# on every build — noise that hides real problems.
+#
+# Rule: for tickers listed here, trust the payload-reported mcap (the
+# "company-level" number) over the close-based candidates. We still log
+# at debug level so operators can audit the path was taken; the warning
+# stream stays quiet for healthy runs.
+# ─────────────────────────────────────────────────────────────────────────
+MULTI_CLASS_TICKERS: set[str] = {
+    "GOOGL",  # Alphabet — Class A listed; Class B (non-traded) + Class C also exist
+    # Add tickers here only after verifying their close × diluted gives a
+    # *smaller* mcap than the canonical company-level reported value.
+    # BRK.B is dual class but its diluted share count from FMP is already
+    # the A-equivalent total, so it works correctly via the standard path.
+}
+
+
 ADR_SHARE_RATIOS: dict[str, int] = {
     # Empty by default. Populate only when you confirm a data provider
     # returns COMMON (foreign-issuer total) share counts for a given
@@ -272,6 +298,25 @@ def estimate_market_cap(
       3. payload_mcap_cash    (stale-by-a-quarter but a real reported number)
       4. payload_mcap_income
     """
+    # Multi-class tickers: bypass cross_validated entirely. The close-
+    # based candidates only see one share class and will systematically
+    # disagree with the payload-reported company-level mcap. See
+    # MULTI_CLASS_TICKERS docstring above.
+    if ticker and ticker in MULTI_CLASS_TICKERS:
+        for label, val in (
+            ("payload_income", payload_mcap_income),
+            ("payload_cash",   payload_mcap_cash),
+        ):
+            if val is not None and val > 0:
+                log.debug("features.market_cap.multi_class_override",
+                          ticker=ticker, label=label, value=val)
+                return float(val)
+        # No payload mcap available — fall through to the standard path
+        # but it'll under-report. Worth a warning so we know to fix.
+        log.warning("features.market_cap.multi_class_no_payload",
+                    ticker=ticker,
+                    hint="MULTI_CLASS_TICKERS entry exists but no payload mcap available")
+
     candidates: list[McapCandidate] = []
     mc_d = _market_cap_from_shares(close, shares_diluted, ticker=ticker)
     if mc_d is not None:

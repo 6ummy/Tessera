@@ -199,6 +199,52 @@ def _step_features() -> dict[str, object]:
     return {"rows": r.rows_written, "tickers": len(r.tickers), "ms": r.duration_ms}
 
 
+def _step_coverage_audit() -> dict[str, object]:
+    """Log tickers whose latest ticker_features row has a NULL in any of
+    the four "must-have" UI columns: fcf_yield, market_cap_usd, peg,
+    gross_margin. ETFs and crypto are excluded — they don't carry
+    fundamentals by design.
+
+    This step is read-only — purely for Grafana / Sentry to scrape the
+    structured log line and alert when coverage degrades. A new universe
+    addition that hits this audit on its first cron is the canonical
+    moment to add a yfinance / EDGAR mapping for the gap.
+    """
+    equity_tickers = {t.ticker for t in by_asset_class("equity")}
+    if not equity_tickers:
+        return {"equity_tickers": 0, "with_gaps": 0}
+    with session_scope() as session:
+        rows = session.execute(text("""
+            SELECT DISTINCT ON (ticker)
+                   ticker,
+                   fcf_yield IS NULL      AS gap_fcf_yield,
+                   market_cap_usd IS NULL AS gap_market_cap,
+                   peg IS NULL            AS gap_peg,
+                   gross_margin IS NULL   AS gap_gross_margin
+            FROM ticker_features
+            WHERE ticker = ANY(:t)
+            ORDER BY ticker, ts DESC
+        """), {"t": list(equity_tickers)}).all()
+    gaps: dict[str, list[str]] = {}
+    for r in rows:
+        miss = []
+        if r.gap_fcf_yield:   miss.append("fcf_yield")
+        if r.gap_market_cap:  miss.append("market_cap_usd")
+        if r.gap_peg:         miss.append("peg")
+        if r.gap_gross_margin: miss.append("gross_margin")
+        if miss:
+            gaps[r.ticker] = miss
+    if gaps:
+        # Structured log — one log line per gap-ticker for easy scrape.
+        for tk, miss in gaps.items():
+            log.warning("features.coverage_gap", ticker=tk, missing=miss)
+    return {
+        "equity_tickers": len(equity_tickers),
+        "with_gaps":      len(gaps),
+        "gap_tickers":    sorted(gaps.keys()),
+    }
+
+
 STEPS: dict[str, StepFn] = {
     "ohlcv_equity":  _step_ohlcv_equity,
     "ohlcv_crypto":  _step_ohlcv_crypto,
@@ -210,6 +256,7 @@ STEPS: dict[str, StepFn] = {
     "news":          _step_news,
     "filings":       _step_filings,         # SEC 10-K/10-Q text → GCS
     "features":      _step_features,
+    "coverage":      _step_coverage_audit,  # post-build NULL audit per ticker
 }
 
 
