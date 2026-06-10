@@ -244,12 +244,13 @@ no broker, no LLM. It exists to validate UX before backend investment.
 | Source | Auth | Cost | What we pull | Cadence | Destination table |
 |---|---|---|---|---|---|
 | **Alpaca** | API key + secret | Free (IEX feed only) | EOD OHLCV for 49 US equities + ETFs | Daily, last 30d window | `ohlcv_1d` (source='alpaca') |
-| **Coinbase Exchange** | None — public API | Free, unmetered | BTC-USD, ETH-USD daily candles | Daily, last 30d | `ohlcv_1d` (source='coinbase') |
+| **Coinbase Exchange** | None — public API | Free, unmetered | Daily candles for 8 pairs: BTC, ETH, SOL, AVAX, LINK, DOT, DOGE, XRP (all `*/USD`). Pair list derives from `universe.CRYPTO` so adding a coin is one line. | Daily, last 30d | `ohlcv_1d` (source='coinbase') |
 | **FRED** (St. Louis Fed) | API key | Free, unmetered | 37 macro series — yields, CPI/PCE, unemployment, M2, Fed BS, broad USD, VIX, **9 FX pairs** (USD/EUR, JPY/USD, KRW/USD, CAD/USD, CHF/USD, CNY/USD, USD/GBP, MXN/USD, INR/USD), **WTI + Brent + nat gas + jet fuel**, **copper + wheat** (monthly), **HY + IG credit spreads** | Daily, last 90d | `macro_series` |
 | **FMP** (Financial Modeling Prep) | API key | Free tier (some premium endpoints 402) | Annual income / balance / cashflow as JSON | 30-day cache per ticker | `fundamentals` |
+| **FMP key-metrics-TTM** | same API key | Free tier (~20/51 tickers; 31 return 402 — paid endpoints) | TTM `marketCap`, `freeCashFlowYieldTTM`, `peRatioTTM`, `debtToEquityTTM`, ROE/ROA. **Daily-current** mcap candidate (5th in `estimate_market_cap`) since the close-times-shares candidates can drift 2–3× when share counts in the filing payload are stale. | Daily, ~10s for universe | `fundamentals` (synthetic income row at `(ticker, today-1, income)`, `source='fmp_key_metrics'`) |
 | **NewsAPI** | API key | Free tier (100 req/day) | Ticker-tagged headlines + body excerpts | Daily, last 24h | `news` |
 | **SEC EDGAR** | `User-Agent` header (name + contact email) | Free, unmetered | 10-K (annual) + 10-Q (quarterly) full filings | Weekly (skip if accession already stored) | `filings` (meta + 8KB excerpt) + GCS (raw HTML) |
-| **SEC XBRL companyfacts** | same `User-Agent` | Free, unmetered | Structured GAAP fundamentals — revenue, op income, FCF, EPS, shares, balance sheet items, etc. SEC's pre-parsed XBRL JSON, no XML parsing needed. 39/42 tickers (vs FMP 20/42). | Daily (cheap, idempotent) | `fundamentals` (JSONB merge with FMP) |
+| **SEC XBRL companyfacts** | same `User-Agent` | Free, unmetered | Structured GAAP fundamentals — revenue, op income, FCF, EPS, shares, balance sheet items, etc. SEC's pre-parsed XBRL JSON, no XML parsing needed. 40/42 equity tickers (BRK.B now resolved via SEC's `BRK-B` ↔ universe `BRK.B` cik_map alias, 2026-06-09; ASML / TSM still skipped — foreign filers without us-gaap facts JSON). Concept-priority lists no longer break on the first match — they fall through so filers that switched GAAP concept names mid-history (NVDA: `PaymentsToAcquirePropertyPlantAndEquipment` until 2020, `PaymentsToAcquireProductiveAssets` after) get covered end-to-end. | Daily (cheap, idempotent) | `fundamentals` (JSONB merge with FMP) |
 | **yfinance** (Yahoo, unofficial) | None | Free, scraped — no SLA | Last-resort fallback for `sharesOutstanding`, `marketCap`, `trailingPegRatio`, `grossMargins`, `trailingPE`, `forwardPE`. Used only when FMP + EDGAR leave the field blank (service / payment-network filers like V, MA whose XBRL doesn't expose these concepts). | Daily, as a synthetic `(ticker, today, income)` row in `fundamentals` (source='yfinance') | `fundamentals` (JSONB merge; compute reads as final fall-through) |
 | **yfinance history** (Yahoo, unofficial) | None | Free, scraped — no SLA, rate-limited (~4 rps) | `yf.Ticker(t).income_stmt` — annual diluted EPS / revenue / grossProfit / operatingIncome per fiscal year (~4 periods). Used to backfill EDGAR-sparse FY rows so `compute_eps_cagr_3y` + `compute_gross_margin_trend` can compute. | **Weekly** (Friday only, guard: `weekday() == 4`) — annual statements refresh quarterly + income_stmt endpoint is slow | `fundamentals` (synthetic FY rows per fy_end, `source='yfinance_history'`; JSONB merge fills NULL keys only) |
 
@@ -575,6 +576,9 @@ apps/
                                     # EPS / revenue / GP per fy_end for
                                     # eps_cagr_3y + gross_margin_trend
                                     # (weekly cron, Friday only)
+        fmp_key_metrics.py          # FMP /stable/key-metrics-ttm — daily-
+                                    # current mcap + freeCashFlowYieldTTM /
+                                    # peRatioTTM / etc. 5th mcap candidate
       features/
         compute.py                  # deterministic feature builder; per-
                                     # field newest-non-null walk +
@@ -597,6 +601,10 @@ apps/
       dump_v_dei.py                 # peek at dei namespace coverage
       dump_v_income_recent.py       # merged income payload per period_end
                                     # (e.g. confirm yf_history fills FY rows)
+      dump_nvda_cashflow.py         # recent cash_flow rows for one ticker
+                                    # (used to diagnose null capex / FCF)
+      dump_nvda_capex_obs.py        # per-XBRL-concept observations by form
+                                    # /fy/fp; finds concept-name switches
     tests/
       test_features.py              # 13 hypothesis property tests
 
