@@ -92,6 +92,13 @@ Return ONLY a JSON object with this shape:
 
 Active proposals + cash_target MUST sum to exactly 1.0.
 
+Do the math BEFORE writing the JSON. Sum all your target_weights. Add
+cash_target. The total has to equal 1.0 within 1pp tolerance. If you
+write 8 positions at the 16% cap, that's 1.28 — too much, you must
+size most below the cap. If you write 4 positions averaging 10%,
+that's 0.40 with cash maybe 0.10 — only 0.50, too little. The book
+must be FULLY ALLOCATED inside the persona's cash range.
+
 If you only see a handful of high-conviction names and worry the book
 is too concentrated, size the next conviction tier too — sized
 exposure beats an unsourced cash holding when the persona mandate
@@ -126,8 +133,16 @@ def call_anthropic_construction(
     persona: PersonaId,
     research_payload: str,
     as_of: date,
+    *,
+    feedback: str | None = None,
 ) -> tuple[str, int, int, int, int]:
-    """Returns (raw_text, tokens_in, tokens_out, cached_tokens, latency_ms)."""
+    """Returns (raw_text, tokens_in, tokens_out, cached_tokens, latency_ms).
+
+    `feedback` is the verbatim error from the previous attempt's
+    validation — appended to the prompt so the LLM sees what went wrong.
+    Without it, the retry just regenerates the same kind of incoherent
+    book.
+    """
     settings = get_settings()
     if not settings.anthropic_api_key:
         raise ValueError("ANTHROPIC_API_KEY is not set")
@@ -136,6 +151,17 @@ def call_anthropic_construction(
     persona_specs = load_persona_specs()
     system_prompt = persona_specs[persona]
     user_content = build_construction_prompt(persona, research_payload, as_of)
+    if feedback:
+        user_content = (
+            f"{user_content}\n\n---\nYour previous output was rejected:\n"
+            f"{feedback}\n\n"
+            f"Rework the book to fix this specific issue. If positions + cash "
+            f"summed > 1.0, size down — start by trimming the smallest "
+            f"conviction names or capping the highest at less than "
+            f"max_single_name. If < 1.0, add more positions from the research "
+            f"notes (your shortlist had {research_payload.count('## ')} candidates), "
+            f"or raise cash_target within range. Return ONLY the JSON object."
+        )
 
     t0 = time.perf_counter()
     # max_tokens=16000: the construction output is structured JSON over
@@ -207,6 +233,7 @@ def construct_portfolio(
             try:
                 raw, tin, tout, cached, latency = call_anthropic_construction(
                     persona, payload, as_of,
+                    feedback=last_error if attempt > 0 else None,
                 )
                 cost = estimate_cost_usd(model, tin, tout)
                 parsed = parse_llm_json(raw)
