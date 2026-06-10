@@ -1,88 +1,47 @@
 """Portfolio construction agent — second pass of the 2-pass persona flow.
 
-THIS MODULE IS A STUB FOR THE NEXT PR. It declares the public surface
-and the prompt template; the LLM-calling logic, persistence, and the
-persona_batch rewire arrive in the follow-up PR so the changes can be
-landed and reviewed in two reasonable-sized diffs.
+Wires to anthropic_runner. The foundation PR (#79) shipped the prompt
+template + constraint registry; this lands the actual LLM call,
+parsing, and persistence.
 
 # Two-pass overview
 
-Until 2026-06-09 the worker used a single `run_thesis(persona, ticker)`
-call per (persona, ticker) cell. Each call generated thesis prose AND
-a `target_weight`, with zero visibility into sibling cells. The
-aggregator at `/api/proposals/{personaId}` would deduplicate by ticker
-and average the `cash_target` across cells — for stock-picker personas
-the resulting book typically didn't sum to 1.0. Warren's batch on
-06-09 sized 8% BRK.B + 9 × 0% + 12% cash = 20% allocated; PR #76
-patched the aggregator to infer the missing 80% as cash. That's a
-bandage, not the right architecture.
-
-Human analysts don't work that way. They research each candidate
-individually, THEN sit down and decide relative sizing across the full
-set. The 2-pass design mirrors that:
-
-  Pass 1 — RESEARCH  (per ticker, runs in parallel across cells)
-    Input:  persona prompt + ticker features + recent news
-    Output: TickerResearch {
-              ticker, conviction (0..1), thesis_md,
-              bull_case, bear_case,
-              what_would_make_me_wrong
-            }
+  Pass 1 — RESEARCH  (per ticker, runs sequentially across cells)
+    `run_research(persona, ticker)` → TickerResearch
     Lighter than the old run_thesis — no `target_weight`, no
     `cash_target`, no `side`. Pure judgment on this one name.
 
   Pass 2 — CONSTRUCTION  (one call per persona per batch)
-    Input:  persona prompt
-            + all pass-1 TickerResearch from this batch
-            + persona_constraints.PortfolioConstraints
-              (max_single_name, max_sector, cash range,
-               conviction thresholds, target position count)
-    Output: AnalystReport {
-              proposals[],  ← each one a real sized position
-              cash_target,
-              watchlist[],  ← named but unsized; carries the
-                              research blurb so the UI can still
-                              show "we looked at this and passed"
-            }
-    Constraint: proposals + cash_target = 1.0  (Pydantic enforces).
+    `construct_portfolio(persona, research_notes)` → AnalystReport
+    persisted as ONE row in analyst_reports. Pydantic enforces
+    `proposals + cash_target = 1.0`.
 
-The construction call gets to do the relative-comparison thinking the
-single-cell call never could: "MSFT 9/10 vs MCO 7/10 → size MSFT
-heavier, leave MCO at small or watchlist." It also enforces the
-persona's hard caps inside the same act of judgment, which means the
-Phase-C risk gateway shrinks from "reject + retry" to "validate the
-construction output against the same numbers."
+# Cost
 
-# Status
-
-- Constraints registry: shipped (`persona_constraints.py`).
-- Prompt template: drafted below.
-- TickerResearch schema: NOT YET. See packages/shared/tessera_shared/schemas.py
-  follow-up. The construction prompt below references it by shape.
-- Construction caller (`construct_portfolio`): STUB only. Raises
-  NotImplementedError. Wires to anthropic_runner in the next PR.
-- persona_batch rewire: NOT YET. Still calls run_thesis per cell.
-
-# Cost note
-
-Construction call is one shot per persona per batch, with research
-notes as input context (~10-15 names × ~200 tokens summary each =
-~2-3K tokens in) and a structured portfolio JSON out (~1K tokens
-out). At Sonnet rates ≈ $0.08/call. Across 4 personas weekly:
-~$0.32/week. Research calls drop ~$0.02 each by losing the sizing
-section. Net cost: roughly flat with the previous single-pass flow,
-buys coherent books in exchange.
+Construction call is one shot per persona per batch (~2-3K tokens in
+of research summaries, ~1K out of structured portfolio JSON). Across 4
+personas weekly: ~$0.32/week. Research calls drop ~$0.02 each by
+losing the sizing section. Net cost: roughly flat with single-pass.
 """
 
 from __future__ import annotations
 
+import time
 from datetime import date
+from typing import Any
 
+import structlog
+from anthropic import Anthropic
+
+from tessera_worker.agents.models import AnalystReport, PersonaId
 from tessera_worker.agents.persona_constraints import (
-    PersonaId,
     constraints_for,
     constraints_prompt_block,
 )
+from tessera_worker.agents.persona_loader import load_persona_specs
+from tessera_worker.config import get_settings
+
+log = structlog.get_logger(__name__)
 
 
 def build_construction_prompt(
@@ -94,9 +53,6 @@ def build_construction_prompt(
 
     `research_payload` is the rendered Pass-1 research output for ALL
     candidates this batch — a numbered list of `TickerResearch` blocks.
-    The persona's operational prompt (voice + philosophy) is loaded
-    separately and goes in the system block; this is the user-side
-    portfolio-construction brief.
     """
     constraints_block = constraints_prompt_block(persona)
 
@@ -116,66 +72,207 @@ Today is {as_of.isoformat()}. Build this week's book.
 
 # What to output
 
-Return a JSON object with this shape:
+Return ONLY a JSON object with this shape:
 
-  {{
-    "cash_target": <fraction>,
-    "proposals": [
-      {{
-        "ticker": "<symbol from the research notes>",
-        "side": "buy" | "hold" | "trim" | "add",
-        "target_weight": <fraction>,
-        "horizon_days": <int, persona's typical hold>,
-        "conviction": <0..1, copied from the research note>,
-        "thesis_md": "<one-paragraph SIZING reasoning — why THIS weight, "
-                     "vs the other candidates. Reference relative conviction "
-                     "and how this name slots against the cap envelope. "
-                     "Do NOT restate the full research thesis; that's already on file.>"
-      }}
-    ],
-    "watchlist": [
-      {{
-        "ticker": "<symbol>",
-        "reasoning": "<one sentence: what we'd need to see to size>"
-      }}
-    ],
-    "notes_to_manager": "<2-3 sentences on what the book reflects this week>"
-  }}
+{{
+  "cash_target": <fraction 0..1>,
+  "proposals": [
+    {{
+      "ticker": "<symbol from the research notes>",
+      "side": "buy" | "hold" | "trim" | "add",
+      "target_weight": <fraction 0..0.20>,
+      "horizon_days": <int>,
+      "conviction": <0..1, from the research note>,
+      "thesis_md": "<one-paragraph SIZING reasoning: why THIS weight vs other candidates>",
+      "what_would_make_me_wrong": ["<short bullet>", ...]
+    }}
+  ],
+  "notes_to_manager": "<2-3 sentences on what the book reflects>"
+}}
 
-Active proposals + cash_target MUST sum to exactly 1.0. Watchlist
-entries carry zero weight by definition — they're named for the
-record, not allocated NAV.
+Active proposals + cash_target MUST sum to exactly 1.0.
+Names that don't qualify for sizing get OMITTED — don't include
+target_weight=0 rows. Their research notes are already on file.
+Return JSON only, no markdown fences, no commentary."""
 
-Size the strongest convictions first, then taper. When two candidates
-have similar conviction scores, prefer the one with cleaner
-fundamentals or better recent momentum — your judgment.
-"""
+
+def format_research_payload(research_notes: list[dict[str, Any]]) -> str:
+    """Render TickerResearch list as a numbered prompt block."""
+    if not research_notes:
+        return "(no research notes — empty batch)"
+    parts = []
+    for i, r in enumerate(research_notes, 1):
+        parts.append(
+            f"## {i}. {r['ticker']} (conviction {r.get('conviction', 0.5):.2f})\n\n"
+            f"**Bull:** {r.get('bull_case', '—')}\n\n"
+            f"**Bear:** {r.get('bear_case', '—')}\n\n"
+            f"**Thesis:** {r.get('thesis_md', '—')}"
+        )
+    return "\n\n---\n\n".join(parts)
+
+
+def call_anthropic_construction(
+    persona: PersonaId,
+    research_payload: str,
+    as_of: date,
+) -> tuple[str, int, int, int, int]:
+    """Returns (raw_text, tokens_in, tokens_out, cached_tokens, latency_ms)."""
+    settings = get_settings()
+    if not settings.anthropic_api_key:
+        raise ValueError("ANTHROPIC_API_KEY is not set")
+
+    client = Anthropic(api_key=settings.anthropic_api_key)
+    persona_specs = load_persona_specs()
+    system_prompt = persona_specs[persona]
+    user_content = build_construction_prompt(persona, research_payload, as_of)
+
+    t0 = time.perf_counter()
+    resp = client.messages.create(
+        model=settings.llm_model_thesis,
+        max_tokens=4096,
+        system=[{
+            "type": "text",
+            "text": system_prompt,
+            "cache_control": {"type": "ephemeral"},
+        }],
+        messages=[{"role": "user", "content": user_content}],
+    )
+    latency_ms = int((time.perf_counter() - t0) * 1000)
+    raw = resp.content[0].text if resp.content else ""
+    usage = resp.usage
+    log.info(
+        "anthropic_construction_ok",
+        persona=persona,
+        latency_ms=latency_ms,
+        tokens_in=usage.input_tokens,
+        tokens_out=usage.output_tokens,
+        n_research_notes=research_payload.count("## "),
+    )
+    return raw, usage.input_tokens, usage.output_tokens, getattr(usage, "cache_read_input_tokens", 0) or 0, latency_ms
 
 
 def construct_portfolio(
     persona: PersonaId,
-    research_payload: str,
+    research_notes: list[dict[str, Any]],
     *,
     as_of: date | None = None,
     persist: bool = True,
-):
-    """Stub. Wires to anthropic_runner in the follow-up PR.
-
-    Will mirror `run_thesis()`'s shape: call_anthropic_construction →
-    parse_llm_json → schema validation (AnalystReport already enforces
-    cash + weights ≤ 1.0; we'll tighten to == 1.0 ± 0.001 inside the
-    aggregator) → persist single row per persona per batch.
+) -> AnalystReport:
+    """Pass-2 construction call. Takes a list of research note dicts
+    (each ~TickerResearch-shaped: ticker, conviction, thesis_md,
+    bull_case, bear_case), produces an AnalystReport whose proposals +
+    cash_target sum to 1.0 (Pydantic-enforced).
     """
-    raise NotImplementedError(
-        "construct_portfolio: shipped in the follow-up PR. "
-        "Constraints + prompt + design are landed in this PR for review."
+    from tessera_worker.agents.anthropic_runner import (
+        build_analyst_report,
+        check_daily_budget,
+        estimate_cost_usd,
+        log_llm_call,
+        parse_llm_json,
+        persist_analyst_report,
     )
+    from tessera_worker.db import session_scope
+
+    settings = get_settings()
+    if not settings.feature_real_llm:
+        from tessera_worker.agents.anthropic_runner import LlmDisabledError
+        raise LlmDisabledError("FEATURE_REAL_LLM=false")
+
+    as_of = as_of or date.today()
+    payload = format_research_payload(research_notes)
+    constraints = constraints_for(persona)
+    model = settings.llm_model_thesis
+
+    with session_scope() as session:
+        check_daily_budget(session)
+        last_error: str | None = None
+        for attempt in range(2):
+            try:
+                raw, tin, tout, cached, latency = call_anthropic_construction(
+                    persona, payload, as_of,
+                )
+                cost = estimate_cost_usd(model, tin, tout)
+                parsed = parse_llm_json(raw)
+                # Construction output doesn't carry citations (those live
+                # on the research notes already on file).
+                report = build_analyst_report(
+                    parsed,
+                    persona_id=persona,
+                    as_of=as_of,
+                    inputs_hash="construction-" + str(int(time.time())),
+                    model=model,
+                    tokens_in=tin,
+                    tokens_out=tout,
+                    cost_usd=cost,
+                    allowed_news_ids=set(),
+                )
+                # Cap enforcement on top of Pydantic: max_single_name and
+                # max_sector come from the constraint registry, not the
+                # schema (which is a universal upper bound). A violation
+                # here means the LLM ignored the prompt — we log + retry
+                # rather than persist a non-compliant book.
+                for p in report.proposals:
+                    if p.target_weight > constraints.max_single_name + 1e-6:
+                        raise ValueError(
+                            f"{p.ticker} target_weight {p.target_weight:.4f} "
+                            f"exceeds {persona}.max_single_name "
+                            f"{constraints.max_single_name:.4f}"
+                        )
+                # Cash range
+                if not (constraints.cash_min - 1e-6 <= report.cash_target <= constraints.cash_max + 1e-6):
+                    raise ValueError(
+                        f"cash_target {report.cash_target:.4f} outside "
+                        f"{persona} range [{constraints.cash_min:.4f}, {constraints.cash_max:.4f}]"
+                    )
+                log_llm_call(
+                    session,
+                    persona_id=persona,
+                    stage="construction",
+                    model=model,
+                    tokens_in=tin,
+                    tokens_out=tout,
+                    cost_usd=cost,
+                    latency_ms=latency,
+                    success=True,
+                    error=None,
+                    cached_tokens=cached,
+                )
+                if persist:
+                    persist_analyst_report(session, report, raw_response=raw)
+                return report
+            except Exception as e:
+                last_error = f"{type(e).__name__}: {e}"
+                log.warning("construction.attempt_failed",
+                            persona=persona, attempt=attempt, error=last_error)
+                if attempt == 0:
+                    continue
+                raise
+    # Unreachable — the loop either returns or raises.
+    raise RuntimeError(f"construction unreachable: {last_error}")
 
 
-# Re-export for convenience so callers don't reach into persona_constraints
-# directly. The constraint registry is THE place to edit per-persona caps.
+def research_to_payload_dict(research) -> dict[str, Any]:
+    """Convert a TickerResearch instance to a plain dict suitable for
+    `format_research_payload`. Handles both Pydantic model instances
+    and already-dict shapes."""
+    if hasattr(research, "model_dump"):
+        d = research.model_dump()
+    else:
+        d = dict(research)
+    return {
+        "ticker": d.get("ticker"),
+        "conviction": float(d.get("conviction") or 0.5),
+        "thesis_md": d.get("thesis_md") or "",
+        "bull_case": d.get("bull_case") or "",
+        "bear_case": d.get("bear_case") or "",
+    }
+
+
 __all__ = [
     "build_construction_prompt",
+    "call_anthropic_construction",
     "constraints_for",
     "construct_portfolio",
+    "format_research_payload",
+    "research_to_payload_dict",
 ]
