@@ -44,7 +44,7 @@ Write-Output "==> Deploying $SERVICE to Cloud Run"
     --region $REGION `
     --platform managed `
     --service-account $SA `
-    --allow-unauthenticated `
+    --no-allow-unauthenticated `
     --cpu 1 `
     --memory 1Gi `
     --min-instances 0 `

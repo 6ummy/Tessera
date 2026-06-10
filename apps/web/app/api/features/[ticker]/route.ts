@@ -11,6 +11,7 @@
  */
 
 import { NextResponse } from "next/server";
+import { buildWorkerAuthHeader, workerBaseUrl } from "@/lib/gcp-auth";
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
@@ -28,8 +29,8 @@ export async function GET(
     );
   }
 
-  const workerUrl = process.env.WORKER_WEBHOOK_URL;
-  if (!workerUrl) {
+  const base = workerBaseUrl();
+  if (!base) {
     return NextResponse.json(
       {
         ok: false,
@@ -41,13 +42,12 @@ export async function GET(
     );
   }
 
-  const base = workerUrl.replace(/\/jobs\/[^/]+\/?$/, "").replace(/\/$/, "");
   const target = `${base}/api/features/${encodeURIComponent(ticker.toUpperCase())}`;
-  const secret = process.env.WORKER_WEBHOOK_SECRET;
+  const authHeader = await buildWorkerAuthHeader(base);
 
   try {
     const upstream = await fetch(target, {
-      headers: { ...(secret ? { authorization: `Bearer ${secret}` } : {}) },
+      headers: { ...authHeader },
       signal: AbortSignal.timeout(10_000),
       next: { revalidate: 60 },
     });

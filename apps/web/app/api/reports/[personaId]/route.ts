@@ -8,6 +8,7 @@
  */
 
 import { NextResponse } from "next/server";
+import { buildWorkerAuthHeader, workerBaseUrl } from "@/lib/gcp-auth";
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
@@ -29,21 +30,20 @@ export async function GET(
   const url = new URL(req.url);
   const limit = url.searchParams.get("limit") ?? "5";
 
-  const workerUrl = process.env.WORKER_WEBHOOK_URL;
-  if (!workerUrl) {
+  const base = workerBaseUrl();
+  if (!base) {
     return NextResponse.json(
       { ok: false, error: "WORKER_WEBHOOK_URL not configured", reports: [] },
       { status: 503 },
     );
   }
 
-  const base = workerUrl.replace(/\/jobs\/[^/]+\/?$/, "").replace(/\/$/, "");
   const target = `${base}/api/reports/${personaId}?limit=${encodeURIComponent(limit)}`;
-  const secret = process.env.WORKER_WEBHOOK_SECRET;
+  const authHeader = await buildWorkerAuthHeader(base);
 
   try {
     const upstream = await fetch(target, {
-      headers: { ...(secret ? { authorization: `Bearer ${secret}` } : {}) },
+      headers: { ...authHeader },
       signal: AbortSignal.timeout(15_000),
       // Edge cache: persona reports refresh weekly (Fri 22:00 UTC after
       // persona_batch). 60s s-maxage is generous; user-facing freshness
