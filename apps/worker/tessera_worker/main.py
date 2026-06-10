@@ -385,7 +385,9 @@ async def get_ticker_features(
     frontend handles per-field formatting (% / x / $)."""
     _require_webhook_auth(authorization)
     # Normalize: UI may send lowercase or mixed; universe stores uppercase.
-    ticker_u = ticker.upper()
+    # Crypto pairs stored as 'SOL/USD'; URL uses 'SOL-USD' (slashes break
+    # the route). Equity tickers don't contain '-' so this is safe.
+    ticker_u = ticker.upper().replace("-", "/")
     from tessera_worker.db import session_scope
     from sqlalchemy import text as _sql
     from tessera_worker.universe import META_BY_TICKER
@@ -477,7 +479,11 @@ async def get_ticker_prices(
         }
     """
     _require_webhook_auth(authorization)
-    ticker_u = ticker.upper()
+    # Crypto pairs are stored as 'SOL/USD' but URLs use 'SOL-USD' (slashes
+    # would break the route). Normalize so the universe lookup + SQL query
+    # both find the canonical row. Equity tickers don't contain '-' so this
+    # is safe: BRK.B uses '.', no ticker in our universe uses dash.
+    ticker_u = ticker.upper().replace("-", "/")
     from tessera_worker.db import session_scope
     from sqlalchemy import text as _sql
     from tessera_worker.universe import META_BY_TICKER
