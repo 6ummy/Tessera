@@ -75,6 +75,15 @@ class Settings(BaseSettings):
     # `Authorization: Bearer ${WORKER_WEBHOOK_SECRET}`; we reject any /jobs/*
     # request without it. Blank = auth disabled (local dev only).
     worker_webhook_secret: str = Field("", description="Bearer secret for /jobs/* endpoints")
+    # When deployed behind `--no-allow-unauthenticated`, Cloud Run validates
+    # the IAM identity token BEFORE the request reaches this app. In that
+    # mode set RELY_ON_IAM=true to skip the app-level bearer check
+    # entirely — IAM is the only authentication layer, and the bearer
+    # secret is irrelevant. The Authorization header still arrives carrying
+    # the Google-signed JWT but we don't verify it again (Cloud Run already
+    # did). Default false so local dev + `--allow-unauthenticated` deploys
+    # continue to enforce the bearer.
+    rely_on_iam: bool = Field(False, description="Skip bearer check; trust Cloud Run IAM")
 
     # ── SEC EDGAR ──
     # SEC requires a contact-bearing User-Agent on every request; non-conformant

@@ -31,11 +31,28 @@ app = FastAPI(title="Tessera Worker", version="0.1.0")
 
 
 def _require_webhook_auth(authorization: str | None) -> None:
-    """Reject /jobs/* requests without the shared bearer secret.
+    """Reject /jobs/* + /api/* requests that aren't authorized.
 
-    Blank secret on the worker = auth disabled (local dev only). Production
-    deploy always sets WORKER_WEBHOOK_SECRET via Secret Manager.
+    Three modes, in priority order:
+
+    1. **RELY_ON_IAM=true**: Cloud Run was deployed with
+       `--no-allow-unauthenticated`, so the IAM layer validated a Google-
+       signed identity token before the request reached this app. We
+       trust IAM and skip the app-level bearer check. The Authorization
+       header still arrives (Cloud Run forwards it) but we don't re-
+       verify the JWT — re-validating Google's signature in-app would
+       just duplicate what Cloud Run already did.
+
+    2. **bearer secret set + present**: shared `WORKER_WEBHOOK_SECRET`
+       between Vercel proxies and this worker. Used during the rollout
+       window before --no-allow-unauthenticated flips, and as the
+       permanent guard if we ever revert to --allow-unauthenticated.
+
+    3. **bearer secret blank**: dev mode, no auth. Cloud Run prod always
+       has the secret set unless RELY_ON_IAM is on.
     """
+    if _settings.rely_on_iam:
+        return
     expected = _settings.worker_webhook_secret
     if not expected:
         # No secret configured -> open mode for local dev. Cloud Run always has one.

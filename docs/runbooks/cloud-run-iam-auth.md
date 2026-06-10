@@ -12,6 +12,12 @@ session on 2026-06-09 (rotated same day). The replacement:
 
 - Cloud Run flips to `--no-allow-unauthenticated`. The only callers it
   accepts are GCP principals with `roles/run.invoker`.
+- Worker app sets `RELY_ON_IAM=true` (env var) so its
+  `_require_webhook_auth` skips the app-level bearer check entirely —
+  IAM is the single auth boundary. Without this env, the app would
+  re-check the bearer against `WORKER_WEBHOOK_SECRET` and reject the
+  IAM JWT (the JWT doesn't equal the secret), even though Cloud Run
+  IAM already validated the request.
 - A new dedicated service account `tessera-vercel` holds that role and
   nothing else.
 - Vercel's Edge proxies mint a per-call Google identity token using the
