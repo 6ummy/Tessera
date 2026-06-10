@@ -22,7 +22,9 @@ export async function GET(
   { params }: { params: { ticker: string } },
 ) {
   const { ticker } = params;
-  if (!/^[A-Z./]{1,12}$/i.test(ticker)) {
+  // Allow dash for crypto pairs (SOL-USD). Worker normalizes dash→slash
+  // for the universe lookup since slashes can't appear in path segments.
+  if (!/^[A-Z./\-]{1,12}$/i.test(ticker)) {
     return NextResponse.json(
       { ok: false, error: `invalid ticker: ${ticker}` },
       { status: 400 },
