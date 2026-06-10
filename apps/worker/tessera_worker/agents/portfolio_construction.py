@@ -91,6 +91,17 @@ Return ONLY a JSON object with this shape:
 }}
 
 Active proposals + cash_target MUST sum to exactly 1.0.
+
+If you only see a handful of high-conviction names and worry the book
+is too concentrated, size the next conviction tier too — sized
+exposure beats an unsourced cash holding when the persona mandate
+forbids large cash drag. Your cash_target MUST stay inside the cash
+range above. If even after sizing every reasonable candidate the book
+still wouldn't sum to 1.0, you've found a contradiction with the
+constraints — surface it briefly in `notes_to_manager` and size the
+book to the closest legal allocation, but DO NOT silently leave the
+total below 1.0.
+
 Names that don't qualify for sizing get OMITTED — don't include
 target_weight=0 rows. Their research notes are already on file.
 Return JSON only, no markdown fences, no commentary."""
@@ -206,11 +217,24 @@ def construct_portfolio(
                     cost_usd=cost,
                     allowed_news_ids=set(),
                 )
-                # Cap enforcement on top of Pydantic: max_single_name and
-                # max_sector come from the constraint registry, not the
-                # schema (which is a universal upper bound). A violation
-                # here means the LLM ignored the prompt — we log + retry
-                # rather than persist a non-compliant book.
+                # ──────────────────────────────────────────────────────
+                # Validation. The schema already enforces sum ≤ 1.0 as a
+                # universal upper bound; this block adds the persona-
+                # specific rules: cap, sector, cash range, AND the
+                # strict-equality conservation check. Any violation
+                # triggers a retry with the error in `last_error` —
+                # `_retry_guidance_for` will tell the LLM how to fix.
+                # ──────────────────────────────────────────────────────
+                sum_positions = sum(p.target_weight for p in report.proposals)
+                total = sum_positions + report.cash_target
+                if abs(total - 1.0) > 0.01:
+                    raise ValueError(
+                        f"book sum {total:.4f} ≠ 1.0 — "
+                        f"positions {sum_positions:.4f} + cash {report.cash_target:.4f}. "
+                        f"Fill missing exposure with additional sized proposals "
+                        f"or raise cash_target to absorb the gap (within range "
+                        f"[{constraints.cash_min:.2f}, {constraints.cash_max:.2f}])."
+                    )
                 for p in report.proposals:
                     if p.target_weight > constraints.max_single_name + 1e-6:
                         raise ValueError(
@@ -223,6 +247,19 @@ def construct_portfolio(
                     raise ValueError(
                         f"cash_target {report.cash_target:.4f} outside "
                         f"{persona} range [{constraints.cash_min:.4f}, {constraints.cash_max:.4f}]"
+                    )
+                # Position count guidance — soft floor. If the LLM
+                # underfilled the book within constraint cash range, it
+                # almost always means it parsed "qualify for sizing" too
+                # strictly. Surface the conflict instead of persisting a
+                # 1-position book.
+                n_active = sum(1 for p in report.proposals if p.target_weight > 1e-4)
+                if n_active < constraints.target_position_count_min:
+                    raise ValueError(
+                        f"only {n_active} active positions, persona requires "
+                        f"≥{constraints.target_position_count_min}. Either size more "
+                        f"of the research candidates or revisit which ones cleared "
+                        f"the conviction floor."
                     )
                 log_llm_call(
                     session,
