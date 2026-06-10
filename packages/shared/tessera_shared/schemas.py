@@ -109,7 +109,7 @@ class AnalystReport(BaseModel):
     as_of: date
     proposals: list[Proposal] = Field(default_factory=list, max_length=30)
     cash_target: float = Field(ge=0, le=1)
-    notes_to_manager: str = Field(default="", max_length=500)
+    notes_to_manager: str = Field(default="", max_length=2000)
     inputs_hash: str = Field(description="SHA256 of the feature snapshot the LLM read")
     model: str
     tokens_in: int = Field(ge=0)
@@ -166,7 +166,7 @@ class RegimeReport(BaseModel):
     regime: RegimeProbabilities
     allocations: list[RegimeAllocation] = Field(default_factory=list, max_length=10)
     cash_target: float = Field(ge=0, le=1)
-    notes_to_manager: str = Field(default="", max_length=500)
+    notes_to_manager: str = Field(default="", max_length=2000)
     inputs_hash: str = Field(description="SHA256 of the macro snapshot Ray read")
     model: str
     tokens_in: int = Field(ge=0)
