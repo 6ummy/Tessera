@@ -28,8 +28,15 @@ API = "https://api.exchange.coinbase.com"
 GRANULARITY_DAY = 86_400
 MAX_CANDLES_PER_REQ = 300  # Coinbase hard cap
 
-# Default crypto universe — extend later if Cathie wants more alts
-DEFAULT_PAIRS = ("BTC-USD", "ETH-USD")
+# Default crypto universe derives from universe.py's CRYPTO list so the
+# canonical source stays one file. Coinbase API uses BTC-USD (dash) while
+# we store BTC/USD internally — convert on the fly.
+def _default_pairs() -> tuple[str, ...]:
+    from tessera_worker.universe import CRYPTO
+    return tuple(t.ticker.replace("/", "-") for t in CRYPTO)
+
+
+DEFAULT_PAIRS = _default_pairs()
 
 
 @dataclass(frozen=True, slots=True)

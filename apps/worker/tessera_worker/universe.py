@@ -95,15 +95,30 @@ _RAW: list[TickerMeta] = [
 ]
 
 
-# Crypto handled separately by the Coinbase ingestor; not in equity ingestor's
-# universe to avoid market-hours / exchange confusion.
+# Crypto handled by the Coinbase ingestor; market hours / exchange shape
+# differs from equities so the equity ingestor skips these. All listed on
+# Coinbase Exchange (public market-data API, no auth). Selection rationale:
+#   - BTC + ETH: blue-chip benchmark exposure (already shipped)
+#   - SOL / AVAX / DOT: alternative L1 chains (Solana, Avalanche, Polkadot)
+#   - LINK: oracle infrastructure (de facto standard)
+#   - DOGE: memecoin / payment-rails baseline; tracks retail sentiment
+#   - XRP: post-SEC-resolution relisting, cross-border payments narrative
 CRYPTO: list[TickerMeta] = [
-    TickerMeta("BTC/USD", "Bitcoin",  "Crypto", "crypto"),
-    TickerMeta("ETH/USD", "Ethereum", "Crypto", "crypto"),
+    TickerMeta("BTC/USD",  "Bitcoin",      "Crypto", "crypto"),
+    TickerMeta("ETH/USD",  "Ethereum",     "Crypto", "crypto"),
+    TickerMeta("SOL/USD",  "Solana",       "Crypto", "crypto"),
+    TickerMeta("AVAX/USD", "Avalanche",    "Crypto", "crypto"),
+    TickerMeta("LINK/USD", "Chainlink",    "Crypto", "crypto"),
+    TickerMeta("DOT/USD",  "Polkadot",     "Crypto", "crypto"),
+    TickerMeta("DOGE/USD", "Dogecoin",     "Crypto", "crypto"),
+    TickerMeta("XRP/USD",  "XRP",          "Crypto", "crypto"),
 ]
 
 
-UNIVERSE: list[TickerMeta] = _RAW
+# UNIVERSE = equities + ETFs + crypto so `by_asset_class("crypto")` works
+# uniformly and the coinbase ingestor can drive its pair list from the
+# canonical source instead of a hardcoded constant.
+UNIVERSE: list[TickerMeta] = _RAW + CRYPTO
 TICKERS: list[str] = [t.ticker for t in UNIVERSE]
 META_BY_TICKER: dict[str, TickerMeta] = {t.ticker: t for t in UNIVERSE}
 
