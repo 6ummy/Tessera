@@ -87,7 +87,7 @@ Return ONLY a JSON object with this shape:
       "what_would_make_me_wrong": ["<short bullet>", ...]
     }}
   ],
-  "notes_to_manager": "<2-3 sentences on what the book reflects>"
+  "notes_to_manager": "<3-5 sentences on what the book reflects, any constraint conflicts surfaced, theme calls. Under 1500 characters.>"
 }}
 
 Active proposals + cash_target MUST sum to exactly 1.0.
