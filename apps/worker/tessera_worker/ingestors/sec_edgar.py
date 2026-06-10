@@ -105,7 +105,12 @@ def _get(client: httpx.Client, url: str, **kwargs) -> httpx.Response:
 
 
 def _load_cik_map(client: httpx.Client) -> dict[str, int]:
-    """Fetch ticker→CIK once per process. Returns UPPER ticker → int CIK."""
+    """Fetch ticker→CIK once per process. Returns UPPER ticker → int CIK.
+
+    Adds dash↔dot aliases for dual-class names: SEC stores BRK-B but our
+    universe uses BRK.B. Mapping both keys to the same CIK means the
+    EDGAR ingestor finds our universe ticker without per-call patching.
+    """
     if _CIK_CACHE:
         return _CIK_CACHE
     r = _get(client, TICKERS_URL)
@@ -113,7 +118,12 @@ def _load_cik_map(client: httpx.Client) -> dict[str, int]:
     # SEC returns {"0":{"cik_str":..., "ticker":..., "title":...}, "1":{...}}
     for row in data.values():
         ticker = str(row["ticker"]).upper()
-        _CIK_CACHE[ticker] = int(row["cik_str"])
+        cik = int(row["cik_str"])
+        _CIK_CACHE[ticker] = cik
+        # Dual-class alias: SEC's BRK-B = universe BRK.B; same CIK
+        # works for either form. Same pattern for BF-B, RDS-A, etc.
+        if "-" in ticker:
+            _CIK_CACHE[ticker.replace("-", ".")] = cik
     log.info("sec.cik_loaded", n=len(_CIK_CACHE))
     return _CIK_CACHE
 
