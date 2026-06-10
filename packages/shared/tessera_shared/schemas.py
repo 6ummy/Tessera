@@ -38,6 +38,45 @@ class Persona(BaseModel):
     min_conviction: float = Field(ge=0, le=1, description="Below this, persona will not propose")
 
 
+# ── Pass-1 output: research note for one ticker (2-pass flow) ────────────
+class TickerResearch(BaseModel):
+    """One candidate's research note, output by the Pass-1 research call.
+
+    The 2-pass persona flow (introduced 2026-06-09) splits the old
+    single `run_thesis()` into a research call per (persona, ticker)
+    that outputs THIS — judgment only, no sizing — followed by a
+    single construction call per persona that takes a batch of these
+    plus the persona's PortfolioConstraints and produces a coherent
+    AnalystReport with `proposals + cash_target = 1.0`.
+
+    No `target_weight`, no `side`, no `cash_target`. Those are all
+    portfolio-level decisions made in Pass 2, where the LLM finally
+    has visibility into siblings.
+    """
+
+    ticker: str = Field(min_length=1, max_length=8)
+    conviction: float = Field(ge=0, le=1,
+        description="0..1 strength of belief, persona-relative. The "
+                    "construction prompt embeds the persona's "
+                    "min_active_conviction / min_strong_conviction "
+                    "thresholds so this score has a shared meaning.")
+    thesis_md: str = Field(min_length=20, max_length=2500,
+        description="The persona's voice on this name. Bull case, key "
+                    "edges, why it fits the persona's mandate.")
+    bull_case: str = Field(min_length=10, max_length=1000,
+        description="Single-paragraph upside scenario with the lever "
+                    "that has to work for the thesis to hit.")
+    bear_case: str = Field(min_length=10, max_length=1000,
+        description="Single-paragraph downside scenario — not a "
+                    "boilerplate disclaimer. The persona names a "
+                    "specific way the call breaks.")
+    what_would_make_me_wrong: list[str] = Field(default_factory=list,
+                                                max_length=8,
+        description="Same field as Proposal — concrete, observable "
+                    "datapoints that would prove the thesis wrong.")
+    cited_news_ids: list[UUID] = Field(default_factory=list, max_length=10)
+
+
 # ── LLM output: a single proposed position ───────────────────────────────
 class Proposal(BaseModel):
     """One position a persona proposes. Output by the LLM, validated downstream.
