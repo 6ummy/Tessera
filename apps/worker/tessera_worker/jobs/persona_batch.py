@@ -371,8 +371,12 @@ def main() -> int:
     args = p.parse_args()
 
     as_of = date.fromisoformat(args.as_of) if args.as_of else None
-    result = run_batch(personas=args.personas, dry_run=args.dry_run,
-                       as_of=as_of, max_cost=args.max_cost)
+    # v2 is the default as of 2026-06-10 — research → construct →
+    # persist-one-row flow with deterministic normalize_book sizing.
+    # `run_batch` (single-pass legacy) remains importable for ~2 weeks
+    # in case we need to rollback before the next release.
+    result = run_batch_v2(personas=args.personas, dry_run=args.dry_run,
+                          as_of=as_of, max_cost=args.max_cost)
     print_summary(result)
     # Soft exit code: 0 unless we aborted on infra (budget / flag).
     return 1 if result.aborted_reason and "max-cost" not in result.aborted_reason else 0
