@@ -251,6 +251,7 @@ no broker, no LLM. It exists to validate UX before backend investment.
 | **SEC EDGAR** | `User-Agent` header (name + contact email) | Free, unmetered | 10-K (annual) + 10-Q (quarterly) full filings | Weekly (skip if accession already stored) | `filings` (meta + 8KB excerpt) + GCS (raw HTML) |
 | **SEC XBRL companyfacts** | same `User-Agent` | Free, unmetered | Structured GAAP fundamentals — revenue, op income, FCF, EPS, shares, balance sheet items, etc. SEC's pre-parsed XBRL JSON, no XML parsing needed. 39/42 tickers (vs FMP 20/42). | Daily (cheap, idempotent) | `fundamentals` (JSONB merge with FMP) |
 | **yfinance** (Yahoo, unofficial) | None | Free, scraped — no SLA | Last-resort fallback for `sharesOutstanding`, `marketCap`, `trailingPegRatio`, `grossMargins`, `trailingPE`, `forwardPE`. Used only when FMP + EDGAR leave the field blank (service / payment-network filers like V, MA whose XBRL doesn't expose these concepts). | Daily, as a synthetic `(ticker, today, income)` row in `fundamentals` (source='yfinance') | `fundamentals` (JSONB merge; compute reads as final fall-through) |
+| **yfinance history** (Yahoo, unofficial) | None | Free, scraped — no SLA, rate-limited (~4 rps) | `yf.Ticker(t).income_stmt` — annual diluted EPS / revenue / grossProfit / operatingIncome per fiscal year (~4 periods). Used to backfill EDGAR-sparse FY rows so `compute_eps_cagr_3y` + `compute_gross_margin_trend` can compute. | **Weekly** (Friday only, guard: `weekday() == 4`) — annual statements refresh quarterly + income_stmt endpoint is slow | `fundamentals` (synthetic FY rows per fy_end, `source='yfinance_history'`; JSONB merge fills NULL keys only) |
 
 **Why some have keys and some don't**
 
@@ -308,10 +309,13 @@ So instead of picking a primary source and accepting its gaps, the worker applie
 
 1. **FMP** (`fmp_fundamentals.py`) — annual income / balance / cash-flow filings as raw JSON. 30-day cache per ticker so the quota isn't burnt daily on quarterly data.
 2. **SEC XBRL companyfacts** (`sec_edgar_facts.py`) — for every us-gaap concept we care about, walks alternative concept names in priority order (e.g. revenue tries `RevenueFromContractWithCustomerExcludingAssessedTax`, then `Revenues`, then `SalesRevenueNet`). For capex specifically the priority is `PaymentsToAcquirePropertyPlantAndEquipment` → `PaymentsToAcquireProductiveAssets` → `PaymentsForCapitalImprovements`. dei.EntityCommonStockSharesOutstanding is consulted as a shares-outstanding fallback. JSONB-merge upserts preserve FMP-only fields where they exist.
-3. **yfinance** (`yf_shares.py`) — Yahoo's own pre-computed ratios pulled from `yf.Ticker(t).info`: `sharesOutstanding`, `marketCap`, `trailingPegRatio` / `pegRatio`, `grossMargins`, `trailingPE`, `forwardPE`. Writes a single synthetic income row keyed `(ticker, today, income)` so it sits next to the EDGAR / FMP rows without colliding (different period_end). yfinance is **only consulted by compute** when the EDGAR-derived path returned None — never as primary truth. Same sanity envelope (PEG ≤ 100, margins in [-1, 1], P/E ≤ 500) applies; a Yahoo glitch can't ship absurd values into the LLM prompt.
+3. **yfinance** — split across two ingestors with different cadences:
+   - **`yf_shares.py`** (daily) — Yahoo's own pre-computed ratios pulled from `yf.Ticker(t).info`: `sharesOutstanding`, `marketCap`, `trailingPegRatio` / `pegRatio`, `grossMargins`, `trailingPE`, `forwardPE`. Writes a single synthetic income row keyed `(ticker, today, income)` so it sits next to the EDGAR / FMP rows without colliding (different period_end). yfinance is **only consulted by compute** when the EDGAR-derived path returned None — never as primary truth. Same sanity envelope (PEG ≤ 100, margins in [-1, 1], P/E ≤ 500) applies; a Yahoo glitch can't ship absurd values into the LLM prompt.
+   - **`yf_history.py`** (weekly, Friday only) — `yf.Ticker(t).income_stmt` returns the last ~4 fiscal years of GAAP-style line items (diluted EPS, revenue, grossProfit, operatingIncome). Writes one synthetic row per fy_end with `source='yfinance_history', period='FY'`. JSONB merge order keeps EDGAR / FMP canonical values on overlap; yf only fills NULL keys. Unlocks `eps_cagr_3y` + `gross_margin_trend` for filers whose XBRL is sparse on the FY annual concepts. Friday-only cadence because annual statements refresh quarterly and Yahoo's income_stmt endpoint is slow + aggressively rate-limited (~4 rps soft cap).
 
 **At read time** (`features/compute.py::_load_fundamentals_latest`):
 
+- Pulls up to **24 most-recent income rows per ticker** (was 8 originally; bumped 2026-06-09 after V — a filer that mixes quarterly + annual — was returning only 2 FY rows in the 8-row window, which blocks `compute_eps_cagr_3y` at its `len(annual) < 4` guard). 24 covers four fiscal years of mixed cadence reliably; memory cost is negligible.
 - For each field group, walks the available rows **newest-first and fills per-field independently from the first non-null observation**. A `shares_basic` from FY2024 plus a `marketCap` from today's yfinance row is a coherent estimate, not a corruption.
 - For `marketCap` specifically there are up to **four candidates** (`close × diluted`, `close × basic`, payload mcap from cash-flow, payload mcap from income). `estimate_market_cap()` uses the reusable `cross_validated()` helper: if candidates agree within `max_spread=2.0×` we trust the most-current; if they disagree we **pick the largest and log the disagreement** with all candidates and the chosen value. Rationale: undercount errors (missing share class, wrong-unit shares) are more common than overcount, and larger mcap → lower fcf_yield is the more conservative direction for the LLM prompt.
 - The same `cross_validated()` helper is the foundation for broader cross-source validation as we add it: an EDGAR-computed gross_margin can be sanity-checked against a yfinance grossMargins, an FMP debt-to-equity against an EDGAR-derived one. Today only mcap uses the helper; the framework is in place.
@@ -567,6 +571,10 @@ apps/
         yf_shares.py                # yfinance synthetic row — shares /
                                     # mcap / peg / grossMargins / PE last-
                                     # resort fall-through (Phase C)
+        yf_history.py               # yfinance Ticker.income_stmt — annual
+                                    # EPS / revenue / GP per fy_end for
+                                    # eps_cagr_3y + gross_margin_trend
+                                    # (weekly cron, Friday only)
       features/
         compute.py                  # deterministic feature builder; per-
                                     # field newest-non-null walk +
@@ -587,6 +595,8 @@ apps/
       dump_v_xbrl_concepts.py       # every us-gaap concept a filer reports,
                                     # marking which our mapping covers
       dump_v_dei.py                 # peek at dei namespace coverage
+      dump_v_income_recent.py       # merged income payload per period_end
+                                    # (e.g. confirm yf_history fills FY rows)
     tests/
       test_features.py              # 13 hypothesis property tests
 
