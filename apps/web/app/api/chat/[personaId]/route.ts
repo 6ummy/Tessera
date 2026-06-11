@@ -27,6 +27,37 @@ export const dynamic = "force-dynamic";
 
 const VALID_PERSONAS = new Set(["warren", "cathie", "ray", "peter"]);
 
+// ── Abuse guards (2026-06-11 audit Step 2) ────────────────────────────
+// This endpoint is public until Phase D auth lands. Three layers:
+//   1. per-IP rate limit here (best-effort: the Map is per edge isolate,
+//      so a determined attacker spread across regions sees a higher
+//      effective limit — acceptable; the worker's budget pools are the
+//      hard backstop)
+//   2. message/history size caps here (cheap reject before the worker)
+//   3. worker-side caps + a chat-only daily budget pool (the real gate)
+const RATE_LIMIT_WINDOW_MS = 60_000;
+const RATE_LIMIT_MAX_PER_WINDOW = 10;
+const MAX_MESSAGE_CHARS = 4_000;
+const MAX_HISTORY_TURNS = 20;
+
+const rateHits = new Map<string, number[]>();
+
+function isRateLimited(ip: string): boolean {
+  const now = Date.now();
+  const recent = (rateHits.get(ip) ?? []).filter(
+    (t) => now - t < RATE_LIMIT_WINDOW_MS,
+  );
+  if (recent.length >= RATE_LIMIT_MAX_PER_WINDOW) {
+    rateHits.set(ip, recent);
+    return true;
+  }
+  recent.push(now);
+  rateHits.set(ip, recent);
+  // Bound the map so a scan across many IPs can't grow isolate memory.
+  if (rateHits.size > 10_000) rateHits.clear();
+  return false;
+}
+
 export async function POST(
   req: Request,
   { params }: { params: { personaId: string } },
@@ -36,6 +67,15 @@ export async function POST(
     return NextResponse.json(
       { ok: false, error: `unknown persona: ${personaId}` },
       { status: 400 },
+    );
+  }
+
+  const ip =
+    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
+  if (isRateLimited(ip)) {
+    return NextResponse.json(
+      { ok: false, error: "rate_limited", retryAfterSeconds: 60 },
+      { status: 429, headers: { "retry-after": "60" } },
     );
   }
 
@@ -58,6 +98,15 @@ export async function POST(
       { status: 400 },
     );
   }
+  if (body.message.length > MAX_MESSAGE_CHARS) {
+    return NextResponse.json(
+      { ok: false, error: `message too long (max ${MAX_MESSAGE_CHARS} chars)` },
+      { status: 400 },
+    );
+  }
+  const history = Array.isArray(body.history)
+    ? body.history.slice(-MAX_HISTORY_TURNS)
+    : [];
 
   // Forward to the worker's /api/chat/<persona> endpoint. The worker
   // returns text/event-stream; we pipe it through unchanged.
@@ -74,7 +123,7 @@ export async function POST(
       },
       body: JSON.stringify({
         message: body.message,
-        history: body.history ?? [],
+        history,
       }),
       // No AbortSignal.timeout here — we want the stream to run as long
       // as the worker keeps producing. Vercel's own 60s edge timeout is

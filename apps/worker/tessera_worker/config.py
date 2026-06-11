@@ -37,6 +37,14 @@ class Settings(BaseSettings):
     llm_model_thesis: str = Field("claude-sonnet-4-6")
     llm_model_review: str = Field("claude-opus-4-7")
     llm_max_daily_cost_usd: float = Field(20.0, description="Auto-pause batch if exceeded")
+    # Chat shares llm_call_log with the thesis path but gets its own daily
+    # pool: the public chat endpoint is unauthenticated until Phase D, and
+    # without a separate cap an abuser could burn the global budget and
+    # starve the Friday persona batch. Chat refuses first; theses keep
+    # their headroom.
+    llm_max_daily_cost_chat_usd: float = Field(
+        2.0,
+        description="Daily cap for stage='chat' calls only; chat refuses beyond this")
 
     # ── Embeddings (Voyage AI — Anthropic-recommended) ──
     # Blank → embedding writes skipped, persona_memory falls back to

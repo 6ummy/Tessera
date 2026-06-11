@@ -1,12 +1,13 @@
 """Daily ingestion orchestrator — what Vercel Cron triggers.
 
-Sequence (each step idempotent, independently retriable):
-1. Alpaca EOD (equities + ETFs)
-2. Coinbase EOD (BTC, ETH)
-3. FRED macro
-4. FMP fundamentals (only refresh if last update > 30 days; quarterly cadence)
-5. NewsAPI news (last 24h)
-6. Feature builder (recompute ticker_features for the full universe)
+Steps run in STEPS-dict order, each idempotent and independently retriable:
+ohlcv (Alpaca equities + Coinbase crypto) → FRED macro → fundamentals
+(FMP 30-day cache → SEC XBRL → FMP key-metrics → yfinance shares daily /
+history weekly) → news → SEC filings → feature builder → coverage audit →
+SPY canary (read-only; >100bps divergence vs Yahoo fails the run).
+
+The whole run holds a Postgres advisory lock — a second trigger landing
+mid-run returns immediately as a no-op.
 
 Run:
     python -m tessera_worker.jobs.ingest_daily
@@ -28,7 +29,7 @@ from datetime import UTC, date, datetime, timedelta
 
 from sqlalchemy import text
 
-from tessera_worker.db import session_scope
+from tessera_worker.db import session_scope, try_advisory_lock
 from tessera_worker.features.compute import build as build_features
 from tessera_worker.ingestors import (
     alpaca_eod,
@@ -267,6 +268,30 @@ def _step_coverage_audit() -> dict[str, object]:
     }
 
 
+def _step_spy_canary() -> dict[str, object]:
+    """Read-only: SPY 1y return from our rows vs Yahoo reference.
+
+    Beyond-threshold divergence raises → step fails → exit 1 / Sentry.
+    Yahoo being unreachable is logged + skipped (their outage, not our
+    regression). See jobs/spy_canary.py for why this is a nightly step.
+    """
+    import httpx as _httpx
+
+    from tessera_worker.jobs.spy_canary import run_canary
+
+    try:
+        r = run_canary()
+    except (_httpx.HTTPError, KeyError, IndexError) as e:
+        log.warning("spy_canary.reference_unavailable", err=str(e))
+        return {"skipped_reason": f"yahoo_unavailable: {type(e).__name__}"}
+    return {
+        "diff_bps": round(r.diff_bps, 2),
+        "our_return": round(r.our_return, 6),
+        "yahoo_return": round(r.yahoo_return, 6),
+        "window": f"{r.window_start}->{r.window_end}",
+    }
+
+
 STEPS: dict[str, StepFn] = {
     "ohlcv_equity":  _step_ohlcv_equity,
     "ohlcv_crypto":  _step_ohlcv_crypto,
@@ -280,11 +305,33 @@ STEPS: dict[str, StepFn] = {
     "filings":       _step_filings,         # SEC 10-K/10-Q text → GCS
     "features":      _step_features,
     "coverage":      _step_coverage_audit,  # post-build NULL audit per ticker
+    "canary":        _step_spy_canary,      # SPY 1y return vs Yahoo, >100bps fails
 }
 
 
 def run(only: list[str] | None = None, skip: list[str] | None = None) -> list[StepResult]:
-    """Execute the daily pipeline. Skip-list applied after only-list."""
+    """Execute the daily pipeline. Skip-list applied after only-list.
+
+    Guarded by a Postgres advisory lock: if a second trigger lands while a
+    run is in flight (manual curl + scheduled cron in the same window), the
+    second returns immediately as a no-op instead of running the pipeline
+    in parallel. Steps are idempotent so parallel runs were never
+    *corrupting*, but they doubled third-party API usage and produced
+    confusing interleaved step_failed logs (architecture.md concurrent-run
+    note, resolved 2026-06-11).
+    """
+    with try_advisory_lock("ingest_daily") as acquired:
+        if not acquired:
+            log.warning("ingest_daily.skipped_already_running",
+                        hint="another ingest_daily holds the advisory lock")
+            return [StepResult(
+                name="advisory_lock", ok=True, duration_ms=0,
+                details={"skipped_reason": "another run holds the lock"},
+            )]
+        return _run_locked(only=only, skip=skip)
+
+
+def _run_locked(only: list[str] | None, skip: list[str] | None) -> list[StepResult]:
     only_set = set(only or STEPS.keys())
     skip_set = set(skip or [])
     plan = [name for name in STEPS if name in only_set and name not in skip_set]

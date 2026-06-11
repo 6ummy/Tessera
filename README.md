@@ -53,7 +53,9 @@ To run one full ingest locally (writes to the shared Neon DB):
 
 ```bash
 python -m tessera_worker.jobs.ingest_daily
-# 8 steps, usually ~5-10 min in steady state. Use --only/--skip to run a subset.
+# 13 steps (ingest → features → coverage audit → SPY canary), usually
+# ~5-10 min in steady state. Use --only/--skip to run a subset.
+# Guarded by a Postgres advisory lock — a second concurrent run no-ops.
 ```
 
 To recompute only deterministic features from already-ingested Neon data:
@@ -77,6 +79,7 @@ psql "$DATABASE_URL" -f migrations/002_persona_memory_vector_1024.sql
 psql "$DATABASE_URL" -f migrations/003_backtest_reports.sql
 psql "$DATABASE_URL" -f migrations/004_quality_features.sql
 psql "$DATABASE_URL" -f migrations/005_pe_ratios.sql
+psql "$DATABASE_URL" -f migrations/006_ohlcv_canonical_day.sql
 ```
 
 ### Production runtime (cloud)
@@ -85,13 +88,14 @@ psql "$DATABASE_URL" -f migrations/005_pe_ratios.sql
 Vercel Cron (21:30 UTC weekdays)
    → /api/cron/daily        (Bearer CRON_SECRET)
    → Cloud Run worker       (us-east1, tessera-worker)
-   → /jobs/ingest-daily     (Bearer WORKER_WEBHOOK_SECRET)
-   → 8-step ingest          (BackgroundTask, ~5-10 min steady state)
+   → /jobs/ingest-daily     (IAM identity token / Bearer fallback)
+   → 13-step ingest         (BackgroundTask, ~5-10 min steady state)
    → Neon Postgres          (single source of truth)
 ```
 
 - Worker image build + deploy: `apps/worker/scripts/deploy_cloud_run.ps1`
-- Secrets live in GCP Secret Manager (9 secrets, mounted as env in Cloud Run)
+  (`WORKER_WEBHOOK_URL` in Vercel is the BASE service URL, no `/jobs/...` path)
+- Secrets live in GCP Secret Manager (mounted as env in Cloud Run)
 - Observability: GCP Logging (structured JSON) + Sentry (errors only, both
   `tessera-web` and `tessera-worker` projects)
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from contextlib import contextmanager
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -60,3 +60,33 @@ def session_scope() -> Iterator[Session]:
         raise
     finally:
         session.close()
+
+
+@contextmanager
+def try_advisory_lock(name: str) -> Iterator[bool]:
+    """Non-blocking Postgres session-level advisory lock. Yields True if
+    acquired, False if another holder exists — caller decides what a
+    no-acquire means (e.g. duplicate cron trigger → fast no-op).
+
+    The lock lives on a dedicated connection held open for the duration of
+    the with-block; it is released explicitly on exit and implicitly if the
+    connection dies (Postgres frees session-level advisory locks on
+    disconnect), so a crashed run can never wedge the next one.
+    """
+    conn = get_engine().connect()
+    acquired = False
+    try:
+        acquired = bool(conn.execute(
+            text("SELECT pg_try_advisory_lock(hashtext(:name))"),
+            {"name": name},
+        ).scalar())
+        yield acquired
+    finally:
+        try:
+            if acquired:
+                conn.execute(
+                    text("SELECT pg_advisory_unlock(hashtext(:name))"),
+                    {"name": name},
+                )
+        finally:
+            conn.close()

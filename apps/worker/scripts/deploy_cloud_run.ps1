@@ -39,6 +39,12 @@ if ($LASTEXITCODE -ne 0) { Write-Error "Cloud Build failed"; exit 1 }
 
 Write-Output ""
 Write-Output "==> Deploying $SERVICE to Cloud Run"
+# no-cpu-throttling: ingest (~7 min) + persona_batch (5-10 min) run as
+# FastAPI BackgroundTasks AFTER the 202 response; with default
+# request-scoped CPU they get throttled/killed when the instance idles
+# (observed on the first deploy - architecture.md "Long-job survival").
+# Costs a bit more (CPU billed while instances are warm, still scales to
+# zero). Proper fix is Cloud Run Jobs - tracked in the improvement plan.
 & gcloud run deploy $SERVICE `
     --image $IMAGE_TAGGED `
     --region $REGION `
@@ -50,7 +56,8 @@ Write-Output "==> Deploying $SERVICE to Cloud Run"
     --min-instances 0 `
     --max-instances 2 `
     --timeout 3600 `
-    --set-env-vars "ENV=production,LOG_LEVEL=INFO,SENTRY_ENVIRONMENT=production,FEATURE_REAL_LLM=true,FEATURE_PAPER_EXECUTION=false,FEATURE_LIVE_TRADING=false,GCS_BUCKET_RAW=tessera-raw,LLM_MAX_DAILY_COST_USD=5.0,ALPACA_BASE_URL=https://paper-api.alpaca.markets,RELY_ON_IAM=true" `
+    --no-cpu-throttling `
+    --set-env-vars "ENV=production,LOG_LEVEL=INFO,SENTRY_ENVIRONMENT=production,FEATURE_REAL_LLM=true,FEATURE_PAPER_EXECUTION=false,FEATURE_LIVE_TRADING=false,GCS_BUCKET_RAW=tessera-raw,LLM_MAX_DAILY_COST_USD=5.0,LLM_MAX_DAILY_COST_CHAT_USD=2.0,ALPACA_BASE_URL=https://paper-api.alpaca.markets,RELY_ON_IAM=true" `
     --set-secrets "DATABASE_URL=DATABASE_URL:latest,ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest,ALPACA_API_KEY=ALPACA_API_KEY:latest,ALPACA_API_SECRET=ALPACA_API_SECRET:latest,FMP_API_KEY=FMP_API_KEY:latest,FRED_API_KEY=FRED_API_KEY:latest,NEWSAPI_API_KEY=NEWSAPI_API_KEY:latest,SENTRY_DSN=SENTRY_DSN:latest,WORKER_WEBHOOK_SECRET=WORKER_WEBHOOK_SECRET:latest,SEC_USER_AGENT=SEC_USER_AGENT:latest"
 # Optional: chat memory uses Voyage embeddings if VOYAGE_API_KEY is set.
 # Create the secret once with:
@@ -67,4 +74,11 @@ Write-Output "==> Deployed."
 Write-Output "    Service URL: $URL"
 Write-Output "    Health:      $URL/health  (will 403 - auth required, that's expected)"
 Write-Output ""
-Write-Output "Next: set WORKER_WEBHOOK_URL in Vercel to:  $URL/jobs/ingest-daily"
+# WORKER_WEBHOOK_URL must be the BASE service URL (no /jobs/... path):
+# gcp-auth.ts strips any path anyway, each Vercel route appends its own,
+# and the IAM identity-token audience must match the bare service URL.
+# Both URL styles Cloud Run prints (ffr7g3a76a-ue.a.run.app and
+# <project-number>.<region>.run.app) point at the same service - if Vercel
+# already holds one of them, no change is needed after a redeploy.
+Write-Output "Vercel WORKER_WEBHOOK_URL should be the BASE URL (no path):  $URL"
+Write-Output "(if Vercel already has a working base URL for this service, leave it)"

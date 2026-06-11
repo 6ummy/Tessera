@@ -167,6 +167,40 @@ async def trigger_persona_batch(
     return {"status": "queued", "job": "persona_batch"}
 
 
+# ── Chat input caps ──────────────────────────────────────────────────────
+# The chat endpoint is reachable from the public internet (Vercel proxy,
+# no user auth until Phase D) and `message` + `history` are entirely
+# client-controlled. Without caps a single request can carry an arbitrary
+# token bill — the daily budget pools bound the damage per day, these
+# bound it per request. Values are generous for real usage: the UI sends
+# short questions plus its own accumulated history.
+MAX_CHAT_MESSAGE_CHARS = 4_000
+MAX_CHAT_HISTORY_TURNS = 20
+MAX_CHAT_HISTORY_ITEM_CHARS = 4_000
+
+
+def _sanitize_chat_history(raw: object) -> list[dict]:
+    """Clamp client-supplied chat history to a safe shape.
+
+    Keeps only well-formed {role, content} dicts with role in
+    user/assistant, truncates each content, and keeps the most recent
+    MAX_CHAT_HISTORY_TURNS items. Malformed entries are dropped silently —
+    history is a courtesy for conversational continuity, not critical
+    state worth a 400."""
+    if not isinstance(raw, list):
+        return []
+    clean: list[dict] = []
+    for item in raw[-MAX_CHAT_HISTORY_TURNS:]:
+        if not isinstance(item, dict):
+            continue
+        role = item.get("role")
+        content = item.get("content")
+        if role not in ("user", "assistant") or not isinstance(content, str) or not content:
+            continue
+        clean.append({"role": role, "content": content[:MAX_CHAT_HISTORY_ITEM_CHARS]})
+    return clean
+
+
 @app.post("/api/chat/{persona_id}")
 async def chat_stream(
     persona_id: str,
@@ -193,9 +227,14 @@ async def chat_stream(
 
     body = await request.json()
     message = body.get("message")
-    history = body.get("history") or []
     if not message or not isinstance(message, str):
         raise HTTPException(status_code=400, detail="missing 'message'")
+    if len(message) > MAX_CHAT_MESSAGE_CHARS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"message too long ({len(message)} > {MAX_CHAT_MESSAGE_CHARS} chars)",
+        )
+    history = _sanitize_chat_history(body.get("history"))
 
     from tessera_worker.agents.chat import (
         ChatBudgetExceeded,
