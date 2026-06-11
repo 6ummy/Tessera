@@ -423,29 +423,24 @@ def construct_portfolio(
                     allowed_news_ids=set(),
                 )
                 # ──────────────────────────────────────────────────────
-                # Post-normalize validation. normalize_book has already
-                # enforced sum=1.0, the single-name cap, and (best-effort)
-                # the cash range. We re-check sum as a belt-and-suspenders
-                # sanity guard and surface a min-positions floor; cap +
-                # cash range are guaranteed by the normalizer so we just
-                # log if they ever drift (impossible-envelope tickets).
+                # Risk gateway — the Decision Plane's final stop
+                # (risk/gateway.py). normalize_book already enforced
+                # sum=1.0 + the single-name cap deterministically; the
+                # gateway re-checks those as belt-and-suspenders and adds
+                # what the normalizer can't see: universe membership
+                # (anti-hallucination) and the SECTOR cap, which was
+                # prompt-only before 2026-06-11. Raising inside the
+                # attempt loop means a rejection on attempt 0 feeds the
+                # specific reasons back to the LLM as retry guidance.
                 # ──────────────────────────────────────────────────────
-                sum_positions = sum(p.target_weight for p in report.proposals)
-                total = sum_positions + report.cash_target
-                if abs(total - 1.0) > 0.01:
+                from tessera_worker.risk.gateway import gate
+
+                gate_result = gate(report)
+                if not gate_result.ok:
                     raise ValueError(
-                        f"post-normalize book sum {total:.4f} ≠ 1.0 — "
-                        f"positions {sum_positions:.4f} + cash {report.cash_target:.4f}. "
-                        f"Should never happen after normalize_book; "
-                        f"check that the normalized parsed dict was passed to "
-                        f"build_analyst_report."
+                        "risk gateway rejected the book: "
+                        + "; ".join(gate_result.reasons)
                     )
-                if report.cash_target > constraints.cash_max + 1e-6:
-                    log.info("construction.cash_above_target",
-                             persona=persona,
-                             cash=round(report.cash_target, 4),
-                             cash_max=round(constraints.cash_max, 4),
-                             reason="normalizer fallback — shortlist too narrow for envelope")
                 # Position count floor — only check now that all sizing
                 # is done. If the LLM dropped to 1-2 positions it's
                 # almost always because it parsed "qualify for sizing"

@@ -598,7 +598,11 @@ apps/
         ticker_resolver.py          # 6-level ticker resolution for chat
         persona_constraints.py      # construction-pass constraint registry
         portfolio_construction.py   # v2 pass-2: research → one book/persona
-      risk/                         # (Phase C — gateway pending)
+      risk/
+        gateway.py                  # gate(report) → RiskCheckResult; universe
+                                    # membership + sum=1.0 + single-name +
+                                    # sector caps (shipped 2026-06-11);
+                                    # VaR/drawdown wait for the paper engine
       jobs/
         ingest_daily.py             # 13-step orchestrator (what cron triggers);
                                     # advisory-locked against double-trigger
