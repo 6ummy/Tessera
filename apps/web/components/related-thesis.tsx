@@ -176,7 +176,10 @@ function ThesisModalBody({
   return (
     <div className="max-h-[85vh] overflow-y-auto">
       <div className="border-b border-ink-900/[0.06] px-7 py-6">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 pr-10">
+          {/* pr-10 reserves space on the right for the absolute-positioned
+              X close button (right-5 + p-1.5 + 1rem buffer); without it
+              the date would overlap the X on narrower viewports. */}
           <div className={cn("h-1.5 w-1.5 rounded-full", a.dot)} />
           <span className="text-[10px] font-medium uppercase tracking-[0.18em] text-ink-500">
             {persona.name} · {persona.archetype}

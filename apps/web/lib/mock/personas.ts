@@ -134,5 +134,9 @@ export const ACCENT_CLASS: Record<Persona["accent"], { bg: string; text: string;
   coral: { bg: "bg-coral-50", text: "text-coral-700", ring: "ring-coral-500/30", dot: "bg-coral-500" },
   sage: { bg: "bg-sage-400/15", text: "text-sage-600", ring: "ring-sage-500/30", dot: "bg-sage-500" },
   plum: { bg: "bg-plum-500/10", text: "text-plum-600", ring: "ring-plum-500/30", dot: "bg-plum-500" },
-  ink: { bg: "bg-ink-900/[0.04]", text: "text-ink-800", ring: "ring-ink-800/20", dot: "bg-ink-800" },
+  // Warren's dot is `ink-900` (the darkest stop) not `ink-800` so its
+  // contrast against text-ink-700 / text-ink-500 labels matches the
+  // visual weight of the vibrant 500-level dots on Coral / Sage / Plum.
+  // Same hue family, just maxed out.
+  ink: { bg: "bg-ink-900/[0.04]", text: "text-ink-800", ring: "ring-ink-800/20", dot: "bg-ink-900" },
 };
