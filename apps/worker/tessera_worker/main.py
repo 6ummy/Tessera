@@ -647,12 +647,35 @@ def _reshape_report_row(
         summary = summary.rstrip() + "…"
 
     tickers: list[str] = []
+    # Per-ticker proposal map so the frontend can render related-thesis
+    # cards with the SPECIFIC ticker's conviction + sizing reasoning,
+    # instead of using the report's global title (which is the first
+    # proposal's). In v2 each report carries the whole persona book,
+    # so the global title becomes misleading when shown under a sibling
+    # ticker's "Related thesis" lookup.
+    per_ticker: dict[str, dict] = {}
     for p in (parsed.get("proposals") or []):
-        if p.get("ticker"):
-            tickers.append(p["ticker"])
+        t = p.get("ticker")
+        if not t:
+            continue
+        tickers.append(t)
+        per_ticker[t] = {
+            "side":          p.get("side") or "buy",
+            "conviction":    float(p.get("conviction") or 0),
+            "targetWeight":  float(p.get("target_weight") or 0),
+            "thesisMd":      (p.get("thesis_md") or "").strip(),
+        }
     for a in (parsed.get("allocations") or []):
-        if a.get("instrument"):
-            tickers.append(a["instrument"])
+        inst = a.get("instrument")
+        if not inst:
+            continue
+        tickers.append(inst)
+        per_ticker[inst] = {
+            "side":          "long",
+            "conviction":    0.0,
+            "targetWeight":  float(a.get("target_weight") or 0),
+            "thesisMd":      (a.get("thesis_md") or "").strip(),
+        }
 
     return {
         "id": row_id,
@@ -669,6 +692,7 @@ def _reshape_report_row(
         ),
         "cashTarget": parsed.get("cash_target"),
         "notesToManager": parsed.get("notes_to_manager") or "",
+        "proposalsByTicker": per_ticker,
     }
 
 

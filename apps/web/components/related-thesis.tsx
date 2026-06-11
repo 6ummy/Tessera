@@ -33,6 +33,18 @@ export type RelatedThesisEntry = {
  * pops a Radix Dialog with the full thesis body over a blurred
  * backdrop (same overlay style as the persona detail sheet).
  */
+// Map raw conviction to the same readable tier the worker uses in
+// _reshape_report_row. Centralized here so the UI doesn't depend on the
+// worker's reshape for the related-thesis rendering (which needs per-
+// ticker conviction, not the report's first-proposal conviction).
+function convictionLabel(conv: number, side: string): string {
+  if (side === "trim" || side === "sell") return side;
+  if (conv >= 0.80) return "Strong buy";
+  if (conv >= 0.65) return "Buy";
+  if (conv >= 0.50) return "Hold";
+  return "Watch";
+}
+
 export function RelatedThesis({
   ticker,
   entries,
@@ -44,6 +56,7 @@ export function RelatedThesis({
 }) {
   const [openId, setOpenId] = useState<string | null>(null);
   const openEntry = entries.find((e) => e.report.id === openId) ?? null;
+  const tickerKey = ticker.toUpperCase();
 
   return (
     <div className="mt-3 rounded-lg border border-ink-900/[0.06] bg-cream-50 px-3 py-3">
@@ -69,6 +82,13 @@ export function RelatedThesis({
         <ul className="space-y-1.5">
           {entries.map(({ report, persona }) => {
             const a = ACCENT_CLASS[persona.accent];
+            // Per-ticker proposal info if v2 report carried the map.
+            // Falls back to the global report.title for v1 rows or
+            // ETF/regime rows where the map isn't populated.
+            const perTicker = report.proposalsByTicker?.[tickerKey];
+            const tickerTitle = perTicker
+              ? `${persona.name} · ${tickerKey} · ${convictionLabel(perTicker.conviction, perTicker.side)}`
+              : report.title;
             return (
               <li key={report.id}>
                 <button
@@ -98,8 +118,13 @@ export function RelatedThesis({
                       </span>
                     </div>
                     <h5 className="display-serif mt-1 line-clamp-2 text-[13px] leading-snug text-ink-900">
-                      {report.title}
+                      {tickerTitle}
                     </h5>
+                    {perTicker?.thesisMd && (
+                      <p className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-ink-600">
+                        {perTicker.thesisMd}
+                      </p>
+                    )}
                   </div>
                 </button>
               </li>
@@ -121,7 +146,7 @@ export function RelatedThesis({
             >
               <X className="h-4 w-4" />
             </Dialog.Close>
-            {openEntry && <ThesisModalBody entry={openEntry} />}
+            {openEntry && <ThesisModalBody entry={openEntry} ticker={tickerKey} />}
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>
@@ -129,9 +154,25 @@ export function RelatedThesis({
   );
 }
 
-function ThesisModalBody({ entry }: { entry: RelatedThesisEntry }) {
+function ThesisModalBody({
+  entry,
+  ticker,
+}: {
+  entry: RelatedThesisEntry;
+  ticker: string;
+}) {
   const { report, persona } = entry;
   const a = ACCENT_CLASS[persona.accent];
+  // v2 reports carry per-ticker proposals on `proposalsByTicker`. When
+  // we're showing this modal for a specific sibling ticker, render its
+  // sizing reasoning, not the report's first-proposal body.
+  const perTicker = report.proposalsByTicker?.[ticker];
+  const title = perTicker
+    ? `${persona.name} · ${ticker} · ${convictionLabel(perTicker.conviction, perTicker.side)}`
+    : report.title;
+  const bodyParas = perTicker?.thesisMd
+    ? perTicker.thesisMd.split(/\n{2,}/).filter((p) => p.trim())
+    : report.body;
   return (
     <div className="max-h-[85vh] overflow-y-auto">
       <div className="border-b border-ink-900/[0.06] px-7 py-6">
@@ -144,24 +185,25 @@ function ThesisModalBody({ entry }: { entry: RelatedThesisEntry }) {
         </div>
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <Badge tone={TYPE_TONE[report.type]}>{TYPE_LABEL[report.type]}</Badge>
-          {report.tickers.map((t) => (
-            <span key={t} className="num text-[11px] font-medium text-ink-700">
-              {t}
+          <span className="num text-[11px] font-medium text-ink-700">{ticker}</span>
+          {perTicker && (
+            <span className="num text-[11px] text-ink-500">
+              · {(perTicker.targetWeight * 100).toFixed(1)}% weight · conv {perTicker.conviction.toFixed(2)}
             </span>
-          ))}
+          )}
         </div>
         <h2 className="display-serif mt-3 text-3xl leading-tight text-ink-900">
-          {report.title}
+          {title}
         </h2>
       </div>
       <div className="px-7 py-6">
         <div className="prose prose-sm max-w-none">
-          {report.body.length === 0 ? (
+          {bodyParas.length === 0 ? (
             <p className="text-[14px] leading-relaxed text-ink-500">
               {report.summary || "No body content."}
             </p>
           ) : (
-            report.body.map((p, i) => (
+            bodyParas.map((p, i) => (
               <p key={i} className="text-[14px] leading-relaxed text-ink-700">
                 {p}
               </p>

@@ -71,6 +71,13 @@ export type TickerPrices = {
   points: PricePoint[];
 };
 
+export type ProposalSummary = {
+  side: string;
+  conviction: number;
+  targetWeight: number;
+  thesisMd: string;
+};
+
 export type Report = {
   id: string;
   personaId: string;
@@ -84,4 +91,10 @@ export type Report = {
   whatWouldMakeMeWrong?: string[];
   cashTarget?: number | null;
   notesToManager?: string;
+  // v2 ships ONE row per persona per batch carrying every proposal.
+  // The global `title` reflects the FIRST proposal only — misleading
+  // when a sibling ticker looks up "related thesis" and finds this
+  // report. proposalsByTicker lets the UI render ticker-specific title
+  // + conviction + sizing reasoning instead.
+  proposalsByTicker?: Record<string, ProposalSummary>;
 };
