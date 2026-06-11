@@ -91,6 +91,7 @@ def backfill_yahoo(years: int = 20) -> None:
         sys.exit(2)
 
     from sqlalchemy import text
+
     from tessera_worker.db import session_scope
 
     tickers = [t.ticker for t in by_asset_class("equity")]
@@ -144,7 +145,8 @@ def backfill_yahoo(years: int = 20) -> None:
                 "vw": None,  # Yahoo doesn't expose VWAP
             }
             for idx, row in df.iterrows()
-            if not any(map(lambda x: x is None or x != x, [row["Open"], row["High"], row["Low"], row["Close"]]))
+            if not any(x is None or x != x
+                       for x in (row["Open"], row["High"], row["Low"], row["Close"]))
             and (idx.date() if hasattr(idx, "date") else idx) not in covered
         ]
         if not rows:

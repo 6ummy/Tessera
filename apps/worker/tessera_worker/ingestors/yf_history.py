@@ -35,9 +35,9 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass, field
-from datetime import date, datetime
-from typing import Iterable
+from datetime import datetime
 
 from sqlalchemy import text
 

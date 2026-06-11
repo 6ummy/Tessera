@@ -18,19 +18,18 @@ Returns a sorted list of canonical universe tickers (deduped).
 
 from __future__ import annotations
 
+import contextlib
 import os
 import re
 import sys
-from functools import lru_cache
 
 from tessera_worker.logging import get_logger
 
 # UTF-8 stdout so CLI demos with Korean / em-dashes don't crash on Windows cp1252
-try:
+with contextlib.suppress(AttributeError):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-except AttributeError:
-    pass
 from tessera_worker.universe import _RAW as _EQUITIES_AND_ETFS
+
 try:
     from tessera_worker.universe import CRYPTO as _CRYPTO
 except ImportError:

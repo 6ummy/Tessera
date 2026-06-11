@@ -7,18 +7,15 @@ test verifies the fallback short-circuits when key is missing.
 
 from __future__ import annotations
 
-import pytest
-
 from tessera_worker.agents.ticker_resolver import (
-    ALIASES,
     _NAME_INDEX,
     _UNIVERSE_TICKERS,
+    ALIASES,
     _fuzzy_match,
     _name_lookup,
     _regex_match,
     resolve_tickers,
 )
-
 
 # ─── Level 1-2: regex direct match ─────────────────────────────────────
 
@@ -161,7 +158,6 @@ def test_name_index_covers_all_universe_tickers():
     """Every universe ticker should have at least one name path into it
     (so 'Apple' finds AAPL even if user never types AAPL)."""
     covered = set(_NAME_INDEX.values())
-    missing = _UNIVERSE_TICKERS - covered
     # ETFs and crypto may not all need aliases, but every equity should.
     # If this fails, add the missing name → ticker entry to ALIASES.
     important = {"AAPL", "MSFT", "GOOGL", "NVDA", "TSLA", "AMZN",

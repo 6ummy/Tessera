@@ -41,6 +41,7 @@ Cadence: weekly, Friday after US market close. Decision 2026-06-04:
 from __future__ import annotations
 
 import argparse
+import contextlib
 import sys
 import time
 from dataclasses import dataclass, field
@@ -51,10 +52,8 @@ from tessera_worker.logging import get_logger
 
 log = get_logger(__name__)
 
-try:
+with contextlib.suppress(AttributeError):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-except AttributeError:
-    pass
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -126,8 +125,10 @@ def run_one(
     # Lazy import — the runner pulls anthropic SDK + DB + voyage; don't
     # cost cold-start on /health or import-time test discovery.
     from tessera_worker.agents.anthropic_runner import (
-        LlmDailyBudgetExceeded, LlmDisabledError,
-        run_regime_thesis, run_thesis,
+        LlmDailyBudgetExceeded,
+        LlmDisabledError,
+        run_regime_thesis,
+        run_thesis,
     )
 
     try:
@@ -190,7 +191,7 @@ def run_batch_v2(
     if dry_run:
         for persona in personas:
             tickers = PERSONA_SHORTLISTS.get(persona, []) or ["PORTFOLIO"]
-            for ticker in tickers:
+            for _ticker in tickers:
                 result.attempted += 1
                 result.bump(persona, "attempted")
                 result.persisted += 1
@@ -200,8 +201,10 @@ def run_batch_v2(
     # Lazy imports — these pull in the Anthropic SDK and shouldn't cost
     # cold-start time on test discovery.
     from tessera_worker.agents.anthropic_runner import (
-        LlmDailyBudgetExceeded, LlmDisabledError,
-        run_regime_thesis, run_research,
+        LlmDailyBudgetExceeded,
+        LlmDisabledError,
+        run_regime_thesis,
+        run_research,
     )
     from tessera_worker.agents.portfolio_construction import construct_portfolio
 

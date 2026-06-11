@@ -150,6 +150,7 @@ def test_unknown_persona_choice_rejected_by_argparse() -> None:
     """argparse `choices` should reject invalid personas before run_batch fires."""
     # We invoke main() via sys argv emulation; argparse should SystemExit(2).
     import sys
+
     from tessera_worker.jobs.persona_batch import main
     old_argv = sys.argv
     sys.argv = ["persona_batch", "--personas", "warren", "fake_persona"]

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import re
 import sys
@@ -12,10 +13,8 @@ from uuid import UUID
 
 # Force UTF-8 stdout so thesis output (with Unicode arrows/box chars
 # from sparklines, Korean text, etc.) doesn't crash Windows cp1252 consoles.
-try:
+with contextlib.suppress(AttributeError):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-except AttributeError:
-    pass
 
 import structlog
 from anthropic import Anthropic
@@ -431,7 +430,8 @@ def run_thesis(
     settings = get_settings()
     if not settings.feature_real_llm:
         raise LlmDisabledError(
-            "FEATURE_REAL_LLM=false — set FEATURE_REAL_LLM=true in apps/worker/.env to call Anthropic"
+            "FEATURE_REAL_LLM=false — set FEATURE_REAL_LLM=true in "
+            "apps/worker/.env to call Anthropic"
         )
 
     assembled = assemble_prompt(persona, ticker, as_of=as_of)

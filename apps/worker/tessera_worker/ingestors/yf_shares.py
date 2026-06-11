@@ -23,9 +23,9 @@ exist and remain the source for everything else (revenue, OCF, debt, …).
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import date, datetime
-from typing import Iterable
 
 from sqlalchemy import text
 

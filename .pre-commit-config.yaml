@@ -1,0 +1,16 @@
+# Secret-scanning pre-commit hook — the Plan.md §9 "Never commit any key"
+# guard, actually implemented 2026-06-11 (improvement plan Step 1).
+#
+# One-time setup per developer:
+#   pip install pre-commit
+#   pre-commit install
+#
+# After that, every `git commit` runs gitleaks over the staged diff and
+# blocks the commit if anything key-shaped is found. This repo is PUBLIC
+# (ADR-007) — two keys already had to be rotated in Phase A after an httpx
+# logging leak; a third rotation should not happen via a commit.
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.18.4
+    hooks:
+      - id: gitleaks

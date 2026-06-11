@@ -28,19 +28,19 @@ from sqlalchemy import text
 
 from tessera_worker.db import session_scope
 from tessera_worker.features.compute import (
-    _load_fundamentals_latest,
-    _load_latest_closes,
-    sum_ttm_fcf,
-    estimate_market_cap,
-    compute_fcf_yield,
-    compute_eps_cagr_3y,
-    compute_peg,
-    compute_debt_to_equity,
-    compute_gross_margin,
-    compute_gross_margin_trend,
     _annual_income_rows,
     _eps_value,
+    _load_fundamentals_latest,
+    _load_latest_closes,
     _to_float,
+    compute_debt_to_equity,
+    compute_eps_cagr_3y,
+    compute_fcf_yield,
+    compute_gross_margin,
+    compute_gross_margin_trend,
+    compute_peg,
+    estimate_market_cap,
+    sum_ttm_fcf,
 )
 from tessera_worker.logging import configure_logging
 

@@ -83,11 +83,14 @@ Return ONLY a JSON object with this shape:
       "target_weight": <fraction 0..0.20>,
       "horizon_days": <int>,
       "conviction": <0..1, from the research note>,
-      "thesis_md": "<1-2 sentences of SIZING reasoning only — why THIS weight vs the other candidates. Do NOT repeat the full research thesis; that's already on file. Keep total length under 500 characters.>",
+      "thesis_md": "<1-2 sentences of SIZING reasoning only — why THIS weight vs
+the other candidates. Do NOT repeat the full research thesis; that's already
+on file. Keep total length under 500 characters.>",
       "what_would_make_me_wrong": ["<short bullet>", ...]
     }}
   ],
-  "notes_to_manager": "<3-5 sentences on what the book reflects, any constraint conflicts surfaced, theme calls. Under 1500 characters.>"
+  "notes_to_manager": "<3-5 sentences on what the book reflects, any
+constraint conflicts surfaced, theme calls. Under 1500 characters.>"
 }}
 
 Active proposals + cash_target MUST sum to exactly 1.0.
@@ -191,7 +194,8 @@ def call_anthropic_construction(
         tokens_out=usage.output_tokens,
         n_research_notes=research_payload.count("## "),
     )
-    return raw, usage.input_tokens, usage.output_tokens, getattr(usage, "cache_read_input_tokens", 0) or 0, latency_ms
+    return (raw, usage.input_tokens, usage.output_tokens,
+            getattr(usage, "cache_read_input_tokens", 0) or 0, latency_ms)
 
 
 def normalize_book(
@@ -486,10 +490,7 @@ def research_to_payload_dict(research) -> dict[str, Any]:
     """Convert a TickerResearch instance to a plain dict suitable for
     `format_research_payload`. Handles both Pydantic model instances
     and already-dict shapes."""
-    if hasattr(research, "model_dump"):
-        d = research.model_dump()
-    else:
-        d = dict(research)
+    d = research.model_dump() if hasattr(research, "model_dump") else dict(research)
     return {
         "ticker": d.get("ticker"),
         "conviction": float(d.get("conviction") or 0.5),

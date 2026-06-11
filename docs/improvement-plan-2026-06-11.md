@@ -67,12 +67,13 @@
 
 코드는 전부 반영됨. **운영자 액션(§4)이 남아 있음.**
 
-### Step 1 — CI/품질 게이트 (다음 작업, ~1일)
+### Step 1 — CI/품질 게이트 ✅ (2026-06-11 후속 PR)
 
-1. `.github/workflows/ci.yml`: worker(ruff + pytest, mypy는 비차단으로 시작) + web(`tsc --noEmit` + `next lint`) 매 PR.
-2. `ruff check --fix`로 자동 수정 가능한 56건 정리 후 나머지 수동.
-3. mypy: `[[tool.mypy.overrides]]`로 신규/핵심 모듈부터 strict 적용, 전역 strict는 부채 청산 후.
-4. pre-commit + gitleaks(또는 detect-secrets) — Plan §9가 이미 약속한 시크릿 훅.
+1. ✅ `.github/workflows/ci.yml`: worker(ruff 차단 + pytest 차단 + mypy 비차단) + web(`tsc --noEmit` + `next lint`) 매 PR/main push.
+2. ✅ ruff 백로그 **102 → 0** (자동 96 + 수동 ~50: SIM105 contextlib.suppress ×10, E701 전개, E501 줄바꿈, B007 `_`-prefix, F841 제거, E402 import 재배치, B017 `ValidationError` 구체화, C417 genexp). 179 테스트 통과 유지.
+3. ✅ web에 `.eslintrc.json` 추가(없어서 CI의 `next lint`가 인터랙티브 프롬프트로 멈출 상태였음). `react/no-unescaped-entities`만 비활성(산문 아포스트로피 18건; 구조 오류는 typecheck가 잡음).
+4. ✅ `.pre-commit-config.yaml` + gitleaks — Plan §9가 약속한 시크릿 훅. 개발자별 1회 `pip install pre-commit && pre-commit install`.
+5. ⏳ mypy strict 216건은 비차단 리포트로 노출 — 모듈별 청산 후 차단 전환 (P2-8).
 
 ### Step 2 — 운영 안정성 (~1–2일)
 

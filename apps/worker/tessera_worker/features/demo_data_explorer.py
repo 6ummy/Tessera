@@ -19,18 +19,16 @@ modern terminal incl. PowerShell with UTF-8 stdout).
 
 from __future__ import annotations
 
+import contextlib
 import sys
-from datetime import date, timedelta
 
 from sqlalchemy import text
 
 from tessera_worker.db import session_scope
 from tessera_worker.universe import by_asset_class
 
-try:
+with contextlib.suppress(AttributeError):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-except AttributeError:
-    pass
 
 # 8-level block chars for sparklines. Each char represents one bucket.
 SPARKLINE_CHARS = "▁▂▃▄▅▆▇█"
@@ -102,7 +100,6 @@ def render_coverage() -> None:
             """), {"t": tickers}).all()
         }
 
-    today = date.today()
     print()
     print(f"  {'ticker':<8}  {'OHLCV days':>10}  {'depth':>8}  "
           f"{'fund periods':>13}  {'fund last':>12}  {'filings':>8}")
@@ -116,10 +113,8 @@ def render_coverage() -> None:
             o_str = f"{o.n:>10}  {depth_yrs:>5.1f}yr"
         else:
             o_str = f"{'-':>10}  {'-':>8}"
-        if f:
-            f_str = f"{f.periods:>13}  {str(f.last_period):>12}"
-        else:
-            f_str = f"{'-':>13}  {'-':>12}"
+        f_str = (f"{f.periods:>13}  {str(f.last_period):>12}" if f
+                 else f"{'-':>13}  {'-':>12}")
         print(f"  {tk:<8}  {o_str}  {f_str}  {fl:>8}")
 
 

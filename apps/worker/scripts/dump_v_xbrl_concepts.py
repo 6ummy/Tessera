@@ -6,8 +6,8 @@ any other ticker) leaves our mapped fields blank.
 """
 from tessera_worker.ingestors.sec_edgar import _client, _load_cik_map
 from tessera_worker.ingestors.sec_edgar_facts import (
-    _fetch_companyfacts,
     CONCEPT_MAP_BY_TYPE,
+    _fetch_companyfacts,
 )
 
 KNOWN_CONCEPTS = {c for cmap in CONCEPT_MAP_BY_TYPE.values()

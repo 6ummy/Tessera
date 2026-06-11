@@ -7,15 +7,12 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-import pytest
-
 from tessera_worker.agents.persona_loader import (
     clear_cache,
     get_chat_spec,
     load_chat_specs,
     load_universal_chat_policies,
 )
-
 
 # ─── Chat spec parsing ────────────────────────────────────────────────
 

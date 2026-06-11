@@ -67,7 +67,7 @@ def check_neon() -> bool:
             print(f"  ✗ missing tables: {sorted(missing)}")
             return False
         if "timescaledb" not in exts or "vector" not in exts:
-            print(f"  ✗ missing extensions (need timescaledb + vector)")
+            print("  ✗ missing extensions (need timescaledb + vector)")
             return False
         return True
     except Exception as e:
@@ -112,7 +112,8 @@ def check_anthropic() -> bool:
             messages=[{"role": "user", "content": "Reply with exactly: ok"}],
         )
         reply = msg.content[0].text if msg.content else ""
-        print(f"  ✓ Haiku replied: {reply!r}  (in={msg.usage.input_tokens} out={msg.usage.output_tokens})")
+        print(f"  ✓ Haiku replied: {reply!r}  "
+              f"(in={msg.usage.input_tokens} out={msg.usage.output_tokens})")
         return True
     except Exception as e:
         print(f"  ✗ {type(e).__name__}: {redact(e)}")

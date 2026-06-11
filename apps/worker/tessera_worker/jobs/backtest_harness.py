@@ -35,6 +35,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import contextlib
 import sys
 from dataclasses import dataclass, field
 from datetime import date, timedelta
@@ -48,10 +49,8 @@ from tessera_worker.logging import get_logger
 log = get_logger(__name__)
 
 # Force UTF-8 stdout so summary tables don't crash on Windows cp1252.
-try:
+with contextlib.suppress(AttributeError):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-except AttributeError:
-    pass
 
 
 @dataclass
@@ -159,7 +158,10 @@ def run_one(
     # in attempt 2 ("Fix JSON only"). Both fail → persist with parsed=NULL
     # + raw text + reject_reasons so the row exists for manual review.
     from tessera_worker.agents.anthropic_runner import (
-        build_analyst_report, call_anthropic_thesis, estimate_cost_usd, parse_llm_json,
+        build_analyst_report,
+        call_anthropic_thesis,
+        estimate_cost_usd,
+        parse_llm_json,
     )
     from tessera_worker.agents.citation_validator import validate_citations
 

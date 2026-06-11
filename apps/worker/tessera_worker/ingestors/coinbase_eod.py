@@ -11,9 +11,9 @@ feature builder treats them uniformly.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta, timezone
-from typing import Iterable
+from datetime import UTC, date, datetime, timedelta
 
 import httpx
 from sqlalchemy import text
@@ -72,8 +72,8 @@ def _fetch_window(pair: str, start: datetime, end: datetime) -> list[list[float]
 def _fetch_pair(pair: str, start: date, end: date) -> list[list[float]]:
     """Page through windows so we respect the 300-candle limit."""
     all_rows: list[list[float]] = []
-    cursor_start = datetime.combine(start, datetime.min.time(), tzinfo=timezone.utc)
-    end_dt = datetime.combine(end, datetime.min.time(), tzinfo=timezone.utc)
+    cursor_start = datetime.combine(start, datetime.min.time(), tzinfo=UTC)
+    end_dt = datetime.combine(end, datetime.min.time(), tzinfo=UTC)
     while cursor_start < end_dt:
         window_end = min(cursor_start + timedelta(days=MAX_CANDLES_PER_REQ), end_dt)
         chunk = _fetch_window(pair, cursor_start, window_end)
@@ -122,7 +122,7 @@ def ingest(
             ts_unix, low, high, op, cl, volume = r
             rows.append({
                 "ticker": pair.replace("-", "/"),  # store as 'BTC/USD' for consistency
-                "ts": datetime.fromtimestamp(ts_unix, tz=timezone.utc),
+                "ts": datetime.fromtimestamp(ts_unix, tz=UTC),
                 "open": float(op),
                 "high": float(high),
                 "low": float(low),

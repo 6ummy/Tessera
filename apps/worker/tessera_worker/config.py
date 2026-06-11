@@ -59,16 +59,23 @@ class Settings(BaseSettings):
     newsapi_api_key: str = Field("")
 
     # ── Object storage ──
-    gcs_bucket_raw: str = Field("tessera-raw", description="GCS bucket for raw filings + LLM responses")
+    gcs_bucket_raw: str = Field(
+        "tessera-raw", description="GCS bucket for raw filings + LLM responses")
 
     # ── Feature flags ──
-    feature_real_llm: bool = Field(False, description="Off → mock responses (dev). On → real Anthropic calls")
+    feature_real_llm: bool = Field(
+        False, description="Off → mock responses (dev). On → real Anthropic calls")
     feature_paper_execution: bool = Field(False)
-    feature_live_trading: bool = Field(False, description="Never enable without explicit user OAuth + compliance review")
+    feature_live_trading: bool = Field(
+        False,
+        description="Never enable without explicit user OAuth + compliance review")
 
     # ── Observability ──
-    sentry_dsn: str = Field("", description="Sentry DSN for the tessera-worker project. Blank → Sentry disabled.")
-    sentry_environment: str = Field("local", description="Tag attached to events (local / staging / production)")
+    sentry_dsn: str = Field(
+        "",
+        description="Sentry DSN for the tessera-worker project. Blank → Sentry disabled.")
+    sentry_environment: str = Field(
+        "local", description="Tag attached to events (local / staging / production)")
 
     # ── Inter-service auth ──
     # Shared secret between Vercel cron and this worker. Vercel sends

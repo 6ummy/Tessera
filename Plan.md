@@ -713,10 +713,12 @@ findings P0–P3 + operator checklist). Shipped in the audit session:
 
 Queued from the same audit (ordered):
 
-- [ ] **CI workflows** (Step 1) — `.github/workflows/ci.yml`: ruff + pytest
-  (worker), tsc + lint (web); ruff backlog 102 → 0; mypy strict via
-  per-module overrides; gitleaks pre-commit (the §9 promise that was never
-  implemented).
+- [x] **CI workflows** (Step 1) — **shipped 2026-06-11**.
+  `.github/workflows/ci.yml`: ruff (blocking) + pytest (blocking) + mypy
+  (non-blocking, 216-error backlog) on worker; tsc + next lint on web.
+  Ruff backlog 102 → 0. Web `.eslintrc.json` added (next lint would have
+  hung CI on its first-run interactive prompt without it). gitleaks
+  pre-commit config added — devs run `pre-commit install` once.
 - [ ] **Batch execution model** (Step 2) — `--no-cpu-throttling` now, Cloud
   Run Jobs migration during Phase C (the architecture.md "Long-job survival
   note" todo; BackgroundTasks can die on scale-to-zero).

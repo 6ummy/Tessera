@@ -16,7 +16,7 @@ Failure mode:
 
 from __future__ import annotations
 
-from typing import Sequence
+from collections.abc import Sequence
 
 from tessera_worker.config import get_settings
 from tessera_worker.logging import get_logger

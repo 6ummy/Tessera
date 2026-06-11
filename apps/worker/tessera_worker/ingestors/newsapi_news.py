@@ -12,9 +12,9 @@ index on `tickers` array) for chat-with-analyst context.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta, timezone
-from typing import Iterable
+from datetime import UTC, date, datetime, timedelta
 from uuid import uuid4
 
 import httpx
@@ -110,7 +110,8 @@ def _upsert(rows: list[dict]) -> int:
     # GIN index for query. For simple INSERT we don't UPSERT — accept some
     # duplicates across days and clean up later if needed.
     sql = text("""
-        INSERT INTO news (id, ts, source, url, title, body, tickers, sentiment, raw_gcs_uri, fetched_at)
+        INSERT INTO news (id, ts, source, url, title, body, tickers,
+                          sentiment, raw_gcs_uri, fetched_at)
         VALUES (:id, :ts, :source, :url, :title, :body, :tickers, :sentiment, :raw_gcs_uri, NOW())
     """)
     chunk = 200
@@ -132,7 +133,7 @@ def ingest(
         tickers = [t.ticker for t in by_asset_class("equity")]
     tickers = sorted(set(tickers))
     if since is None:
-        since = (datetime.now(timezone.utc) - timedelta(hours=24)).date()
+        since = (datetime.now(UTC) - timedelta(hours=24)).date()
     since_iso = since.isoformat()
     started = datetime.now()
 
