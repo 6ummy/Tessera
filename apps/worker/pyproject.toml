@@ -90,6 +90,39 @@ strict = true
 python_version = "3.11"
 plugins = ["pydantic.mypy"]
 
+# ── Strict-debt ledger (2026-06-12) ─────────────────────────────────────
+# Modules written before mypy gating existed. Listed explicitly so the
+# debt is visible and CI can run mypy as a BLOCKING check for everything
+# else (config, db, universe, logging, observability, jobs.ingest_daily,
+# jobs.spy_canary, risk.*, agents.models/citation_validator/persona_loader/
+# persona_constraints/embeddings are all strict-clean today — keep them so).
+# Rules:
+#   - NEW modules must NOT be added here. Write them strict-clean.
+#   - When touching a listed module substantially, burn its debt and
+#     remove it from this list (then mypy enforces it forever).
+# Backlog when this ledger was created: ~220 errors across these modules,
+# mostly no-untyped-def on `session` params and bare `dict`/`list` generics.
+[[tool.mypy.overrides]]
+module = [
+    "tessera_worker.main",
+    "tessera_worker.features.compute",
+    "tessera_worker.features.demo_data_explorer",
+    "tessera_worker.features.demo_fcf_yield",
+    "tessera_worker.features.demo_macro_sensitivity",
+    "tessera_worker.agents.anthropic_runner",
+    "tessera_worker.agents.prompt_assembler",
+    "tessera_worker.agents.portfolio_construction",
+    "tessera_worker.agents.ticker_resolver",
+    "tessera_worker.agents.chat",
+    "tessera_worker.agents.demo_warren_aapl",
+    "tessera_worker.ingestors.*",
+    "tessera_worker.jobs.hallucination_canary",
+    "tessera_worker.jobs.persona_batch",
+    "tessera_worker.jobs.backtest_harness",
+    "tessera_worker.jobs.backfill_history",
+]
+ignore_errors = true
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]

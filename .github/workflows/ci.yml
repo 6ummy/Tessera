@@ -2,9 +2,10 @@
 # (improvement plan Step 1). Two jobs mirroring the monorepo split:
 #
 #   worker: ruff (0-finding baseline as of 2026-06-11 — keep it there),
-#           pytest (179 tests, no DB / network needed),
-#           mypy --strict (NON-blocking: 216-error backlog; flip to blocking
-#           once the per-module cleanup lands — see improvement plan P2-8).
+#           pytest (no DB / network needed),
+#           mypy --strict (BLOCKING since 2026-06-12: legacy modules sit in
+#           an explicit ignore_errors ledger in pyproject — new modules
+#           must be strict-clean; the ledger comment has the rules).
 #   web:    tsc --noEmit + next lint.
 #
 # Secrets are NOT available to these jobs and must never be needed — tests
@@ -46,11 +47,12 @@ jobs:
       - name: Tests
         run: pytest tests -q
 
-      # Backlog: 216 strict errors as of 2026-06-11. Reported for visibility,
-      # not yet a gate. Remove continue-on-error when the count hits 0.
-      - name: Mypy (non-blocking)
+      # BLOCKING. Legacy modules live in pyproject's [[tool.mypy.overrides]]
+      # ignore_errors ledger; everything else (config, db, risk/*, schemas,
+      # new jobs) is enforced strict. Don't add modules to the ledger —
+      # burn debt out of it.
+      - name: Mypy (strict, ledgered)
         run: mypy tessera_worker
-        continue-on-error: true
 
   web:
     runs-on: ubuntu-latest

@@ -242,24 +242,29 @@ def normalize_book(
         cash = cash_min
         sum_pos = sum(weights.values())
 
-    # Step 2 — push the gap to cash, clamp to cash range.
+    # Step 2 — push the gap to cash, then clamp cash to the persona range.
+    # The clamp runs UNCONDITIONALLY: before 2026-06-12 it only ran when
+    # the sum was off, so a book that already summed to 1.0 with cash
+    # outside [cash_min, cash_max] (e.g. Cathie at 70% cash, mandate max
+    # 10%) sailed through — found by the test suite, contradicting this
+    # function's own docstring. Out-of-range cash now rescales positions
+    # to absorb the difference even when the arithmetic was correct.
     gap = 1.0 - sum_pos - cash
-    if abs(gap) > 1e-6:
-        cash = cash + gap
-        if cash < cash_min:
-            # Need more positions; scale weights up to fill the gap.
-            target_pos = 1.0 - cash_min
-            if sum_pos > 0:
-                scale = target_pos / sum_pos
-                weights = {t: w * scale for t, w in weights.items()}
-            cash = cash_min
-        elif cash > cash_max:
-            cash = cash_max
-            # Scale positions up to absorb the rest.
-            target_pos = 1.0 - cash
-            if sum_pos > 0:
-                scale = target_pos / sum_pos
-                weights = {t: w * scale for t, w in weights.items()}
+    cash = cash + gap
+    if cash < cash_min - 1e-9:
+        # Need more positions; scale weights up to fill the gap.
+        target_pos = 1.0 - cash_min
+        if sum_pos > 0:
+            scale = target_pos / sum_pos
+            weights = {t: w * scale for t, w in weights.items()}
+        cash = cash_min
+    elif cash > cash_max + 1e-9:
+        cash = cash_max
+        # Scale positions up to absorb the rest.
+        target_pos = 1.0 - cash
+        if sum_pos > 0:
+            scale = target_pos / sum_pos
+            weights = {t: w * scale for t, w in weights.items()}
 
     # Step 3 — round to nearest 1pp.
     weights = {t: round(w, 2) for t, w in weights.items()}
