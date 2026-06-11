@@ -22,9 +22,9 @@ from __future__ import annotations
 import argparse
 import sys
 import traceback
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta
-from typing import Callable
+from datetime import UTC, date, datetime, timedelta
 
 from sqlalchemy import text
 
@@ -99,9 +99,8 @@ def _step_fundamentals() -> dict[str, object]:
             WHERE ticker = ANY(:tickers)
             GROUP BY ticker
         """), {"tickers": tickers}).all()
-    from datetime import timezone as _tz
     fresh: set[str] = set()
-    cutoff = datetime.now(_tz.utc) - timedelta(days=30)
+    cutoff = datetime.now(UTC) - timedelta(days=30)
     for ticker, last_fetch in rows:
         if last_fetch and last_fetch > cutoff:
             fresh.add(ticker)
@@ -247,10 +246,14 @@ def _step_coverage_audit() -> dict[str, object]:
     gaps: dict[str, list[str]] = {}
     for r in rows:
         miss = []
-        if r.gap_fcf_yield:   miss.append("fcf_yield")
-        if r.gap_market_cap:  miss.append("market_cap_usd")
-        if r.gap_peg:         miss.append("peg")
-        if r.gap_gross_margin: miss.append("gross_margin")
+        if r.gap_fcf_yield:
+            miss.append("fcf_yield")
+        if r.gap_market_cap:
+            miss.append("market_cap_usd")
+        if r.gap_peg:
+            miss.append("peg")
+        if r.gap_gross_margin:
+            miss.append("gross_margin")
         if miss:
             gaps[r.ticker] = miss
     if gaps:

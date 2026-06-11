@@ -10,7 +10,7 @@ client.close()
 
 dei = cf.get("facts", {}).get("dei", {})
 print(f"dei concepts on V: {len(dei)}")
-print(f"\nAll dei concept names:")
+print("\nAll dei concept names:")
 for k in sorted(dei.keys()):
     print(f"  {k}")
 

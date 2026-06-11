@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import UTC
+
 from tessera_worker.agents.prompt_assembler import (
     build_user_message,
     compute_inputs_hash,
@@ -31,13 +33,13 @@ def test_render_features_minimal() -> None:
 
 
 def test_render_news_short_ids() -> None:
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     block = render_news(
         [
             {
                 "id": "b7a434db-1234-5678-9abc-def012345678",
-                "ts": datetime(2026, 5, 31, tzinfo=timezone.utc),
+                "ts": datetime(2026, 5, 31, tzinfo=UTC),
                 "source": "Reuters",
                 "title": "Apple headline",
             }
@@ -77,6 +79,7 @@ def test_build_user_message_includes_ticker() -> None:
 def test_fetch_memory_recall_falls_back_to_recency_when_no_query() -> None:
     """No query_text → similarity path bypassed → recency query runs."""
     from unittest.mock import MagicMock
+
     from tessera_worker.agents.prompt_assembler import fetch_memory_recall
 
     session = MagicMock()
@@ -90,6 +93,7 @@ def test_fetch_memory_recall_falls_back_to_recency_when_no_query() -> None:
 def test_fetch_memory_recall_falls_back_when_voyage_unconfigured(monkeypatch) -> None:
     """query_text provided but VOYAGE_API_KEY blank → recency fallback."""
     from unittest.mock import MagicMock
+
     from tessera_worker.agents.prompt_assembler import fetch_memory_recall
 
     # Ensure voyage key is blank
@@ -131,6 +135,7 @@ def test_fetch_inputs_passes_cutoff_to_every_query() -> None:
     the cutoff. Missing it = backtest replay sees future data = leakage."""
     import datetime as _dt
     from unittest.mock import MagicMock
+
     from tessera_worker.agents.prompt_assembler import fetch_inputs
 
     cutoff = _dt.date(2025, 6, 1)
@@ -175,6 +180,7 @@ def test_fetch_inputs_with_no_as_of_uses_today() -> None:
     emitting an unbounded query."""
     import datetime as _dt
     from unittest.mock import MagicMock
+
     from tessera_worker.agents.prompt_assembler import fetch_inputs
 
     today = _dt.date.today()
@@ -204,6 +210,7 @@ def test_fetch_memory_recall_recency_path_respects_cutoff() -> None:
     safety net and the one production hits when Voyage is unavailable."""
     import datetime as _dt
     from unittest.mock import MagicMock
+
     from tessera_worker.agents.prompt_assembler import fetch_memory_recall
 
     cutoff = _dt.date(2025, 6, 1)
@@ -226,6 +233,7 @@ def test_fetch_memory_recall_no_as_of_skips_cutoff_clause() -> None:
     (not just bound to None — that would still filter). Verify by
     inspecting the raw SQL text emitted."""
     from unittest.mock import MagicMock
+
     from tessera_worker.agents.prompt_assembler import fetch_memory_recall
 
     session = MagicMock()

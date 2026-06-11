@@ -6,6 +6,7 @@ See:  agents/LLM_pipeline_demo.md
 
 from __future__ import annotations
 
+import contextlib
 import sys
 from datetime import date
 
@@ -24,10 +25,8 @@ from tessera_worker.agents.prompt_assembler import (
 )
 from tessera_worker.db import session_scope
 
-try:
+with contextlib.suppress(AttributeError):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-except AttributeError:
-    pass
 
 TICKER = "AAPL"
 PERSONA = "warren"

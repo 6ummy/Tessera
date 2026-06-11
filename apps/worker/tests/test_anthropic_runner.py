@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from uuid import UUID
-
 import pytest
 
 from tessera_worker.agents.anthropic_runner import (
@@ -220,8 +218,10 @@ def test_build_regime_report_validates_allocations():
 
 def test_build_regime_report_rejects_weights_over_one():
     import datetime as _dt
+
     import pytest as _pt
-    with _pt.raises(Exception):  # ValidationError
+    from pydantic import ValidationError as _VE
+    with _pt.raises(_VE):
         build_regime_report(
             {
                 "regime": {
@@ -249,6 +249,7 @@ def test_build_regime_report_rejects_weights_over_one():
 def test_trading_days_skips_weekends():
     """trading_days walks back, skips Sat/Sun, returns ascending dates."""
     import datetime as _dt
+
     from tessera_worker.jobs.backtest_harness import trading_days
     # 2026-06-08 = Monday. Walking back 5 trading days: Mon-Fri prev week.
     days = trading_days(_dt.date(2026, 6, 8), 5)
@@ -261,8 +262,9 @@ def test_trading_days_skips_weekends():
 
 
 def test_run_result_schema_fail_rate():
-    from tessera_worker.jobs.backtest_harness import RunResult
     from uuid import uuid4
+
+    from tessera_worker.jobs.backtest_harness import RunResult
     r = RunResult(run_id=uuid4(), attempted=100, rejected=3)
     assert abs(r.schema_fail_rate() - 0.03) < 1e-9
     r2 = RunResult(run_id=uuid4(), attempted=0)

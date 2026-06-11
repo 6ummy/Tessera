@@ -8,9 +8,9 @@ Free, no rate limit issue at our cadence (daily pull, ~20 series).
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date, datetime
-from typing import Iterable
 
 import httpx
 from sqlalchemy import text

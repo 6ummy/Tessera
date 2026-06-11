@@ -14,6 +14,7 @@ Auth model:
 
 from __future__ import annotations
 
+import contextlib
 import hmac
 
 from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request, status
@@ -197,7 +198,9 @@ async def chat_stream(
         raise HTTPException(status_code=400, detail="missing 'message'")
 
     from tessera_worker.agents.chat import (
-        ChatBudgetExceeded, ChatDisabledError, run_chat_stream,
+        ChatBudgetExceeded,
+        ChatDisabledError,
+        run_chat_stream,
     )
 
     async def _event_stream():
@@ -244,8 +247,9 @@ async def get_persona_reports(
         raise HTTPException(400, f"unknown persona: {persona_id}")
     limit = max(1, min(limit, 20))
 
-    from tessera_worker.db import session_scope
     from sqlalchemy import text as _sql
+
+    from tessera_worker.db import session_scope
 
     rows = []
     with session_scope() as session:
@@ -338,10 +342,8 @@ def _aggregate_book(
     for parsed in parsed_rows:
         cash = parsed.get("cash_target")
         if cash is not None:
-            try:
+            with contextlib.suppress(TypeError, ValueError):
                 cash_targets.append(float(cash))
-            except (TypeError, ValueError):
-                pass
         if regime is None and parsed.get("regime"):
             regime = parsed["regime"]
 
@@ -450,8 +452,9 @@ async def get_ticker_features(
     # Crypto pairs stored as 'SOL/USD'; URL uses 'SOL-USD' (slashes break
     # the route). Equity tickers don't contain '-' so this is safe.
     ticker_u = ticker.upper().replace("-", "/")
-    from tessera_worker.db import session_scope
     from sqlalchemy import text as _sql
+
+    from tessera_worker.db import session_scope
     from tessera_worker.universe import META_BY_TICKER
 
     meta = META_BY_TICKER.get(ticker_u)
@@ -546,8 +549,9 @@ async def get_ticker_prices(
     # both find the canonical row. Equity tickers don't contain '-' so this
     # is safe: BRK.B uses '.', no ticker in our universe uses dash.
     ticker_u = ticker.upper().replace("-", "/")
-    from tessera_worker.db import session_scope
     from sqlalchemy import text as _sql
+
+    from tessera_worker.db import session_scope
     from tessera_worker.universe import META_BY_TICKER
 
     meta = META_BY_TICKER.get(ticker_u)
@@ -656,10 +660,14 @@ def _reshape_report_row(
         # same thresholds when it decides whether to size the slot.
         conv_label = ""
         if isinstance(conv, (int, float)):
-            if   conv >= 0.80: conv_label = "Strong buy"
-            elif conv >= 0.65: conv_label = "Buy"
-            elif conv >= 0.50: conv_label = "Hold"
-            else:              conv_label = "Watch"
+            if conv >= 0.80:
+                conv_label = "Strong buy"
+            elif conv >= 0.65:
+                conv_label = "Buy"
+            elif conv >= 0.50:
+                conv_label = "Hold"
+            else:
+                conv_label = "Watch"
         # Drop the raw `side` token when we have a conviction label and
         # the side is buy-ish — "buy (Strong buy)" reads redundant since
         # the label already carries the direction. For non-buy sides

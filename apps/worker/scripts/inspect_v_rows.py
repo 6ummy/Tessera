@@ -4,6 +4,7 @@ Run:
     .venv\\Scripts\\python.exe scripts\\inspect_v_rows.py
 """
 from sqlalchemy import text
+
 from tessera_worker.db import session_scope
 
 with session_scope() as s:
