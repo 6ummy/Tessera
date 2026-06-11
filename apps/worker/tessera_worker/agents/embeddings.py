@@ -1,8 +1,8 @@
-"""Voyage AI embeddings — thin wrapper for thesis similarity recall.
+﻿"""Voyage AI embeddings â€” thin wrapper for thesis similarity recall.
 
 Why Voyage (not OpenAI / not self-hosted):
 - Anthropic-recommended provider; keeps the stack in one ecosystem.
-- $0.02 / 1M tokens (~$0.0003 / month at pilot scale — free tier
+- $0.02 / 1M tokens (~$0.0003 / month at pilot scale â€” free tier
   covers indefinitely).
 - Zero new ML deps (no torch / sentence-transformers).
 - 1024-dim output matches our migrated persona_memory.embedding column.
@@ -10,7 +10,7 @@ Why Voyage (not OpenAI / not self-hosted):
 Failure mode:
 - All errors (network, rate-limit, malformed response, missing key) are
   caught and logged. `embed_thesis` returns None on failure. Callers
-  treat None as "skip embedding for this row" — the thesis still
+  treat None as "skip embedding for this row" â€” the thesis still
   persists, just without vector recall on that one row.
 """
 
@@ -27,15 +27,15 @@ EMBEDDING_DIM = 1024  # voyage-3.5-lite default; pinned via schema
 
 
 def embed_thesis(text: str) -> list[float] | None:
-    """One thesis → one 1024-dim embedding. None on any failure.
+    """One thesis â†’ one 1024-dim embedding. None on any failure.
 
     Truncates input to ~32K chars before sending (Voyage's per-input
-    token cap is 32K tokens; 1 token ≈ 4 chars in English, so 32K chars
+    token cap is 32K tokens; 1 token â‰ˆ 4 chars in English, so 32K chars
     is a safe upper bound that avoids client-side token counting).
     """
     s = get_settings()
     if not s.voyage_api_key:
-        # Quiet — this is the expected state during local dev / before
+        # Quiet â€” this is the expected state during local dev / before
         # key is provisioned. The caller still persists the thesis.
         return None
     if not text or not text.strip():
@@ -49,7 +49,7 @@ def embed_thesis(text: str) -> list[float] | None:
         return None
 
     try:
-        client = voyageai.Client(api_key=s.voyage_api_key)
+        client = voyageai.Client(api_key=s.voyage_api_key)  # type: ignore[attr-defined]  # voyageai lazy-exports Client
         result = client.embed(
             texts=[text[:32_000]],
             model=s.voyage_model,
@@ -79,7 +79,7 @@ def embed_query(text: str) -> list[float] | None:
     except ImportError:
         return None
     try:
-        client = voyageai.Client(api_key=s.voyage_api_key)
+        client = voyageai.Client(api_key=s.voyage_api_key)  # type: ignore[attr-defined]  # voyageai lazy-exports Client
         result = client.embed(
             texts=[text[:32_000]],
             model=s.voyage_model,
@@ -103,6 +103,6 @@ def embed_query(text: str) -> list[float] | None:
 
 def to_pgvector_literal(vec: Sequence[float]) -> str:
     """psycopg/sqlalchemy don't natively bind a pgvector; cast via the
-    string literal form `'[v1,v2,…]'`. This helper keeps the format
+    string literal form `'[v1,v2,â€¦]'`. This helper keeps the format
     consistent across callers."""
     return "[" + ",".join(f"{float(x):.6f}" for x in vec) + "]"

@@ -91,7 +91,7 @@ def _yahoo_1y_return(start: date, end: date) -> float:
                   headers={"User-Agent": "Mozilla/5.0 tessera-canary"})
     r.raise_for_status()
     chart = r.json()["chart"]["result"][0]
-    closes = [c for c in chart["indicators"]["adjclose"][0]["adjclose"]
+    closes = [float(c) for c in chart["indicators"]["adjclose"][0]["adjclose"]
               if c is not None]
     if len(closes) < 2:
         raise RuntimeError(f"Yahoo returned <2 valid closes for {TICKER}")

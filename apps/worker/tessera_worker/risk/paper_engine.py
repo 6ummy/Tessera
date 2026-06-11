@@ -42,6 +42,7 @@ from datetime import date
 from typing import Any
 
 from sqlalchemy import text
+from sqlalchemy.orm import Session
 
 from tessera_worker.db import session_scope
 from tessera_worker.logging import get_logger
@@ -183,7 +184,9 @@ def book_to_targets(parsed: dict[str, Any]) -> dict[str, float]:
 # DB shell
 # ─────────────────────────────────────────────────────────────────────────
 
-def _load_latest_book(session, persona: str) -> tuple[str, date, dict] | None:
+def _load_latest_book(
+    session: Session, persona: str,
+) -> tuple[str, date, dict[str, Any]] | None:
     """(report_id, as_of_date, parsed) for the persona's current book —
     latest batch day only (same scoping rule as /api/proposals; older
     batch days must never leak positions into execution)."""
@@ -204,7 +207,7 @@ def _load_latest_book(session, persona: str) -> tuple[str, date, dict] | None:
     return row.id, row.as_of_date, parsed
 
 
-def _book_already_executed(session, persona: str, report_id: str) -> bool:
+def _book_already_executed(session: Session, persona: str, report_id: str) -> bool:
     row = session.execute(text("""
         SELECT 1 FROM persona_trades
         WHERE persona_id = :p AND report_id = :rid
@@ -213,7 +216,7 @@ def _book_already_executed(session, persona: str, report_id: str) -> bool:
     return row is not None
 
 
-def _load_portfolio(session, persona: str) -> tuple[dict[str, float], float]:
+def _load_portfolio(session: Session, persona: str) -> tuple[dict[str, float], float]:
     """(positions {ticker: qty}, cash) from the latest snapshot, or the
     all-cash bootstrap if the persona has never traded."""
     row = session.execute(text("""
@@ -234,7 +237,7 @@ def _load_portfolio(session, persona: str) -> tuple[dict[str, float], float]:
 
 
 def _load_latest_bars(
-    session, tickers: set[str],
+    session: Session, tickers: set[str],
 ) -> dict[str, tuple[date, float, float]]:
     """ticker → (bar_date, open, close) from each ticker's most-recent
     bar. Post-006 there is one row per calendar day, so DISTINCT ON
@@ -255,7 +258,7 @@ def _load_latest_bars(
     return out
 
 
-def _run_persona(session, persona: str, today: date) -> dict[str, Any]:
+def _run_persona(session: Session, persona: str, today: date) -> dict[str, Any]:
     """Rebalance-if-needed + MTM + performance for one persona. Returns
     step-detail fields for the orchestrator log line."""
     positions, cash = _load_portfolio(session, persona)

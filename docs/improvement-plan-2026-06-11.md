@@ -73,7 +73,7 @@
 2. ✅ ruff 백로그 **102 → 0** (자동 96 + 수동 ~50: SIM105 contextlib.suppress ×10, E701 전개, E501 줄바꿈, B007 `_`-prefix, F841 제거, E402 import 재배치, B017 `ValidationError` 구체화, C417 genexp). 179 테스트 통과 유지.
 3. ✅ web에 `.eslintrc.json` 추가(없어서 CI의 `next lint`가 인터랙티브 프롬프트로 멈출 상태였음). `react/no-unescaped-entities`만 비활성(산문 아포스트로피 18건; 구조 오류는 typecheck가 잡음).
 4. ✅ `.pre-commit-config.yaml` + gitleaks — Plan §9가 약속한 시크릿 훅. 개발자별 1회 `pip install pre-commit && pre-commit install`.
-5. ⏳ mypy strict 216건은 비차단 리포트로 노출 — 모듈별 청산 후 차단 전환 (P2-8).
+5. ✅ mypy — **CI 차단 전환 2026-06-12** (P2-8). 방식: 신규·핵심 모듈(config, db, risk/*, jobs.ingest_daily/spy_canary, schemas, embeddings 등)은 strict 통과시키고(`tessera_shared`에 `py.typed` 추가, paper_engine 주석 보강 등), 레거시 16개 모듈은 pyproject `[[tool.mypy.overrides]]` **명시적 부채 장부**(ignore_errors)에 등재. 규칙: 새 모듈은 장부 추가 금지, 레거시를 크게 손대면 그 김에 장부에서 제거. `mypy tessera_worker` 현재 0건 → CI `continue-on-error` 제거.
 
 ### Step 2 — 운영 안정성 ✅ (2026-06-11 후속 PR)
 
@@ -88,9 +88,9 @@
 1. ~~2-pass 페르소나~~ → v2로 출하 완료. 집계기 정리도 본 변경에서 완료.
 2. ✅ 리스크 게이트웨이(`risk/gateway.py`) — **shipped 2026-06-11**. 얇은 검증기: 유니버스 멤버십(반-환각 최종 관문), sum=1.0·single-name cap 재확인, 그리고 그동안 프롬프트로만 존재하던 **sector cap 강제**. `construct_portfolio` retry 루프에 연결되어 거부 사유가 LLM 재시도 피드백으로 전달됨. cash 범위·conviction floor는 soft(로그만). VaR·drawdown floor·Ray regime 게이트는 페이퍼 엔진(포지션 존재) 이후. 테스트 7개.
 3. ✅ PaperEngine v1 — **shipped 2026-06-12** (`risk/paper_engine.py`, `ingest_daily` 14번째 `paper` 스텝). 최신 미체결 book(report_id 기준)을 다음 bar 시가로 체결 → EOD 종가 MTM → `persona_performance` 기록. $100K 페이퍼 부트스트랩, NAV 보존 단위 테스트 고정. **`FEATURE_PAPER_EXECUTION=true` 플립 + 재배포가 운영자 액션으로 남음** (검증 런 1회 후 deploy 스크립트 env 수정). VaR/drawdown 게이트가 이제 포지션 데이터를 갖게 됨 — 다음 후보.
-4. 프론트 mock 교체(`lib/mock/performance.ts` — 현재 랜딩/대시보드/카드에 시드 랜덤워크 표시 중). 교체 전까지 "시뮬레이션 데이터" 라벨 권장.
-5. Grafana 비용 + cross_validated 불일치 대시보드, Voyage prod 활성화.
-6. main.py 나머지 핸들러·portfolio_construction·인제스터 테스트 보강.
+4. 프론트 mock 교체(`lib/mock/performance.ts` — 현재 랜딩/대시보드/카드에 시드 랜덤워크 표시 중). 교체 전까지 "시뮬레이션 데이터" 라벨 권장. **← 다음 작업**
+5. ✅ Grafana + Voyage — **repo 측 shipped 2026-06-12**: `docs/grafana/llm-cost-dashboard.json`(7패널: 오늘 지출 vs $5 캡, chat 풀 vs $2, 월 누적, 실패 콜, 스테이지별 일일 비용, 페르소나별 비용, 콜/토큰/지연 테이블) + `docs/runbooks/observability-grafana-voyage.md`(read-only DB role → datasource → import → 알림 임계 $5/$10/$20; Voyage 키 생성 → secret → deploy 스크립트 한 줄 → 재배포 → `sim=` 태그 검증). **운영자 콘솔 작업 ~20분 잔존.** cross_validated 불일치 패널은 로그 기반 메트릭 필요 — 별도 추적.
+6. ✅ 테스트 보강 — **shipped 2026-06-12**: `normalize_book` 스위트 9개(이 과정에서 **실버그 발견·수정**: 합이 이미 1.0이면 cash가 cash_max를 넘어도 통과하던 갭 — Cathie 70% cash가 mandate 10%를 그냥 지나침), `research_to_payload_dict`, yf 인제스터 순수 헬퍼 4개(BRK.B 심볼 매핑, NaN 필터, 라벨 우선순위). main.py 집계/sanitize는 이전 PR에서 완료. 214 테스트.
 
 ### Step 4 — 문서 (~반나절)
 

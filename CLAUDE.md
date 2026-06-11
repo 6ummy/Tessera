@@ -38,13 +38,22 @@ first fills. If still 0, check `gcloud logging read ... textPayload:paper_engine
 → #94 risk gateway → #95 paper engine → #96 flag flip.
 
 **Next up (improvement plan Step 3 remainder)**:
-1. Frontend performance/portfolio swap — `/api/performance` +
-   `/api/portfolio` routes over `persona_performance`/`persona_portfolios`,
-   then delete `lib/mock/performance.ts` (landing page still shows seeded
-   random walks until the paper track has enough days to chart).
+1. **← next dev slice** — Frontend performance/portfolio swap:
+   `/api/performance` + `/api/portfolio` routes over
+   `persona_performance`/`persona_portfolios`, then delete
+   `lib/mock/performance.ts` (landing page still shows seeded random
+   walks until the paper track has enough days to chart).
 2. Gateway VaR/drawdown checks + Ray regime gate (positions now exist).
-3. Grafana cost + cross-source-disagreement dashboards; Voyage key on prod.
-4. mypy strict backlog (216, CI non-blocking) burn-down → flip to blocking.
+3. Operator console (~20 min): Grafana Cloud + Voyage key. Runbook:
+   `docs/runbooks/observability-grafana-voyage.md`; dashboard JSON:
+   `docs/grafana/llm-cost-dashboard.json`.
+4. Optional 1y back-history for the performance chart — two options
+   discussed 2026-06-12: frozen-book backfill ($0, must be labelled
+   "hypothetical", look-ahead bias) vs point-in-time backtest replay
+   (honest, ~$30–70 LLM). Decide when the frontend swap lands.
+
+(mypy backlog: DONE 2026-06-12 — CI blocking with a pyproject
+ignore_errors ledger for 16 legacy modules; see Commands section.)
 
 ## Commands
 
@@ -65,8 +74,10 @@ npm run lint
 # read-only queries via the worker venv (sqlalchemy + session_scope).
 ```
 
-CI (`.github/workflows/ci.yml`): ruff + pytest blocking, mypy --strict
-non-blocking (216-error backlog — don't add to it), web tsc + lint.
+CI (`.github/workflows/ci.yml`): ruff + pytest + **mypy ALL BLOCKING**
+(since 2026-06-12 — legacy modules sit in pyproject's
+`[[tool.mypy.overrides]]` ignore_errors ledger; NEW modules must be
+strict-clean and must NOT be added to the ledger), web tsc + lint.
 gitleaks pre-commit configured. Repo is PUBLIC — never commit keys.
 
 ## Hard invariants (each one was a real incident — see improvement plan)
