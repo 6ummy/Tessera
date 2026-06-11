@@ -292,6 +292,24 @@ def _step_spy_canary() -> dict[str, object]:
     }
 
 
+def _step_paper_engine() -> dict[str, object]:
+    """Paper execution: fill the latest unexecuted book at today's open,
+    mark-to-market at today's close, write persona_performance.
+
+    Gated on FEATURE_PAPER_EXECUTION so the code can ship dark and the
+    operator flips the flag after verifying a dry week of logs. Runs
+    LAST — it needs today's bars (ohlcv steps) and benefits from the
+    canary having vouched for them.
+    """
+    from tessera_worker.config import get_settings
+
+    if not get_settings().feature_paper_execution:
+        return {"skipped_reason": "FEATURE_PAPER_EXECUTION=false"}
+    from tessera_worker.risk.paper_engine import run_paper_engine
+
+    return run_paper_engine()
+
+
 STEPS: dict[str, StepFn] = {
     "ohlcv_equity":  _step_ohlcv_equity,
     "ohlcv_crypto":  _step_ohlcv_crypto,
@@ -306,6 +324,7 @@ STEPS: dict[str, StepFn] = {
     "features":      _step_features,
     "coverage":      _step_coverage_audit,  # post-build NULL audit per ticker
     "canary":        _step_spy_canary,      # SPY 1y return vs Yahoo, >100bps fails
+    "paper":         _step_paper_engine,    # fills + MTM + performance (flag-gated)
 }
 
 

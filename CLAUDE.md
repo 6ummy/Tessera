@@ -91,12 +91,18 @@ configured; repo is PUBLIC (ADR-007), never commit keys.
 ## Current state (2026-06-11) + what's next
 
 Phase B done; Phase C (paper execution) in progress. Audit Steps 0–2
-merged (#90, #93); risk gateway shipped 2026-06-11 (`risk/gateway.py`,
-wired into `construct_portfolio`'s retry loop — universe membership,
-sum=1.0, single-name + sector caps; VaR/drawdown wait for the paper
-engine). Next per improvement plan Step 3:
-1. **PaperEngine** + order ledger + EOD mark-to-market →
-   `persona_performance` (this also unblocks VaR/drawdown in the gateway).
-2. Frontend mock swap (`lib/mock/performance.ts` still shows seeded random
-   walks on the landing page — intentional until real P&L exists).
-3. mypy backlog burn-down (then flip CI mypy to blocking).
+merged (#90, #93); risk gateway shipped 2026-06-11 (#94); PaperEngine v1
+shipped 2026-06-12 (`risk/paper_engine.py`, 14th `ingest_daily` step,
+**dark behind `FEATURE_PAPER_EXECUTION=false`** — operator flips the env
+in `deploy_cloud_run.ps1` + redeploys after one verified run). Engine
+invariants: $100K paper bootstrap, fills at next bar OPEN, MTM at CLOSE,
+NAV conservation exact (unit-pinned), book execution tracked by
+`report_id` on `persona_trades`. Next per improvement plan Step 3:
+1. Flip `FEATURE_PAPER_EXECUTION` after verification; let a week of
+   `persona_performance` accumulate.
+2. Frontend mock swap — `/api/performance` + `/api/portfolio` routes
+   reading `persona_performance` / `persona_portfolios`, then delete
+   `lib/mock/performance.ts` + `lib/mock/portfolio.ts` (landing page
+   still shows seeded random walks until then).
+3. Gateway VaR/drawdown checks (positions now exist), Ray regime gate.
+4. mypy backlog burn-down (then flip CI mypy to blocking).

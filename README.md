@@ -53,8 +53,9 @@ To run one full ingest locally (writes to the shared Neon DB):
 
 ```bash
 python -m tessera_worker.jobs.ingest_daily
-# 13 steps (ingest → features → coverage audit → SPY canary), usually
-# ~5-10 min in steady state. Use --only/--skip to run a subset.
+# 14 steps (ingest → features → coverage audit → SPY canary → paper
+# engine [flag-gated]), usually ~5-10 min in steady state. Use
+# --only/--skip to run a subset.
 # Guarded by a Postgres advisory lock — a second concurrent run no-ops.
 ```
 
@@ -89,7 +90,7 @@ Vercel Cron (21:30 UTC weekdays)
    → /api/cron/daily        (Bearer CRON_SECRET)
    → Cloud Run worker       (us-east1, tessera-worker)
    → /jobs/ingest-daily     (IAM identity token / Bearer fallback)
-   → 13-step ingest         (BackgroundTask, ~5-10 min steady state)
+   → 14-step ingest         (BackgroundTask, ~5-10 min steady state)
    → Neon Postgres          (single source of truth)
 ```
 
