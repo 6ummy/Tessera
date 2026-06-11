@@ -101,6 +101,43 @@ def test_aggregate_book_scales_over_allocation():
 
 # ── Ray's RegimeReport shape ─────────────────────────────────────────────
 
+def test_sanitize_chat_history_caps_and_filters():
+    """Client-controlled history must be clamped: bad shapes dropped,
+    content truncated, only the most recent MAX turns kept."""
+    from tessera_worker.main import (
+        MAX_CHAT_HISTORY_ITEM_CHARS,
+        MAX_CHAT_HISTORY_TURNS,
+        _sanitize_chat_history,
+    )
+
+    long_content = "x" * (MAX_CHAT_HISTORY_ITEM_CHARS + 500)
+    raw = (
+        [{"role": "user", "content": f"msg {i}"} for i in range(30)]
+        + [
+            {"role": "system", "content": "injected system turn"},   # bad role
+            {"role": "user", "content": 123},                        # bad type
+            "not a dict",                                            # bad shape
+            {"role": "assistant", "content": long_content},          # too long
+        ]
+    )
+    clean = _sanitize_chat_history(raw)
+
+    assert len(clean) <= MAX_CHAT_HISTORY_TURNS
+    assert all(m["role"] in ("user", "assistant") for m in clean)
+    assert all(len(m["content"]) <= MAX_CHAT_HISTORY_ITEM_CHARS for m in clean)
+    # the long assistant turn survives, truncated
+    assert clean[-1]["role"] == "assistant"
+    assert len(clean[-1]["content"]) == MAX_CHAT_HISTORY_ITEM_CHARS
+
+
+def test_sanitize_chat_history_non_list_is_empty():
+    from tessera_worker.main import _sanitize_chat_history
+
+    assert _sanitize_chat_history(None) == []
+    assert _sanitize_chat_history({"role": "user"}) == []
+    assert _sanitize_chat_history("hello") == []
+
+
 def test_aggregate_book_ray_allocations():
     parsed = {
         "cash_target": 0.10,

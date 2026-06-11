@@ -66,6 +66,27 @@ class ChatBudgetExceeded(RuntimeError):
     """Daily LLM cost cap reached. Chat path must refuse, same as thesis path."""
 
 
+def _check_daily_chat_budget(session) -> float:
+    """Chat-only daily pool on top of the global cap. stage='chat' spend
+    today vs llm_max_daily_cost_chat_usd; beyond → ChatBudgetExceeded."""
+    settings = get_settings()
+    row = session.execute(
+        text("""
+            SELECT COALESCE(SUM(cost_usd), 0) AS spent
+            FROM llm_call_log
+            WHERE ts >= CURRENT_DATE AND stage = 'chat'
+        """),
+    ).mappings().first()
+    spent = float(row["spent"] if row else 0)
+    if spent >= settings.llm_max_daily_cost_chat_usd:
+        raise ChatBudgetExceeded(
+            f"chat spend today ${spent:.4f} >= chat cap "
+            f"${settings.llm_max_daily_cost_chat_usd} "
+            f"(global cap unaffected; thesis batch keeps its headroom)"
+        )
+    return spent
+
+
 # ─────────────────────────────────────────────────────────────────────────
 # Block builders — each pulls from DB / personalities.md and returns a
 # string ready to drop into the system prompt. All cheap, no LLM calls.
@@ -233,17 +254,26 @@ async def run_chat_stream(
 
     history = history or []
 
-    # Daily-budget gate before we open the stream — mirrors thesis path.
-    # We use a sync session for the gate + DB block-building; the actual
-    # streaming uses async client below.
+    # Daily-budget gates before we open the stream. Two layers:
+    #   1. Global cap (shared with the thesis path) — the absolute ceiling.
+    #   2. Chat-only pool (stage='chat' spend vs llm_max_daily_cost_chat_usd)
+    #      — the public, unauthenticated chat endpoint must not be able to
+    #      starve the Friday persona batch by burning the global budget.
+    # Both are surfaced as ChatBudgetExceeded so the SSE endpoint emits a
+    # proper budget_exceeded event instead of a generic error.
     from tessera_worker.agents.anthropic_runner import (
+        LlmDailyBudgetExceeded,
         check_daily_budget,
         estimate_cost_usd,
         log_llm_call,
     )
 
     with session_scope() as session:
-        check_daily_budget(session)
+        try:
+            check_daily_budget(session)
+        except LlmDailyBudgetExceeded as e:
+            raise ChatBudgetExceeded(str(e)) from e
+        _check_daily_chat_budget(session)
         system_prompt, tickers = assemble_chat_system_prompt(
             session, persona, user_message,
         )

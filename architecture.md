@@ -232,12 +232,13 @@ no broker, no LLM. It exists to validate UX before backend investment.
 
 **Data lives only in Neon.** Cloud Run is stateless — when a job finishes the worker memory is freed and the container may scale to zero. Local `.env` files hold API keys but no data. To onboard a new dev: `git clone` + `.env` filled from the shared KakaoTalk credential pin + `pip install -e .` is enough to run the same code against the same Neon DB.
 
-**Concurrent-run note (Phase C todo)**: there is no app-level lock today. If two trigger calls land within the same second (e.g., manual curl + scheduled cron), both ingests run in parallel. Steps are idempotent so the DB stays consistent, but rare `step_failed` events can show up in logs from row-level conflicts. Phase C will add an advisory lock (`pg_advisory_lock(hashtext('ingest_daily'))`) so the second trigger is a fast no-op.
+**Concurrent-run note — RESOLVED 2026-06-11**: `ingest_daily.run()` now holds a Postgres advisory lock (`pg_try_advisory_lock(hashtext('ingest_daily'))`, see `db.try_advisory_lock`) for the whole run. A second trigger landing mid-run (manual curl + scheduled cron) returns immediately as a no-op `advisory_lock` step instead of running the pipeline in parallel. Session-level locks free on disconnect, so a crashed run can never wedge the next one.
 
 **Long-job survival note (Phase C todo)**: Cloud Run **Services** allocate CPU only while handling a request by default. FastAPI's `BackgroundTask` runs *after* the response is sent — so if the instance scales to zero before the task finishes, the task is killed mid-way. We observed this on the first deploy: FMP fundamentals can take 15+ minutes (many 402s with backoff), and the instance idled out. Two fixes when full-run reliability matters:
 - **(a)** Set `--cpu-throttling=false` on the Service so CPU stays allocated. Costs slightly more (charged per CPU-second always, not just during requests).
 - **(b)** Switch the ingest from Cloud Run **Service** to Cloud Run **Job**. Jobs are designed for batch and run to completion regardless of timeout.
 - Phase B daily runs are usually fine (steady-state, ~5 min total because FMP skips fresh tickers). Phase C will pick (a) or (b) before the first persona depends on ingest reliability.
+- **Update 2026-06-11**: option (a) shipped — `deploy_cloud_run.ps1` now passes `--no-cpu-throttling`, so background work keeps CPU after the 202 response (applies from the next deploy). Option (b) — moving ingest/persona_batch to Cloud Run **Jobs** — remains the structural fix, tracked in `docs/improvement-plan-2026-06-11.md`.
 
 **Canonical-day note (resolved 2026-06-11)**: mixing the Alpaca daily feed (bars stamped `04:00:00+00`) with the one-time Yahoo backfill (stamped `00:00:00+00`) left the same trading day stored twice in `ohlcv_1d` for the ~6-year overlap window — and the production feature builder read both rows, silently halving every row-window feature's horizon (`ret_30d`, `vol_30d`, `rsi_14`, `sma_*`, `volume_z`). Fixed by migration `006_ohlcv_canonical_day.sql` (canonical source per day: alpaca/coinbase > yahoo) plus `DISTINCT ON (ticker, ts::date)` dedup in `compute._load_ohlcv` and `/api/prices`, and a covered-day skip in `backfill_yahoo`. Full post-mortem: `docs/improvement-plan-2026-06-11.md` P0-1.
 
@@ -599,11 +600,13 @@ apps/
         portfolio_construction.py   # v2 pass-2: research → one book/persona
       risk/                         # (Phase C — gateway pending)
       jobs/
-        ingest_daily.py             # 12-step orchestrator (what cron triggers)
+        ingest_daily.py             # 13-step orchestrator (what cron triggers);
+                                    # advisory-locked against double-trigger
         backfill_history.py         # one-time deep-history pull
         persona_batch.py            # weekly Fri thesis batch (v2 two-pass)
         backtest_harness.py         # point-in-time replay → backtest_reports
         hallucination_canary.py     # post-batch invariant checks
+        spy_canary.py               # nightly SPY 1y-return vs Yahoo guard
     scripts/
       check_connections.py          # smoke test all 6 services
       ingest_spy_canary.py          # acceptance test (0.49 bps vs Yahoo)
