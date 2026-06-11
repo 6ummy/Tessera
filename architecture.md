@@ -107,19 +107,23 @@ system prompts when wiring real LLM calls.
 
 ---
 
-## 6. Current MVP (what is actually built)
+## 6. Current state (what is actually built)
 
-The codebase right now is a **frontend-only demo** with mock data — no backend,
-no broker, no LLM. It exists to validate UX before backend investment.
+As of 2026-06-12 this is a **working LLM research desk on real data**:
+Phases A + B shipped, Phase C (paper execution) core live. Real Sonnet 4.6
+theses land weekly, chat streams live, and the paper engine fills each
+persona's book against a $100K paper account nightly. The only mock left
+is the landing-page performance chart, which swaps once the paper track
+accumulates (see "Still mocked" below).
 
-### Frontend MVP (shipped, 4 routes on Vercel)
+### Frontend (4 routes on Vercel)
 - **Marketplace** (`/`) — landing page = persona grid; click any card opens a slide-over detail sheet. Header logo is an inline SVG mosaic mark (coral / ink / sage tiles).
-- **Persona detail sheet** — biography, signature signals, full 1-year performance chart vs S&P 500, recent reports (accordion), latest portfolio, and a Chat toggle.
-- **Chat with analyst** — UI complete; mock response engine in `lib/mock/chat.ts` uses keyword matching against persona-specific response banks. Streams character-by-character to feel real. No LLM calls *yet* (Phase B will swap to Anthropic).
-- **Proposals** (`/proposals`) — two tabs: "By analyst" (4 portfolios side-by-side) and "Consensus" (cross-analyst agreement table).
-- **Dashboard** (`/dashboard`) — user account view with tabs: My portfolio, Leaderboard, Social feed. URL-synced (`?tab=…`).
+- **Persona detail sheet** — biography, signature signals, 1-year performance chart vs S&P 500 (still mock), real recent reports (accordion), real latest portfolio, and live chat.
+- **Chat with analyst** — real Sonnet 4.6 SSE stream (worker `agents/chat.py` → Edge proxy). Ticker-aware RAG, persona voice specs, abuse guards (rate limit + size caps + chat-only budget pool).
+- **Proposals** (`/proposals`) — two tabs: "By analyst" (4 real books side-by-side from `/api/proposals`) and "Consensus" (cross-analyst agreement table).
+- **Dashboard** (`/dashboard`) — user account view with tabs: My portfolio, Leaderboard, Social feed. URL-synced (`?tab=…`). Still mock-backed pending `persona_performance` swap.
 - **How it works** (`/how-it-works`) — customer-facing explanation of pipeline, safety, and compliance posture.
-- **Vercel Cron endpoint** (`/api/cron/daily`) — edge runtime, Bearer-auth via `CRON_SECRET`, scheduled `30 21 * * 1-5` in `vercel.json`. Returns `{status: "noop"}` until `WORKER_WEBHOOK_URL` is wired.
+- **Vercel Cron endpoints** — `/api/cron/daily` (`30 21 * * 1-5`) and `/api/cron/weekly` (`0 22 * * 5`), both forwarding to the Cloud Run worker with IAM identity tokens.
 
 ### Phase A backend (shipped, runs against production Neon)
 - **Neon Postgres** provisioned (us-east-1, free tier), `001_init.sql` applied. 14 tables + 3 extensions (TimescaleDB, pgvector, uuid-ossp).
@@ -526,12 +530,10 @@ plane is shipped; the LLM pipeline is the Week 2 / Week 3 work.
 - Buffer for chat (Week 3): ~$1.00/day
 - **Total: ~$2.50–4.00/day in steady-state.**
 
-### Still mocked (Frontend reads these — Phase B/C swap)
-- All return series (seeded random walks in `lib/mock/performance.ts`).
-- All proposals (hand-curated in `lib/mock/proposals.ts`).
-- All reports (hand-written in `lib/mock/reports.ts`).
-- Chat responses (keyword bank in `lib/mock/chat.ts`).
-- User identity (no auth — assumes "jshin").
+### Still mocked (as of 2026-06-12 — everything else is real)
+- Return series + portfolio tab (`lib/mock/performance.ts`, `lib/mock/personas.ts` static metadata aside): seeded random walks, **intentionally retained** until the paper engine's `persona_performance` track accumulates enough days to chart. The swap (`/api/performance` + `/api/portfolio` routes) is the next frontend slice.
+- User identity (no auth — assumes "jshin"). Phase D.
+- Already swapped and deleted: `lib/mock/proposals.ts`, `lib/mock/reports.ts`, `lib/mock/chat.ts` (2026-06-05).
 
 ### File map
 ```
@@ -673,8 +675,8 @@ build-deck.js                       # generates tessera-deck.pptx
 | Phase | Scope | Status |
 |---|---|---|
 | **A. Live data wiring** | 5 ingestors + feature builder + universe + Vercel Cron + daily orchestrator | **✅ Done** — see Phase A retro below |
-| **B. Real LLM theses** (wk 2–3) | Wire `respond()` and report generation to Claude | ⏳ Next — data plane ready |
-| **C. Paper execution** (wk 4–5) | Persona positions executed in paper; daily P&L attribution | ⏳ Planned |
+| **B. Real LLM theses** (wk 2–3) | Wire `respond()` and report generation to Claude | **✅ Done 2026-06-05** — weekly v2 batch, live chat, reports/proposals UI |
+| **C. Paper execution** (wk 4–5) | Persona positions executed in paper; daily P&L attribution | **🚧 Core live 2026-06-12** — risk gateway + paper engine shipped, `FEATURE_PAPER_EXECUTION=true`; remaining: performance/portfolio frontend swap, VaR/drawdown gate, Grafana |
 | **D. User auth + own portfolio** (wk 6) | Real user accounts following a persona on paper | ⏳ Planned |
 | **E. Compliance review** (wk 6, parallel) | Securities-lawyer consult before any non-self user runs live | ⏳ Planned |
 | **F. Live trading (optional)** (wk 7+) | Feature-flag flip; OAuth to user's Alpaca | ⏳ Optional |
@@ -751,3 +753,4 @@ One-time: securities-lawyer consult (~$300) before Phase E.
 | 0.2 | 2026-05-18 | Renamed PennyMaker → Tessera. Reflects current frontend-MVP state (4 personas with photos and ages, chat feature, dedicated how-it-works route, paper-only scope). Roadmap split into 6 phases. |
 | 0.3 | 2026-05-18 | Phase A complete. Monorepo (apps/web + apps/worker + packages/shared + migrations). Neon + Timescale + pgvector live. 5 ingestors (Alpaca, Coinbase, FRED, FMP, NewsAPI) + feature builder + daily orchestrator + Vercel Cron endpoint. 51-ticker universe. 13/13 property tests; SPY canary 0.49 bps vs Yahoo. File map and Phase A retro added; roadmap updated with status indicators. |
 | 0.4 | 2026-06-11 | Codebase-audit sync (`docs/improvement-plan-2026-06-11.md`). Canonical-day note added (mixed-source OHLCV duplicates distorted production features; migration 006 + code dedup). File map refreshed to post-Phase-B reality (agents/ + jobs/ modules, 9 test files / 179 tests, migration 006). yfinance marked a core worker dependency (was a never-shipped optional extra). |
+| 0.5 | 2026-06-12 | **Phase C core live.** Risk gateway (#94: universe/sum/single-name/sector caps inside construction retry loop) + PaperEngine v1 (#95/#96: fills at next bar open, EOD MTM, persona_performance, $100K bootstrap, `FEATURE_PAPER_EXECUTION=true`). §6 rewritten from "frontend-only demo" to current working-desk reality; roadmap B done / C in-progress; "Still mocked" trimmed to performance chart + auth. |

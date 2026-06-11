@@ -9,8 +9,29 @@
 
 ## 0. Where we are today (baseline)
 
-**Phase A complete + Phase B Weeks 2–3 complete; Phase C quant feature
-precursors started.** ✅ Updated 2026-06-06.
+**Phase A + B complete; Phase C Week 4 core LIVE.** ✅ Updated 2026-06-12.
+
+**Phase C Week 4 — shipped 2026-06-11/12** (see "2026-06-11 codebase
+audit" subsection in §5 + `docs/improvement-plan-2026-06-11.md`):
+- **Audit Step 0–2** (#90, #93): OHLCV canonical-day fix (P0-1 — mixed-source
+  duplicates had silently halved every row-window feature horizon; migration
+  006 + dedup + SPY canary back to 2.62 bps), `/api/proposals` v2 aggregator
+  fix (ghost positions), yfinance promoted to core dep, CI workflows (ruff
+  0-backlog + pytest blocking), gitleaks pre-commit, ingest advisory lock,
+  chat abuse guards + $2 chat-only budget pool, nightly SPY canary step,
+  `--no-cpu-throttling`.
+- **Risk gateway** (#94): thin validator inside the construction retry loop —
+  universe membership, sum=1.0, single-name + sector caps (sector was
+  prompt-only before). VaR/drawdown wait for paper positions.
+- **PaperEngine v1** (#95, #96): 14th `ingest_daily` step,
+  `FEATURE_PAPER_EXECUTION=true` in prod. Fills latest unexecuted book at
+  next bar open, EOD mark-to-market, `persona_performance` writer, 4 ×
+  $100K paper bootstrap. **First run expected 2026-06-12 21:30 UTC cron** —
+  verify `persona_trades` / `persona_portfolios` / `persona_performance`
+  rows after.
+- `CLAUDE.md` added (session catch-up notes for Claude Code).
+
+Previous baseline (2026-06-06) follows:
 
 **Phase A — shipped 2026-05-18:**
 - Next.js 14 frontend with 4 routes (`/`, `/proposals`, `/dashboard`, `/how-it-works`) + Vercel-Cron-ready
@@ -995,3 +1016,4 @@ Each of these could be a future phase. Keeping them out of pilot scope is the di
 | 0.3 | 2026-05-18 | Added 3 risks from AI study group review: (1) feature builder bug propagating as LLM-blessed thesis, (2) Haiku screen false negatives, (3) mode collapse — LLM anchoring weight at cap. Added 2 open decisions (weight authority schema, screen funnel width). Wired specific tasks into Phase A (property tests + canary asserts), Phase B (hybrid selection + audit + promotion-rate dashboard), Phase C (weight-distribution telemetry). |
 | 0.4 | 2026-05-18 | **Phase A complete.** Marked tasks done in Section 3 with actual production metrics (1,020 ohlcv_equity rows, 13,983 features, SPY canary 0.49 bps, etc.). Updated baseline (Section 0) to reflect new monorepo + worker + 5 ingestors. Added "Lessons from Phase A" subsection capturing 4 real footguns hit (FMP legacy endpoint deprecation, httpx URL logging leak, SQLAlchemy psycopg2 default, `unnest(:tickers::text[])` SQL collision). Phase A took 1 working session, well under the 1-week budget. |
 | 0.5 | 2026-06-11 | **Codebase audit + Step 0 hotfixes.** New `docs/improvement-plan-2026-06-11.md` (P0–P3 findings + 4-step plan). Shipped: OHLCV canonical-day dedup (006 + compute/_load_ohlcv/prices/backfill fixes — the mixed-source ⚠️ note in §5 was found to also distort PRODUCTION features, not just backtests), `/api/proposals` v2 aggregator fix (ghost-positions), yfinance promoted to core dep (prod yf steps were silently no-op), constant-time bearer compare. §5 gains a "2026-06-11 codebase audit" subsection; §9 CI section gains an honest status check (no workflows exist). Removed duplicated cross-source-dashboards bullet. |
+| 0.6 | 2026-06-12 | **Phase C Week 4 core live.** Audit Steps 1–2 landed (#93: CI ruff-0 + pytest gate, gitleaks pre-commit, ingest advisory lock, chat abuse guards + chat budget pool, nightly SPY canary step, `--no-cpu-throttling`). Risk gateway (#94) inside construction retry loop. PaperEngine v1 (#95) + `FEATURE_PAPER_EXECUTION=true` (#96) — Week-4 ledger tasks (engine / order ledger / MTM / performance writer) marked done, LISTEN/NOTIFY dropped for the simpler daily-step design. §0 baseline rewritten. `CLAUDE.md` added. |
