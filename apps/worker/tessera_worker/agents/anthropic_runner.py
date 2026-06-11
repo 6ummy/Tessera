@@ -549,8 +549,17 @@ def build_regime_report(
     tokens_out: int,
     cost_usd: float,
 ) -> RegimeReport:
-    parsed.setdefault("persona_id", "ray")
-    parsed.setdefault("as_of", as_of.isoformat())
+    # Force-set, NOT setdefault: these fields are server-authoritative.
+    # With setdefault, an `as_of` the LLM volunteered in its JSON won the
+    # tie — and Ray's Sonnet output reliably includes one, copied from
+    # prompt context/training rather than today. Every Ray row written
+    # 2026-06-10 landed with as_of_date=2025-01-24 that way; the paper
+    # engine then logged "book 2025-01-24" on its first run (fills were
+    # still correct — freshest row by ts — but date-scoped readers like
+    # /api/proposals' MAX(as_of_date) only worked by luck because ALL
+    # Ray rows carried the same wrong date).
+    parsed["persona_id"] = "ray"
+    parsed["as_of"] = as_of.isoformat()
     parsed["inputs_hash"] = inputs_hash
     parsed["model"] = model
     parsed["tokens_in"] = tokens_in

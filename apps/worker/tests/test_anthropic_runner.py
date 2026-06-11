@@ -216,6 +216,39 @@ def test_build_regime_report_validates_allocations():
     assert report.allocations[0].target_weight == 0.30
 
 
+def test_build_regime_report_overrides_llm_supplied_as_of():
+    """as_of / persona_id are server-authoritative. Ray's Sonnet output
+    reliably volunteers an `as_of` of its own (2025-01-24 in prod, copied
+    from context/training) — setdefault let it win, stamping every Ray
+    row with a 17-month-old book date. Force-set must win instead."""
+    import datetime as _dt
+    report = build_regime_report(
+        {
+            "as_of": "2025-01-24",        # LLM-volunteered — must lose
+            "persona_id": "warren",       # LLM nonsense — must lose
+            "regime": {
+                "goldilocks_prob": 0.45, "reflation_prob": 0.30,
+                "stagflation_prob": 0.15, "deflation_prob": 0.10,
+                "delta_from_last_week_md": "no change.",
+            },
+            "allocations": [
+                {"asset_class": "US equities", "instrument": "VTI",
+                 "target_weight": 0.30, "thesis_md": "A" * 25},
+            ],
+            "cash_target": 0.70,
+            "notes_to_manager": "x",
+        },
+        as_of=_dt.date(2026, 6, 12),
+        inputs_hash="hash123",
+        model="claude-sonnet-4-6",
+        tokens_in=100,
+        tokens_out=100,
+        cost_usd=0.001,
+    )
+    assert report.as_of == _dt.date(2026, 6, 12)
+    assert report.persona_id == "ray"
+
+
 def test_build_regime_report_rejects_weights_over_one():
     import datetime as _dt
 
