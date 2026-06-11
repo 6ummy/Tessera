@@ -10,8 +10,8 @@
 📐 Architecture:   architecture.md
 🗺️ Build plan:     Plan.md       (6-week phased pilot)
 🧑‍💼 Personas:       personalities.md  (LLM-ready system prompts + chat fine-tuning specs)
-🎤 Talk script:    deck-script-ko.md
 🪩 Deck:           tessera-deck.pptx (17 slides, technical)
+🩺 Audit:          docs/improvement-plan-2026-06-11.md (findings + step-by-step plan)
 ```
 
 ## Monorepo layout

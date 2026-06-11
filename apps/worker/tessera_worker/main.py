@@ -14,6 +14,8 @@ Auth model:
 
 from __future__ import annotations
 
+import hmac
+
 from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 
@@ -57,7 +59,10 @@ def _require_webhook_auth(authorization: str | None) -> None:
     if not expected:
         # No secret configured -> open mode for local dev. Cloud Run always has one.
         return
-    if authorization != f"Bearer {expected}":
+    # Constant-time compare — a plain != short-circuits on the first
+    # differing byte, which leaks prefix-match timing to an attacker
+    # probing the public Cloud Run URL.
+    if not hmac.compare_digest(authorization or "", f"Bearer {expected}"):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="bad or missing bearer",
@@ -262,59 +267,75 @@ async def get_persona_reports(
     return {"reports": rows}
 
 
+# Latest BATCH DAY only. v2 persona_batch (default since PR #87) persists
+# ONE analyst_reports row per persona per batch carrying the whole book, so
+# the current book is simply the freshest row. The MAX(as_of_date) subquery
+# (instead of LIMIT 1) also keeps legacy v1 batch days correct — those wrote
+# one row per (persona, ticker) cell, and all of that day's rows together
+# form the book. What this must NEVER do is span multiple batch days: the
+# pre-2026-06-11 LIMIT 20 version unioned up to 20 batches, resurrecting
+# tickers that had been dropped from the current book ("ghost positions")
+# and averaging cash_target across months.
+_PROPOSALS_SQL = """
+    SELECT as_of_date, ts, parsed
+    FROM analyst_reports
+    WHERE persona_id = :p AND rejected = false
+      AND as_of_date = (
+          SELECT MAX(as_of_date) FROM analyst_reports
+          WHERE persona_id = :p AND rejected = false
+      )
+    ORDER BY ts DESC
+"""
+
+
 @app.get("/api/proposals/{persona_id}")
 async def get_persona_proposal(
     persona_id: str,
     authorization: str | None = Header(default=None),
 ) -> dict:
-    """Persona's CURRENT BOOK — aggregates the last week's batch into a
-    single Proposal-like view.
-
-    `persona_batch.py` writes ONE analyst_reports row per (persona, ticker)
-    cell, so Warren's weekly batch produces ~10 rows each containing 1
-    proposal. Querying only the latest row would show just the last
-    ticker the runner processed. Instead, aggregate the most-recent row
-    per ticker (DISTINCT-ON-ish via Python dedup) from the last 20
-    rows. Ray's RegimeReport is single-row by design (all 8 allocations
-    in one cell) and is handled by the same code path."""
+    """Persona's CURRENT BOOK — the latest batch day's report(s) reshaped
+    into a single Proposal-like view. See _PROPOSALS_SQL for why only the
+    most recent as_of_date participates, and _aggregate_book for the
+    aggregation rules."""
     _require_webhook_auth(authorization)
     if persona_id not in ("warren", "cathie", "ray", "peter"):
         raise HTTPException(400, f"unknown persona: {persona_id}")
 
-    from tessera_worker.db import session_scope
     from sqlalchemy import text as _sql
-    from tessera_worker.universe import META_BY_TICKER
 
-    # 20 rows covers two consecutive batches for the largest shortlist
-    # (Cathie/Peter 10 each) — enough to assemble a full week's book
-    # without limiting to a calendar window (stale Ray runs would
-    # otherwise vanish silently until the next regime call).
+    from tessera_worker.db import session_scope
+
     with session_scope() as session:
-        rows = session.execute(
-            _sql("""
-                SELECT as_of_date, ts, parsed
-                FROM analyst_reports
-                WHERE persona_id = :p AND rejected = false
-                ORDER BY as_of_date DESC, ts DESC
-                LIMIT 20
-            """),
-            {"p": persona_id},
-        ).all()
+        rows = session.execute(_sql(_PROPOSALS_SQL), {"p": persona_id}).all()
 
     if not rows:
         return {"personaId": persona_id, "asOf": None, "positions": [],
                 "cashWeight": None, "regime": None,
                 "horizon": _persona_horizon(persona_id)}
 
-    # Aggregate: most-recent row per ticker wins. DESC order means the
-    # first time we see a ticker, that's the freshest write.
+    parsed_rows = [r.parsed if isinstance(r.parsed, dict) else {} for r in rows]
+    return _aggregate_book(
+        parsed_rows, persona_id, rows[0].as_of_date.isoformat(),
+    )
+
+
+def _aggregate_book(
+    parsed_rows: list[dict], persona_id: str, latest_as_of: str,
+) -> dict:
+    """Collapse one batch day's parsed reports into the UI book shape.
+
+    `parsed_rows` must be ordered newest-first and contain ONLY rows from a
+    single batch day (the handler's SQL guarantees this). For v2 that's one
+    row; for legacy v1 days it's one row per ticker cell — first occurrence
+    of a ticker wins, which under newest-first ordering is the freshest
+    write."""
+    from tessera_worker.universe import META_BY_TICKER
+
     positions_by_ticker: dict[str, dict] = {}
     cash_targets: list[float] = []
     regime: dict | None = None
-    latest_as_of = rows[0].as_of_date.isoformat()
 
-    for row in rows:
-        parsed = row.parsed if isinstance(row.parsed, dict) else {}
+    for parsed in parsed_rows:
         cash = parsed.get("cash_target")
         if cash is not None:
             try:
@@ -367,26 +388,17 @@ async def get_persona_proposal(
     )
 
     # ─────────────────────────────────────────────────────────────────
-    # Conservation-of-NAV safeguard.
+    # Conservation-of-NAV safeguard — belt-and-suspenders since v2.
     #
-    # Each per-ticker LLM call sizes its position independently and
-    # reports its own view of `cash_target`. There is no cross-cell
-    # coordination, so for stock-picker personas the book routinely
-    # arrives incoherent: Warren's last run sized 8% BRK.B, watchlisted
-    # the other 9 at 0%, and averaged cash_target = 12% — total 20%,
-    # with 80% silently lost. The UI then shows a book that doesn't add
-    # up.
-    #
-    # We treat the gap as cash. This is faithful for value-style picks
-    # (Warren explicitly: "if I don't see a bargain, I hold cash") and
-    # for any persona that genuinely couldn't fill its book this week.
-    # Ray's RegimeReport is single-cell — its allocations are already
-    # coordinated to sum to 100%, so the safeguard is a no-op there.
-    #
-    # Over-allocation (sum_positions > 1.0) is rare but possible if a
-    # persona's risk gateway hasn't shipped yet to enforce
-    # single-name / sector caps. Scale proportionally and zero cash.
-    # Logged loudly so an operator can audit.
+    # v2 persona_batch's construction pass enforces proposals +
+    # cash_target = 1.0 via Pydantic before persisting, so for current
+    # batches this block is a no-op that only logs if something slipped.
+    # It still does real work when the latest batch day predates v2
+    # (one row per ticker cell, independently-sized positions): the gap
+    # to 1.0 is treated as cash, and over-allocation is scaled down
+    # proportionally with cash zeroed. Logged loudly either way so an
+    # operator can audit. Ray's RegimeReport allocations are coordinated
+    # by construction — always a no-op there.
     # ─────────────────────────────────────────────────────────────────
     sum_positions = sum(p["weight"] for p in positions)
     total = sum_positions + cash_weight
@@ -417,7 +429,11 @@ async def get_persona_proposal(
         "cashWeight": cash_weight,
         "positions": positions,
         "regime": regime,
-        "notesToManager": "",  # per-cell notes are too noisy to aggregate
+        # v2 writes one row per batch with a real construction-pass note;
+        # take the newest. Legacy v1 days had per-cell notes too noisy to
+        # aggregate — first-row-only keeps those harmless.
+        "notesToManager": (parsed_rows[0].get("notes_to_manager") or "")
+                          if parsed_rows else "",
     }
 
 
@@ -574,6 +590,11 @@ async def get_ticker_prices(
     # range still aligns to the same bucket boundaries.
     bucket_days = int(bucket)
 
+    # Inner DISTINCT ON: one row per calendar day before bucketing. Mixed-
+    # source history can store the same day twice (Alpaca 04:00Z vs Yahoo
+    # backfill 00:00Z); migration 006 cleaned the table, this keeps the
+    # endpoint correct even if duplicates ever reappear. Preference order
+    # matches compute._load_ohlcv (daily-cron sources > backfill).
     with session_scope() as session:
         rows = session.execute(
             _sql(f"""
@@ -582,8 +603,19 @@ async def get_ticker_prices(
                            * ({bucket_days} * 86400)
                        )::date                  AS bucket,
                        AVG(close)::float        AS close
-                FROM ohlcv_1d
-                WHERE {where_clause}
+                FROM (
+                    SELECT DISTINCT ON (ts::date) ts, close
+                    FROM ohlcv_1d
+                    WHERE {where_clause}
+                    ORDER BY ts::date,
+                             CASE source
+                                 WHEN 'alpaca'   THEN 1
+                                 WHEN 'coinbase' THEN 1
+                                 WHEN 'yahoo'    THEN 2
+                                 ELSE 3
+                             END,
+                             ts DESC
+                ) canonical_day
                 GROUP BY bucket
                 ORDER BY bucket
             """),

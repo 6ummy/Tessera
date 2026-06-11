@@ -771,12 +771,34 @@ def _decompose_cumulative_ytd_to_ttm(rows: list[dict]) -> float | None:
 # ─────────────────────────────────────────────────────────────────────────
 
 def _load_ohlcv(tickers: list[str]) -> pd.DataFrame:
-    """Return tidy DataFrame: index=(ticker, ts), columns=open/high/low/close/volume."""
+    """Return tidy DataFrame: index=(ticker, ts), columns=open/high/low/close/volume.
+
+    One row per (ticker, calendar day). The PK is (ticker, ts) with ts
+    TIMESTAMPTZ, and mixed-source history stored the same calendar day under
+    different ts values (Alpaca 04:00Z vs the Yahoo backfill's 00:00Z). Every
+    feature below is a row-window computation (ret_30d = 30 rows, vol_30d,
+    rsi_14, sma_*, volume_z), so duplicate days silently halve the effective
+    horizon wherever two sources overlap. Migration 006 deleted the existing
+    duplicates; the DISTINCT ON here is defense in depth against any future
+    multi-source backfill re-introducing them.
+
+    Source preference mirrors 006: the daily-cron feeds (alpaca, coinbase)
+    win over backfill (yahoo), so the recent window always matches what the
+    nightly ingest writes.
+    """
     sql = text("""
-        SELECT ticker, ts, open, high, low, close, volume
+        SELECT DISTINCT ON (ticker, ts::date)
+               ticker, ts, open, high, low, close, volume
         FROM ohlcv_1d
         WHERE ticker = ANY(:tickers)
-        ORDER BY ticker, ts
+        ORDER BY ticker, ts::date,
+                 CASE source
+                     WHEN 'alpaca'   THEN 1
+                     WHEN 'coinbase' THEN 1
+                     WHEN 'yahoo'    THEN 2
+                     ELSE 3
+                 END,
+                 ts DESC
     """)
     with session_scope() as session:
         rows = session.execute(sql, {"tickers": tickers}).all()
