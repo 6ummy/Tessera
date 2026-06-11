@@ -120,11 +120,13 @@ async def trigger_persona_batch(
 
     from tessera_worker.db import session_scope
     from tessera_worker.jobs.hallucination_canary import run_canary
-    from tessera_worker.jobs.persona_batch import run_batch
+    from tessera_worker.jobs.persona_batch import run_batch_v2
 
     def _job() -> None:
         try:
-            result = run_batch()  # all 4 personas, defaults
+            # v2: research → construct → persist-one-row per persona.
+            # Deterministic Python normalize guarantees sum=1.0.
+            result = run_batch_v2()  # all 4 personas, defaults
             log.info("persona_batch.bg_done",
                      attempted=result.attempted, persisted=result.persisted,
                      errors=result.errors, cost_usd=round(result.total_cost_usd, 3),

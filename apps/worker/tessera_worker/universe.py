@@ -56,7 +56,12 @@ _RAW: list[TickerMeta] = [
     TickerMeta("V",     "Visa",                           "Financials",            "equity"),
     TickerMeta("MA",    "Mastercard",                     "Financials",            "equity"),
     TickerMeta("MCO",   "Moody's",                        "Financials",            "equity"),
-    TickerMeta("COIN",  "Coinbase",                       "Financials",            "equity"),
+    # COIN is classified as 'etf' for routing purposes: Alpaca paper
+    # trading (our first execution venue) doesn't expose direct crypto
+    # pair settlement, so Cathie's crypto sleeve will route through COIN
+    # as the listed proxy. The accounting stays Financials sector; the
+    # asset_class is a tradability hint, not a fundamentals re-tagging.
+    TickerMeta("COIN",  "Coinbase",                       "Financials",            "etf"),
     # ─── Healthcare ───
     TickerMeta("UNH",   "UnitedHealth",                   "Healthcare",            "equity"),
     TickerMeta("JNJ",   "Johnson & Johnson",              "Healthcare",            "equity"),
