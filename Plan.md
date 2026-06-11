@@ -685,10 +685,48 @@ All five §4 acceptance criteria 🟢:
   - Foundation for a **lightweight risk gateway** below: construction-time LLM already enforces caps, so the gateway becomes a thin validator (verify `target_weights + cash = 1.0`, every ticker is in universe, no single-name > persona's `max_single_name`) rather than the "reject + retry" flow originally scoped. This reduces Phase C risk-gateway work meaningfully.
   - Cost delta: Warren ~$0.50 → ~$0.58/batch (research $0.03 × 10 + construction $0.08). Across the desk ≤ $3/week. Negligible vs the coherence win.
   - ~3–4 hours of careful work; touches agents/, persona_batch.py, schemas, main.py aggregator. **Schedule as the first PR of the next session.**
-- [ ] **Cross-source disagreement dashboards** — `cross_validated()` already logs candidate spread + decision on disagreement (GOOGL 2.06× was the first audited case). Surface the log stream in Grafana so we can audit which tickers are systemic. Pre-req: the Grafana wiring task below.
-- [ ] **Cross-source disagreement dashboards** — `cross_validated()` already logs candidate spread + decision on disagreement. Surface the log stream in Grafana so we can audit which tickers are systemic (e.g. GOOGL dual-class causes a consistent 2× spread between `close × diluted` and `payload_income`; that's a feature flag away from a per-ticker rule, but we'd want to see the pattern first). Same panel watches debt_to_equity + gross_margin once those use cross_validated().
+- [ ] **Cross-source disagreement dashboards** — `cross_validated()` already logs candidate spread + decision on disagreement (GOOGL 2.06× was the first audited case). Surface the log stream in Grafana so we can audit which tickers are systemic (GOOGL dual-class causes a consistent 2× spread between `close × diluted` and `payload_income`; that's a feature flag away from a per-ticker rule, but we'd want to see the pattern first). Same panel watches debt_to_equity + gross_margin once those use cross_validated(). Pre-req: the Grafana wiring task above.
 - [ ] **GOOGL dual-class mcap rule** — `cross_validated(pick_on_disagreement="max")` picks the right value for GOOGL today ($4.4T including all share classes vs $2.2T Class A diluted only), but the heuristic isn't reasoned. Decide whether dual-class tickers get an explicit `MULTI_CLASS_TICKERS = {"GOOGL", ...}` override that always trusts `payload_income`, or whether the existing max-pick is good enough. Currently a warning log on every build — fine until the warning stream gets noisy.
 - [ ] **BRK.B yfinance hit-rate monitoring** — BRK.B now resolves to BRK-B via the universe normalization; VXUS still skipped because ETFs don't have `sharesOutstanding` from yf info. Add a daily check: any ticker where `yf_shares.no_data` is non-empty AND `ticker_features.market_cap_usd IS NULL` is a real coverage gap.
+
+#### 2026-06-11 codebase audit — Step 0 hotfixes shipped, Steps 1–2 queued
+
+Full audit doc: **`docs/improvement-plan-2026-06-11.md`** (severity-ordered
+findings P0–P3 + operator checklist). Shipped in the audit session:
+
+- [x] **P0-1: OHLCV canonical-day dedup** — see the resolved ⚠️ note under
+  "Maximum-history backfill" below. Code + `006_ohlcv_canonical_day.sql`;
+  operator apply + feature rebuild + canary re-run pending.
+- [x] **P0-2: `/api/proposals` aggregator v2-aligned** — pre-fix it unioned
+  the last 20 analyst_reports rows (≈20 weekly batches under v2's
+  one-row-per-batch layout), resurrecting dropped tickers as "ghost
+  positions" and averaging cash across months. Now scopes to
+  `MAX(as_of_date)` only; aggregation extracted to `_aggregate_book` with 6
+  regression tests (`tests/test_main_api.py`); v2 `notes_to_manager`
+  restored in the response.
+- [x] **P0-3: yfinance promoted to core dependency** — the `[backfill]`
+  extra never made it into the Cloud Run image, so the daily `yf_shares` /
+  weekly `yf_history` steps silently no-op'd in prod (ImportError swallowed
+  per ticker, step reported ok=True). Now a core dep + missing-install
+  fails the step loudly. **Worker image rebuild required.**
+- [x] **Constant-time bearer compare** (`hmac.compare_digest`) on the worker.
+
+Queued from the same audit (ordered):
+
+- [ ] **CI workflows** (Step 1) — `.github/workflows/ci.yml`: ruff + pytest
+  (worker), tsc + lint (web); ruff backlog 102 → 0; mypy strict via
+  per-module overrides; gitleaks pre-commit (the §9 promise that was never
+  implemented).
+- [ ] **Batch execution model** (Step 2) — `--no-cpu-throttling` now, Cloud
+  Run Jobs migration during Phase C (the architecture.md "Long-job survival
+  note" todo; BackgroundTasks can die on scale-to-zero).
+- [ ] **Ingest advisory lock** — `pg_advisory_lock(hashtext('ingest_daily'))`.
+- [ ] **Chat abuse guards** — message/history caps server-side, Edge rate
+  limit, separate chat budget pool so public chat can't starve the Friday
+  batch.
+- [ ] **SPY canary as automated orchestrator step** — manual-only canary is
+  why P0-1 went undetected; promote to a read-only daily step with a
+  threshold failure → Sentry. Decide adjusted-price policy alongside.
 
 ### Week 5 — Frontend wire-up + baseline backtest + weight-distribution telemetry
 - [ ] **Leaderboard tab** reads from `persona_performance` (delete mock)
@@ -714,7 +752,7 @@ All five §4 acceptance criteria 🟢:
   - **FRED (37 series)**: 237,404 rows, each series back to its earliest available date (UNRATE 1948→, T10YIE 2003→, etc.). 101 sec.
   - **SEC XBRL companyfacts**: 7,178 rows, 39/42 tickers, ~9 yrs per ticker. Done as part of the XBRL parser task above (one ingestor serves both daily + backfill).
   - **yfinance**: **shipped 2026-06-02** — 178,276 rows across 41 tickers, 20-yr depth (2006-05 → today). BRK.B failed (Yahoo uses `BRK-B` with dash, our universe has `BRK.B` with dot — known mapping issue). Rows tagged `source='yahoo'`. Daily cron untouched (yfinance remains opt-in via `[backfill]` extras).
-  - **⚠️ Subtle issue surfaced by mixing sources** — `ohlcv_1d` PK is `(ticker, ts)` where `ts` is `TIMESTAMPTZ`. Alpaca writes `04:00:00+00:00`, Yahoo writes `00:00:00+00:00`. **Same calendar date, different `ts` → both rows coexist** (not what we want; backtests would double-count). Workaround for now: queries use `DISTINCT ON (ticker, ts::date) ... ORDER BY ... CASE source WHEN 'yahoo' THEN 1 WHEN 'alpaca' THEN 2 END` to prefer the deepest source per calendar day. Permanent fix is a Phase C migration: either (a) normalize `ts` to a `DATE` (loses intraday capability we don't yet need), or (b) add a `(ticker, ts::date)` unique constraint and pick a canonical source per day. **demo_data_explorer.py already uses pattern (a)** so the sparklines + coverage numbers are correct.
+  - **⚠️ Subtle issue surfaced by mixing sources — RESOLVED 2026-06-11** — `ohlcv_1d` PK is `(ticker, ts)` where `ts` is `TIMESTAMPTZ`. Alpaca writes `04:00:00+00:00`, Yahoo writes `00:00:00+00:00`. Same calendar date, different `ts` → both rows coexisted for the ~6-year overlap window. The 2026-06-11 audit found this was NOT just a backtest double-count risk: the **production feature builder** (`compute.py::_load_ohlcv`) read both rows, silently halving every row-window feature's horizon (`ret_30d` ≈ 15 trading days, `vol_30d` / `rsi_14` / `sma_*` / `volume_z` all distorted) — the risk-register "feature builder bug propagates as LLM-blessed thesis" scenario, live. Fixed by `006_ohlcv_canonical_day.sql` (deletes duplicates, canonical source per day: alpaca/coinbase > yahoo; also deletes orphaned `ticker_features` rows) + `DISTINCT ON (ticker, ts::date)` dedup in `_load_ohlcv` and `/api/prices` + `backfill_yahoo` now skips days covered by a non-yahoo source. **Operator must re-run `ingest_daily --only features coverage` + SPY canary after applying 006.** See `docs/improvement-plan-2026-06-11.md` P0-1.
   - **FMP fundamentals**: 5 yrs annual on free tier (already accumulated via daily cron). 30y available on $79/mo Premier — not pursued; XBRL covers what we need free.
   - **NewsAPI**: ❌ not backfillable on free tier (30-day rolling cap). Defer indefinitely.
   - **SEC EDGAR filings**: shipped 2026-06-01 separately (220 filings, ~1.5 yrs per ticker). Extending to 5y is `DEFAULT_PER_FORM_LIMIT = {"10-K": 5, "10-Q": 20}` then re-run — operator decision when LLM personas need more management-prose context.
@@ -837,6 +875,10 @@ deferred to post-launch. Auth + mirror engine + onboarding ship in one week.
 - **From Week 1**: GitHub Actions running `npm run typecheck` + `npm run lint` on every PR
 - **From Week 2**: Python `ruff` + `mypy --strict` on worker
 - **From Week 4**: smoke test that hits `/api/health` on every PR
+- **⚠️ Status check 2026-06-11**: none of the above was ever implemented —
+  `.github/workflows/` does not exist, ruff backlog is 102 findings, mypy
+  strict reports 216 errors, and the promised secret-scanning pre-commit
+  hook is absent. Scheduled as Step 1 of `docs/improvement-plan-2026-06-11.md`.
 
 ### Documentation
 - Keep `architecture.md` and `personalities.md` in sync with code; treat as ADRs
@@ -937,3 +979,4 @@ Each of these could be a future phase. Keeping them out of pilot scope is the di
 | 0.2 | 2026-05-18 | Timeline scaled by ½: 12 weeks → 6 weeks core (Phases A–D), F at wk 7+. Per-phase "Compression notes" added explaining what gets cut. |
 | 0.3 | 2026-05-18 | Added 3 risks from AI study group review: (1) feature builder bug propagating as LLM-blessed thesis, (2) Haiku screen false negatives, (3) mode collapse — LLM anchoring weight at cap. Added 2 open decisions (weight authority schema, screen funnel width). Wired specific tasks into Phase A (property tests + canary asserts), Phase B (hybrid selection + audit + promotion-rate dashboard), Phase C (weight-distribution telemetry). |
 | 0.4 | 2026-05-18 | **Phase A complete.** Marked tasks done in Section 3 with actual production metrics (1,020 ohlcv_equity rows, 13,983 features, SPY canary 0.49 bps, etc.). Updated baseline (Section 0) to reflect new monorepo + worker + 5 ingestors. Added "Lessons from Phase A" subsection capturing 4 real footguns hit (FMP legacy endpoint deprecation, httpx URL logging leak, SQLAlchemy psycopg2 default, `unnest(:tickers::text[])` SQL collision). Phase A took 1 working session, well under the 1-week budget. |
+| 0.5 | 2026-06-11 | **Codebase audit + Step 0 hotfixes.** New `docs/improvement-plan-2026-06-11.md` (P0–P3 findings + 4-step plan). Shipped: OHLCV canonical-day dedup (006 + compute/_load_ohlcv/prices/backfill fixes — the mixed-source ⚠️ note in §5 was found to also distort PRODUCTION features, not just backtests), `/api/proposals` v2 aggregator fix (ghost-positions), yfinance promoted to core dep (prod yf steps were silently no-op), constant-time bearer compare. §5 gains a "2026-06-11 codebase audit" subsection; §9 CI section gains an honest status check (no workflows exist). Removed duplicated cross-source-dashboards bullet. |

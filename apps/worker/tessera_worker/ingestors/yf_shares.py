@@ -135,6 +135,20 @@ def ingest(tickers: Iterable[str]) -> IngestResult:
     Skips tickers where yfinance returns no usable data. Writes a single
     synthetic income row per ticker keyed on today's date.
     """
+    # Fail loudly if yfinance isn't installed. Before 2026-06-11 the
+    # ImportError was swallowed per ticker inside _fetch_one, so a prod
+    # image built without the dependency reported the step as ok=True with
+    # every ticker in no_data — and the 3rd fall-through tier silently
+    # stopped flowing. A hard failure surfaces as ingest_daily.step_failed
+    # → exit 1 → Sentry instead.
+    try:
+        import yfinance  # noqa: F401
+    except ImportError as e:
+        raise RuntimeError(
+            "yfinance is not installed but is a core dependency since "
+            "2026-06-11 — rebuild the worker image (pip install .)"
+        ) from e
+
     tickers_list = sorted({t.upper() for t in tickers})
     started = datetime.now()
     log.info("yf_shares.start", n_tickers=len(tickers_list))

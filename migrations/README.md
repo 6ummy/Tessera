@@ -30,3 +30,5 @@ psql "postgresql://USER:PASS@HOST.neon.tech/tessera?sslmode=require" \
 | 002 | `persona_memory.embedding vector(1024)` for Voyage/pgvector recall |
 | 003 | `backtest_reports` table for point-in-time LLM replay runs |
 | 004 | Quality/growth feature columns on `ticker_features`: `peg`, `eps_cagr_3y`, `debt_to_equity`, `gross_margin`, `gross_margin_trend`, plus `market_cap_usd` and `operating_margin` support fields |
+| 005 | `pe_trailing` + `pe_forward` columns on `ticker_features` |
+| 006 | Canonical one-row-per-calendar-day cleanup of `ohlcv_1d` (Alpaca 04:00Z vs Yahoo-backfill 00:00Z duplicates) + orphaned `ticker_features` rows. **Run `ingest_daily --only features coverage` + SPY canary after applying.** |

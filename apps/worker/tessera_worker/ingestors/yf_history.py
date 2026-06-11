@@ -187,6 +187,17 @@ def ingest(tickers: Iterable[str]) -> IngestResult:
     `period='FY'` so `_annual_income_rows` picks them up. Skips tickers
     where yfinance returns no usable data.
     """
+    # Fail loudly if yfinance isn't installed — same rationale as
+    # yf_shares.ingest: a missing dependency must fail the orchestrator
+    # step, not report ok=True with every ticker in no_data.
+    try:
+        import yfinance  # noqa: F401
+    except ImportError as e:
+        raise RuntimeError(
+            "yfinance is not installed but is a core dependency since "
+            "2026-06-11 — rebuild the worker image (pip install .)"
+        ) from e
+
     tickers_list = sorted({t.upper() for t in tickers})
     started = datetime.now()
     log.info("yf_history.start", n_tickers=len(tickers_list))

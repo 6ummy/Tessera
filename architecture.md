@@ -239,6 +239,8 @@ no broker, no LLM. It exists to validate UX before backend investment.
 - **(b)** Switch the ingest from Cloud Run **Service** to Cloud Run **Job**. Jobs are designed for batch and run to completion regardless of timeout.
 - Phase B daily runs are usually fine (steady-state, ~5 min total because FMP skips fresh tickers). Phase C will pick (a) or (b) before the first persona depends on ingest reliability.
 
+**Canonical-day note (resolved 2026-06-11)**: mixing the Alpaca daily feed (bars stamped `04:00:00+00`) with the one-time Yahoo backfill (stamped `00:00:00+00`) left the same trading day stored twice in `ohlcv_1d` for the ~6-year overlap window — and the production feature builder read both rows, silently halving every row-window feature's horizon (`ret_30d`, `vol_30d`, `rsi_14`, `sma_*`, `volume_z`). Fixed by migration `006_ohlcv_canonical_day.sql` (canonical source per day: alpaca/coinbase > yahoo) plus `DISTINCT ON (ticker, ts::date)` dedup in `compute._load_ohlcv` and `/api/prices`, and a covered-day skip in `backfill_yahoo`. Full post-mortem: `docs/improvement-plan-2026-06-11.md` P0-1.
+
 ### External data sources (what we ingest, what it costs, why)
 
 | Source | Auth | Cost | What we pull | Cadence | Destination table |
@@ -251,7 +253,7 @@ no broker, no LLM. It exists to validate UX before backend investment.
 | **NewsAPI** | API key | Free tier (100 req/day) | Ticker-tagged headlines + body excerpts | Daily, last 24h | `news` |
 | **SEC EDGAR** | `User-Agent` header (name + contact email) | Free, unmetered | 10-K (annual) + 10-Q (quarterly) full filings | Weekly (skip if accession already stored) | `filings` (meta + 8KB excerpt) + GCS (raw HTML) |
 | **SEC XBRL companyfacts** | same `User-Agent` | Free, unmetered | Structured GAAP fundamentals — revenue, op income, FCF, EPS, shares, balance sheet items, etc. SEC's pre-parsed XBRL JSON, no XML parsing needed. 40/42 equity tickers (BRK.B now resolved via SEC's `BRK-B` ↔ universe `BRK.B` cik_map alias, 2026-06-09; ASML / TSM still skipped — foreign filers without us-gaap facts JSON). Concept-priority lists no longer break on the first match — they fall through so filers that switched GAAP concept names mid-history (NVDA: `PaymentsToAcquirePropertyPlantAndEquipment` until 2020, `PaymentsToAcquireProductiveAssets` after) get covered end-to-end. | Daily (cheap, idempotent) | `fundamentals` (JSONB merge with FMP) |
-| **yfinance** (Yahoo, unofficial) | None | Free, scraped — no SLA | Last-resort fallback for `sharesOutstanding`, `marketCap`, `trailingPegRatio`, `grossMargins`, `trailingPE`, `forwardPE`. Used only when FMP + EDGAR leave the field blank (service / payment-network filers like V, MA whose XBRL doesn't expose these concepts). | Daily, as a synthetic `(ticker, today, income)` row in `fundamentals` (source='yfinance') | `fundamentals` (JSONB merge; compute reads as final fall-through) |
+| **yfinance** (Yahoo, unofficial) | None | Free, scraped — no SLA | Last-resort fallback for `sharesOutstanding`, `marketCap`, `trailingPegRatio`, `grossMargins`, `trailingPE`, `forwardPE`. Used only when FMP + EDGAR leave the field blank (service / payment-network filers like V, MA whose XBRL doesn't expose these concepts). **Core worker dependency since 2026-06-11** — it previously lived in an optional `[backfill]` extra that never shipped in the Cloud Run image, so both yf steps silently no-op'd in prod (see improvement plan P0-3). | Daily, as a synthetic `(ticker, today, income)` row in `fundamentals` (source='yfinance') | `fundamentals` (JSONB merge; compute reads as final fall-through) |
 | **yfinance history** (Yahoo, unofficial) | None | Free, scraped — no SLA, rate-limited (~4 rps) | `yf.Ticker(t).income_stmt` — annual diluted EPS / revenue / grossProfit / operatingIncome per fiscal year (~4 periods). Used to backfill EDGAR-sparse FY rows so `compute_eps_cagr_3y` + `compute_gross_margin_trend` can compute. | **Weekly** (Friday only, guard: `weekday() == 4`) — annual statements refresh quarterly + income_stmt endpoint is slow | `fundamentals` (synthetic FY rows per fy_end, `source='yfinance_history'`; JSONB merge fills NULL keys only) |
 
 **Why some have keys and some don't**
@@ -582,12 +584,26 @@ apps/
       features/
         compute.py                  # deterministic feature builder; per-
                                     # field newest-non-null walk +
-                                    # cross_validated() helper
-      agents/                       # (Phase B — empty)
-      risk/                         # (Phase C — empty)
+                                    # cross_validated() helper; canonical
+                                    # one-row-per-calendar-day OHLCV load
+      agents/                       # Phase B — shipped
+        persona_loader.py           # personalities.md → spec dicts
+        prompt_assembler.py         # 6-part prompt + fetch_inputs(as_of)
+        anthropic_runner.py         # typed calls, retry, cost log, persist
+        citation_validator.py       # cited_news_ids must resolve
+        models.py                   # re-exports tessera_shared schemas
+        chat.py                     # SSE chat stream + 6-part system
+        embeddings.py               # Voyage embed + pgvector literal
+        ticker_resolver.py          # 6-level ticker resolution for chat
+        persona_constraints.py      # construction-pass constraint registry
+        portfolio_construction.py   # v2 pass-2: research → one book/persona
+      risk/                         # (Phase C — gateway pending)
       jobs/
-        ingest_daily.py             # 8-step orchestrator (what cron triggers)
-        backfill_history.py         # Phase C one-time deep-history pull
+        ingest_daily.py             # 12-step orchestrator (what cron triggers)
+        backfill_history.py         # one-time deep-history pull
+        persona_batch.py            # weekly Fri thesis batch (v2 two-pass)
+        backtest_harness.py         # point-in-time replay → backtest_reports
+        hallucination_canary.py     # post-batch invariant checks
     scripts/
       check_connections.py          # smoke test all 6 services
       ingest_spy_canary.py          # acceptance test (0.49 bps vs Yahoo)
@@ -605,8 +621,16 @@ apps/
                                     # (used to diagnose null capex / FCF)
       dump_nvda_capex_obs.py        # per-XBRL-concept observations by form
                                     # /fy/fp; finds concept-name switches
-    tests/
-      test_features.py              # 13 hypothesis property tests
+    tests/                          # 9 files / 179 tests (2026-06-11)
+      test_features.py              # feature math + hypothesis properties
+      test_anthropic_runner.py      # parse/normalize/retry paths
+      test_prompt_assembler.py      # incl. as_of leakage guards
+      test_persona_loader.py        # personalities.md parsing
+      test_persona_batch.py         # batch flow + budget handling
+      test_chat.py                  # chat system assembly
+      test_ticker_resolver.py       # 6-level resolution
+      test_hallucination_canary.py  # 5 invariant checks
+      test_main_api.py              # /api/proposals book aggregation
 
 packages/
   shared/
@@ -621,6 +645,10 @@ migrations/
   003_backtest_reports.sql          # backtest run history
   004_quality_features.sql          # PEG, mcap, EPS CAGR, D/E, GM, GM trend
   005_pe_ratios.sql                 # P/E trailing + forward (Phase C 06-09)
+  006_ohlcv_canonical_day.sql       # one row per (ticker, calendar day) —
+                                    # removes Alpaca-04:00Z / Yahoo-00:00Z
+                                    # duplicates + orphaned feature rows;
+                                    # re-run features + canary after apply
 
 docs/                               # phase retros (Phase B-onwards)
 build-deck.js                       # generates tessera-deck.pptx
@@ -710,3 +738,4 @@ One-time: securities-lawyer consult (~$300) before Phase E.
 | 0.1 | 2026-05-17 | Initial architecture: Vercel + Firebase + Cloud Run + Neon + Alpaca. PennyMaker brand. |
 | 0.2 | 2026-05-18 | Renamed PennyMaker → Tessera. Reflects current frontend-MVP state (4 personas with photos and ages, chat feature, dedicated how-it-works route, paper-only scope). Roadmap split into 6 phases. |
 | 0.3 | 2026-05-18 | Phase A complete. Monorepo (apps/web + apps/worker + packages/shared + migrations). Neon + Timescale + pgvector live. 5 ingestors (Alpaca, Coinbase, FRED, FMP, NewsAPI) + feature builder + daily orchestrator + Vercel Cron endpoint. 51-ticker universe. 13/13 property tests; SPY canary 0.49 bps vs Yahoo. File map and Phase A retro added; roadmap updated with status indicators. |
+| 0.4 | 2026-06-11 | Codebase-audit sync (`docs/improvement-plan-2026-06-11.md`). Canonical-day note added (mixed-source OHLCV duplicates distorted production features; migration 006 + code dedup). File map refreshed to post-Phase-B reality (agents/ + jobs/ modules, 9 test files / 179 tests, migration 006). yfinance marked a core worker dependency (was a never-shipped optional extra). |

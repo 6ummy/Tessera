@@ -119,6 +119,19 @@ def backfill_yahoo(years: int = 20) -> None:
         if df is None or df.empty:
             log.warning("backfill.yahoo.ticker_empty", ticker=tk)
             continue
+        # Skip calendar days another source already covers. ohlcv_1d's PK is
+        # (ticker, ts) and Yahoo stamps 00:00Z where Alpaca stamps 04:00Z, so
+        # without this filter the same trading day lands twice under two ts
+        # values — which silently halves the row-window horizons in
+        # features/compute.py. Migration 006 cleaned the historical
+        # duplicates; this keeps the backfill from re-creating them.
+        with session_scope() as session:
+            covered = {
+                r[0] for r in session.execute(text("""
+                    SELECT DISTINCT ts::date FROM ohlcv_1d
+                    WHERE ticker = :t AND source <> 'yahoo'
+                """), {"t": tk}).all()
+            }
         rows = [
             {
                 "ticker": tk,
@@ -132,6 +145,7 @@ def backfill_yahoo(years: int = 20) -> None:
             }
             for idx, row in df.iterrows()
             if not any(map(lambda x: x is None or x != x, [row["Open"], row["High"], row["Low"], row["Close"]]))
+            and (idx.date() if hasattr(idx, "date") else idx) not in covered
         ]
         if not rows:
             continue
