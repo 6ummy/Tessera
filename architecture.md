@@ -603,8 +603,13 @@ apps/
                                     # membership + sum=1.0 + single-name +
                                     # sector caps (shipped 2026-06-11);
                                     # VaR/drawdown wait for the paper engine
+        paper_engine.py             # paper execution (shipped 2026-06-12,
+                                    # FEATURE_PAPER_EXECUTION-gated): fill
+                                    # latest book at next bar open → EOD
+                                    # MTM → persona_performance; $100K
+                                    # bootstrap; NAV conservation pinned
       jobs/
-        ingest_daily.py             # 13-step orchestrator (what cron triggers);
+        ingest_daily.py             # 14-step orchestrator (what cron triggers);
                                     # advisory-locked against double-trigger
         backfill_history.py         # one-time deep-history pull
         persona_batch.py            # weekly Fri thesis batch (v2 two-pass)
