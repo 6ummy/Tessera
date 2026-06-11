@@ -33,24 +33,23 @@ Caveats:
 
 from __future__ import annotations
 
+import contextlib
 import sys
 import warnings
 
-import numpy as np
 import pandas as pd
 from sqlalchemy import text
-
-# Silence "invalid value in divide" from pandas .corr() when a column is
-# all-zero (some monthly macros after diff() have stretches of zeros).
-warnings.filterwarnings("ignore", category=RuntimeWarning, module="numpy")
 
 from tessera_worker.db import session_scope
 from tessera_worker.universe import by_asset_class
 
-try:
+# Silence "invalid value in divide" from pandas .corr() when a column is
+# all-zero (some monthly macros after diff() have stretches of zeros).
+# Registered before any .corr() call runs; import order does not matter.
+warnings.filterwarnings("ignore", category=RuntimeWarning, module="numpy")
+
+with contextlib.suppress(AttributeError):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-except AttributeError:
-    pass
 
 # ── Config ───────────────────────────────────────────────────────────
 WINDOW_DAYS = 252  # 1 year of trading days
@@ -148,7 +147,6 @@ def render_per_ticker(corr_df: pd.DataFrame) -> None:
             continue
         print(f"\n  {tk:<8}")
         for _, r in sub.iterrows():
-            sign = "+" if r["corr"] > 0 else "-"
             bar_width = int(abs(r["corr"]) * 20)
             bar = ("#" if r["corr"] > 0 else "=") * bar_width
             print(f"    {r['series']:<22}  r={r['corr']:+.2f}  {bar}")

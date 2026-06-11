@@ -99,7 +99,7 @@ def main() -> int:
     print("  ✓ idempotent")
 
     # 1y return: ours vs Yahoo
-    print(f"\n─── Canary: 1-year return vs Yahoo ───")
+    print("\n─── Canary: 1-year return vs Yahoo ───")
     our_ret, d0, d1, p0, p1 = _our_1y_return()
     print(f"  Tessera:  {d0} ${p0:.4f}  →  {d1} ${p1:.4f}  =  {our_ret*100:+.4f}%")
 
@@ -112,7 +112,7 @@ def main() -> int:
     threshold_bps = 100  # 100 bps tolerance (Alpaca IEX vs Yahoo all-exchange differ a bit)
     if diff_bps > threshold_bps:
         print(f"  ✗ exceeds threshold ({threshold_bps} bps)")
-        print(f"    → check adjustment handling (splits/dividends) or feed difference")
+        print("    → check adjustment handling (splits/dividends) or feed difference")
         return 1
     print(f"  ✓ within {threshold_bps} bps threshold")
 

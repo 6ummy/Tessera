@@ -64,13 +64,13 @@ def main() -> int:
         print(f"  … ({len(coverage) - 5} more)")
 
     # ── Build features ───────────────────────────────────────────────
-    print(f"\n─── Building features ───")
+    print("\n─── Building features ───")
     have_data = [row[0] for row in coverage]
     fr = build_features(have_data)
     print(f"  ✓ {fr.rows_written} feature rows  ({fr.duration_ms} ms)  range={fr.date_range}")
 
     # ── Sanity sweep: features for the most recent date per ticker ──
-    print(f"\n─── Latest features (a few samples) ───")
+    print("\n─── Latest features (a few samples) ───")
     with session_scope() as session:
         sample = session.execute(text("""
             WITH latest AS (
@@ -84,7 +84,7 @@ def main() -> int:
             SELECT * FROM latest ORDER BY ret_1y DESC NULLS LAST LIMIT 5
         """), {"t": have_data}).all()
 
-    print(f"  Top 5 by 1y return:")
+    print("  Top 5 by 1y return:")
     for row in sample:
         ticker, d, r30, r1y, vol, rsi_v = row
         name = META_BY_TICKER.get(ticker)
@@ -93,10 +93,11 @@ def main() -> int:
         r1y_s = f"{float(r1y)*100:+.2f}%" if r1y is not None else "    n/a"
         vol_s = f"{float(vol)*100:.1f}%" if vol is not None else " n/a"
         rsi_s = f"{float(rsi_v):.1f}" if rsi_v is not None else "n/a"
-        print(f"    {ticker:6} {d}  ret_30d={r30_s}  ret_1y={r1y_s}  vol={vol_s}  rsi={rsi_s}{name_str}")
+        print(f"    {ticker:6} {d}  ret_30d={r30_s}  ret_1y={r1y_s}  "
+              f"vol={vol_s}  rsi={rsi_s}{name_str}")
 
     # ── Idempotency check on features ────────────────────────────────
-    print(f"\n─── Idempotency (re-build features) ───")
+    print("\n─── Idempotency (re-build features) ───")
     fr2 = build_features(have_data)
     if fr2.rows_written == fr.rows_written:
         print(f"  ✓ same row count: {fr2.rows_written}")

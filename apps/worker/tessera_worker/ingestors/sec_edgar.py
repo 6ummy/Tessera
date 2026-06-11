@@ -21,9 +21,9 @@ from __future__ import annotations
 
 import re
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import date, datetime
-from typing import Iterable
 
 import httpx
 from bs4 import BeautifulSoup

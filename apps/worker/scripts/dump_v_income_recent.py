@@ -4,6 +4,7 @@ Helps diagnose whether yf_history values actually landed in DB, and
 whether they're being picked up by the _annual_income_rows filter.
 """
 from sqlalchemy import text
+
 from tessera_worker.db import session_scope
 
 with session_scope() as s:

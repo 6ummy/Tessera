@@ -1,0 +1,76 @@
+# CI — the merge gate Plan.md §9 promised from Week 1, shipped 2026-06-11
+# (improvement plan Step 1). Two jobs mirroring the monorepo split:
+#
+#   worker: ruff (0-finding baseline as of 2026-06-11 — keep it there),
+#           pytest (179 tests, no DB / network needed),
+#           mypy --strict (NON-blocking: 216-error backlog; flip to blocking
+#           once the per-module cleanup lands — see improvement plan P2-8).
+#   web:    tsc --noEmit + next lint.
+#
+# Secrets are NOT available to these jobs and must never be needed — tests
+# run against blank Settings defaults by design.
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  worker:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/worker
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            apps/worker/pyproject.toml
+            packages/shared/pyproject.toml
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ../../packages/shared
+          pip install -e ".[dev]"
+
+      - name: Ruff
+        run: ruff check tessera_worker tests scripts
+
+      - name: Tests
+        run: pytest tests -q
+
+      # Backlog: 216 strict errors as of 2026-06-11. Reported for visibility,
+      # not yet a gate. Remove continue-on-error when the count hits 0.
+      - name: Mypy (non-blocking)
+        run: mypy tessera_worker
+        continue-on-error: true
+
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint

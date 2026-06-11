@@ -24,17 +24,17 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass, field
-from datetime import date, datetime
-from typing import Iterable
+from datetime import datetime
 
 import httpx
 from sqlalchemy import text
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from tessera_worker.db import session_scope
-from tessera_worker.logging import get_logger
 from tessera_worker.ingestors.sec_edgar import _client, _load_cik_map
+from tessera_worker.logging import get_logger
 
 log = get_logger(__name__)
 
@@ -100,7 +100,9 @@ CONCEPTS_CASHFLOW: dict[str, list[str]] = {
     ],
     "commonStockRepurchased":      ["PaymentsForRepurchaseOfCommonStock"],
     "commonDividendsPaid":         ["PaymentsOfDividendsCommonStock", "PaymentsOfDividends"],
-    "depreciationAndAmortization": ["DepreciationDepletionAndAmortization", "DepreciationAndAmortization"],
+    "depreciationAndAmortization": [
+        "DepreciationDepletionAndAmortization", "DepreciationAndAmortization",
+    ],
 }
 
 CONCEPT_MAP_BY_TYPE: dict[str, dict[str, list[str]]] = {
@@ -211,7 +213,7 @@ def _extract_rows(ticker: str, companyfacts: dict) -> list[dict]:
     # Derived field: freeCashFlow = operatingCashFlow - abs(capex)
     # Only when both components present and we're in the cash_flow row for
     # that period (FCF lives there in our schema convention).
-    for (pe, ft, form, fy, fp), payload in payloads.items():
+    for (_pe, ft, _form, _fy, _fp), payload in payloads.items():
         if ft == "cash_flow":
             ocf = payload.get("operatingCashFlow")
             capex = payload.get("capitalExpenditure")
@@ -223,7 +225,7 @@ def _extract_rows(ticker: str, companyfacts: dict) -> list[dict]:
     # (rare but possible when a company restates), prefer the 10-K over 10-Q
     # for that period_end.
     out: dict[tuple, dict] = {}
-    for (pe, ft, form, fy, fp), payload in payloads.items():
+    for (pe, ft, form, _fy, _fp), payload in payloads.items():
         key = (pe, ft)
         existing = out.get(key)
         if existing is None or (form == "10-K" and existing.get("form") == "10-Q"):

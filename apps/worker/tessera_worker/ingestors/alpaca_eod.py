@@ -16,9 +16,9 @@ Usage:
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta, timezone
-from typing import Iterable
+from datetime import UTC, date, datetime
 
 from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.requests import StockBarsRequest
@@ -65,8 +65,8 @@ def _fetch_bars(tickers: list[str], start: date, end: date) -> dict:
     req = StockBarsRequest(
         symbol_or_symbols=tickers,
         timeframe=TimeFrame(amount=1, unit=TimeFrameUnit.Day),
-        start=datetime.combine(start, datetime.min.time(), tzinfo=timezone.utc),
-        end=datetime.combine(end, datetime.min.time(), tzinfo=timezone.utc),
+        start=datetime.combine(start, datetime.min.time(), tzinfo=UTC),
+        end=datetime.combine(end, datetime.min.time(), tzinfo=UTC),
         feed="iex",  # free tier
         adjustment="all",  # split + dividend adjusted
     )

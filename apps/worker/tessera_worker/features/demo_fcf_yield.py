@@ -31,6 +31,7 @@ No new dependencies — only pandas + sqlalchemy already in pyproject.
 
 from __future__ import annotations
 
+import contextlib
 import sys
 
 import pandas as pd
@@ -40,10 +41,8 @@ from tessera_worker.db import session_scope
 from tessera_worker.universe import by_asset_class
 
 # Force UTF-8 stdout so non-ASCII chars don't crash on Windows cp1252.
-try:
+with contextlib.suppress(AttributeError):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-except AttributeError:
-    pass
 
 
 # ─────────────────────────────────────────────────────────────────────────

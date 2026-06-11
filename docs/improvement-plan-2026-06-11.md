@@ -67,19 +67,21 @@
 
 코드는 전부 반영됨. **운영자 액션(§4)이 남아 있음.**
 
-### Step 1 — CI/품질 게이트 (다음 작업, ~1일)
+### Step 1 — CI/품질 게이트 ✅ (2026-06-11 후속 PR)
 
-1. `.github/workflows/ci.yml`: worker(ruff + pytest, mypy는 비차단으로 시작) + web(`tsc --noEmit` + `next lint`) 매 PR.
-2. `ruff check --fix`로 자동 수정 가능한 56건 정리 후 나머지 수동.
-3. mypy: `[[tool.mypy.overrides]]`로 신규/핵심 모듈부터 strict 적용, 전역 strict는 부채 청산 후.
-4. pre-commit + gitleaks(또는 detect-secrets) — Plan §9가 이미 약속한 시크릿 훅.
+1. ✅ `.github/workflows/ci.yml`: worker(ruff 차단 + pytest 차단 + mypy 비차단) + web(`tsc --noEmit` + `next lint`) 매 PR/main push.
+2. ✅ ruff 백로그 **102 → 0** (자동 96 + 수동 ~50: SIM105 contextlib.suppress ×10, E701 전개, E501 줄바꿈, B007 `_`-prefix, F841 제거, E402 import 재배치, B017 `ValidationError` 구체화, C417 genexp). 179 테스트 통과 유지.
+3. ✅ web에 `.eslintrc.json` 추가(없어서 CI의 `next lint`가 인터랙티브 프롬프트로 멈출 상태였음). `react/no-unescaped-entities`만 비활성(산문 아포스트로피 18건; 구조 오류는 typecheck가 잡음).
+4. ✅ `.pre-commit-config.yaml` + gitleaks — Plan §9가 약속한 시크릿 훅. 개발자별 1회 `pip install pre-commit && pre-commit install`.
+5. ⏳ mypy strict 216건은 비차단 리포트로 노출 — 모듈별 청산 후 차단 전환 (P2-8).
 
-### Step 2 — 운영 안정성 (~1–2일)
+### Step 2 — 운영 안정성 ✅ (2026-06-11 후속 PR)
 
-1. **배치 실행 모델**: 즉시 `gcloud run services update tessera-worker --no-cpu-throttling`으로 막고, Phase C 중 ingest/persona_batch의 Cloud Run **Jobs** 전환 검토.
-2. `pg_advisory_lock(hashtext('ingest_daily'))` — 중복 트리거 no-op.
-3. chat 방어: worker 측 message 4K자/history 20턴 캡, Edge 레이트리밋, chat 전용 예산 풀(`LLM_MAX_DAILY_COST_CHAT_USD`).
-4. SPY 캐너리를 daily 오케스트레이터 read-only 스텝으로 승격(임계 초과 → step 실패 → Sentry). adjusted-price 정책 결정 포함.
+1. ✅ **배치 실행 모델 (부분)**: `deploy_cloud_run.ps1`에 `--no-cpu-throttling` 추가 — **다음 배포부터 적용**(또는 운영자가 `gcloud run services update tessera-worker --region us-east1 --no-cpu-throttling`로 즉시 적용). 구조적 해법인 Cloud Run **Jobs** 전환은 Phase C 본 작업으로 잔존.
+2. ✅ `db.try_advisory_lock("ingest_daily")` — run() 전체를 감싸고, 중복 트리거는 `advisory_lock` no-op 스텝으로 즉시 반환. 세션 레벨 락이라 크래시 시 자동 해제.
+3. ✅ chat 방어 3중: worker 측 message ≤4K자(400) + history 정제(≤20턴, role 검증, content 절단) + **chat 전용 일일 예산 풀**(`LLM_MAX_DAILY_COST_CHAT_USD`, 기본 $2 — 글로벌 캡과 별도라 챗 남용이 금요일 배치를 굶기지 못함). Edge 프록시: IP당 10회/분 레이트리밋(isolate별 best-effort) + 크기 사전 차단. 기존 버그도 수정: `LlmDailyBudgetExceeded`가 `ChatBudgetExceeded`로 변환되지 않아 SSE 에러 이벤트 타입이 generic으로 새던 것.
+4. ✅ SPY 캐너리 자동화: `jobs/spy_canary.py` + `ingest_daily`의 13번째 `canary` 스텝. >100bps → RuntimeError → step 실패 → exit 1/Sentry. Yahoo 불통은 skip(우리 회귀가 아님). adjusted-price 정책(P2-1)은 미결 — 현재 실측 2.62bps로 비교 자체는 건전.
+5. ✅ 배포 스크립트 정리: 낡은 "Next: set WORKER_WEBHOOK_URL … /jobs/ingest-daily" 안내문을 base-URL 안내로 교체(gcp-auth.ts가 경로를 어차피 제거하고 IAM audience는 base URL이어야 함), `LLM_MAX_DAILY_COST_CHAT_USD=2.0` env 추가.
 
 ### Step 3 — Phase C 본 작업 (Plan.md §5와 정렬)
 

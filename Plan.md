@@ -713,20 +713,32 @@ findings P0–P3 + operator checklist). Shipped in the audit session:
 
 Queued from the same audit (ordered):
 
-- [ ] **CI workflows** (Step 1) — `.github/workflows/ci.yml`: ruff + pytest
-  (worker), tsc + lint (web); ruff backlog 102 → 0; mypy strict via
-  per-module overrides; gitleaks pre-commit (the §9 promise that was never
-  implemented).
-- [ ] **Batch execution model** (Step 2) — `--no-cpu-throttling` now, Cloud
-  Run Jobs migration during Phase C (the architecture.md "Long-job survival
-  note" todo; BackgroundTasks can die on scale-to-zero).
-- [ ] **Ingest advisory lock** — `pg_advisory_lock(hashtext('ingest_daily'))`.
-- [ ] **Chat abuse guards** — message/history caps server-side, Edge rate
-  limit, separate chat budget pool so public chat can't starve the Friday
-  batch.
-- [ ] **SPY canary as automated orchestrator step** — manual-only canary is
-  why P0-1 went undetected; promote to a read-only daily step with a
-  threshold failure → Sentry. Decide adjusted-price policy alongside.
+- [x] **CI workflows** (Step 1) — **shipped 2026-06-11**.
+  `.github/workflows/ci.yml`: ruff (blocking) + pytest (blocking) + mypy
+  (non-blocking, 216-error backlog) on worker; tsc + next lint on web.
+  Ruff backlog 102 → 0. Web `.eslintrc.json` added (next lint would have
+  hung CI on its first-run interactive prompt without it). gitleaks
+  pre-commit config added — devs run `pre-commit install` once.
+- [x] **Batch execution model** (Step 2) — **partially shipped 2026-06-11**:
+  `deploy_cloud_run.ps1` now passes `--no-cpu-throttling` (takes effect on
+  next deploy), so BackgroundTasks keep CPU after the 202. The structural
+  fix — Cloud Run **Jobs** for ingest/persona_batch — stays open for
+  Phase C proper.
+- [x] **Ingest advisory lock** — **shipped 2026-06-11**.
+  `db.try_advisory_lock("ingest_daily")` wraps the whole run; a duplicate
+  trigger returns a fast no-op `advisory_lock` step.
+- [x] **Chat abuse guards** — **shipped 2026-06-11**. Worker: message ≤
+  4K chars (400), history sanitized (≤20 turns, role-validated, content
+  truncated), and a chat-only daily budget pool
+  (`LLM_MAX_DAILY_COST_CHAT_USD`, default $2) so public chat can't starve
+  the Friday batch. Edge proxy: per-IP rate limit (10/min, best-effort
+  per-isolate) + size pre-checks before the worker is touched.
+- [x] **SPY canary as automated orchestrator step** — **shipped
+  2026-06-11**. New `jobs/spy_canary.py` + `canary` step (13th) in
+  `ingest_daily`: >100bps divergence vs Yahoo fails the run (exit 1 /
+  Sentry); Yahoo outage logs + skips. Adjusted-price policy decision
+  still open (P2-1) — current empirical diff 2.62bps says the comparison
+  is sound as-is.
 
 ### Week 5 — Frontend wire-up + baseline backtest + weight-distribution telemetry
 - [ ] **Leaderboard tab** reads from `persona_performance` (delete mock)

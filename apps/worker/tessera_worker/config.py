@@ -37,6 +37,14 @@ class Settings(BaseSettings):
     llm_model_thesis: str = Field("claude-sonnet-4-6")
     llm_model_review: str = Field("claude-opus-4-7")
     llm_max_daily_cost_usd: float = Field(20.0, description="Auto-pause batch if exceeded")
+    # Chat shares llm_call_log with the thesis path but gets its own daily
+    # pool: the public chat endpoint is unauthenticated until Phase D, and
+    # without a separate cap an abuser could burn the global budget and
+    # starve the Friday persona batch. Chat refuses first; theses keep
+    # their headroom.
+    llm_max_daily_cost_chat_usd: float = Field(
+        2.0,
+        description="Daily cap for stage='chat' calls only; chat refuses beyond this")
 
     # ── Embeddings (Voyage AI — Anthropic-recommended) ──
     # Blank → embedding writes skipped, persona_memory falls back to
@@ -59,16 +67,23 @@ class Settings(BaseSettings):
     newsapi_api_key: str = Field("")
 
     # ── Object storage ──
-    gcs_bucket_raw: str = Field("tessera-raw", description="GCS bucket for raw filings + LLM responses")
+    gcs_bucket_raw: str = Field(
+        "tessera-raw", description="GCS bucket for raw filings + LLM responses")
 
     # ── Feature flags ──
-    feature_real_llm: bool = Field(False, description="Off → mock responses (dev). On → real Anthropic calls")
+    feature_real_llm: bool = Field(
+        False, description="Off → mock responses (dev). On → real Anthropic calls")
     feature_paper_execution: bool = Field(False)
-    feature_live_trading: bool = Field(False, description="Never enable without explicit user OAuth + compliance review")
+    feature_live_trading: bool = Field(
+        False,
+        description="Never enable without explicit user OAuth + compliance review")
 
     # ── Observability ──
-    sentry_dsn: str = Field("", description="Sentry DSN for the tessera-worker project. Blank → Sentry disabled.")
-    sentry_environment: str = Field("local", description="Tag attached to events (local / staging / production)")
+    sentry_dsn: str = Field(
+        "",
+        description="Sentry DSN for the tessera-worker project. Blank → Sentry disabled.")
+    sentry_environment: str = Field(
+        "local", description="Tag attached to events (local / staging / production)")
 
     # ── Inter-service auth ──
     # Shared secret between Vercel cron and this worker. Vercel sends

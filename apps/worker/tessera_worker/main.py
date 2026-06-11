@@ -14,6 +14,7 @@ Auth model:
 
 from __future__ import annotations
 
+import contextlib
 import hmac
 
 from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request, status
@@ -166,6 +167,40 @@ async def trigger_persona_batch(
     return {"status": "queued", "job": "persona_batch"}
 
 
+# ── Chat input caps ──────────────────────────────────────────────────────
+# The chat endpoint is reachable from the public internet (Vercel proxy,
+# no user auth until Phase D) and `message` + `history` are entirely
+# client-controlled. Without caps a single request can carry an arbitrary
+# token bill — the daily budget pools bound the damage per day, these
+# bound it per request. Values are generous for real usage: the UI sends
+# short questions plus its own accumulated history.
+MAX_CHAT_MESSAGE_CHARS = 4_000
+MAX_CHAT_HISTORY_TURNS = 20
+MAX_CHAT_HISTORY_ITEM_CHARS = 4_000
+
+
+def _sanitize_chat_history(raw: object) -> list[dict]:
+    """Clamp client-supplied chat history to a safe shape.
+
+    Keeps only well-formed {role, content} dicts with role in
+    user/assistant, truncates each content, and keeps the most recent
+    MAX_CHAT_HISTORY_TURNS items. Malformed entries are dropped silently —
+    history is a courtesy for conversational continuity, not critical
+    state worth a 400."""
+    if not isinstance(raw, list):
+        return []
+    clean: list[dict] = []
+    for item in raw[-MAX_CHAT_HISTORY_TURNS:]:
+        if not isinstance(item, dict):
+            continue
+        role = item.get("role")
+        content = item.get("content")
+        if role not in ("user", "assistant") or not isinstance(content, str) or not content:
+            continue
+        clean.append({"role": role, "content": content[:MAX_CHAT_HISTORY_ITEM_CHARS]})
+    return clean
+
+
 @app.post("/api/chat/{persona_id}")
 async def chat_stream(
     persona_id: str,
@@ -192,12 +227,19 @@ async def chat_stream(
 
     body = await request.json()
     message = body.get("message")
-    history = body.get("history") or []
     if not message or not isinstance(message, str):
         raise HTTPException(status_code=400, detail="missing 'message'")
+    if len(message) > MAX_CHAT_MESSAGE_CHARS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"message too long ({len(message)} > {MAX_CHAT_MESSAGE_CHARS} chars)",
+        )
+    history = _sanitize_chat_history(body.get("history"))
 
     from tessera_worker.agents.chat import (
-        ChatBudgetExceeded, ChatDisabledError, run_chat_stream,
+        ChatBudgetExceeded,
+        ChatDisabledError,
+        run_chat_stream,
     )
 
     async def _event_stream():
@@ -244,8 +286,9 @@ async def get_persona_reports(
         raise HTTPException(400, f"unknown persona: {persona_id}")
     limit = max(1, min(limit, 20))
 
-    from tessera_worker.db import session_scope
     from sqlalchemy import text as _sql
+
+    from tessera_worker.db import session_scope
 
     rows = []
     with session_scope() as session:
@@ -338,10 +381,8 @@ def _aggregate_book(
     for parsed in parsed_rows:
         cash = parsed.get("cash_target")
         if cash is not None:
-            try:
+            with contextlib.suppress(TypeError, ValueError):
                 cash_targets.append(float(cash))
-            except (TypeError, ValueError):
-                pass
         if regime is None and parsed.get("regime"):
             regime = parsed["regime"]
 
@@ -450,8 +491,9 @@ async def get_ticker_features(
     # Crypto pairs stored as 'SOL/USD'; URL uses 'SOL-USD' (slashes break
     # the route). Equity tickers don't contain '-' so this is safe.
     ticker_u = ticker.upper().replace("-", "/")
-    from tessera_worker.db import session_scope
     from sqlalchemy import text as _sql
+
+    from tessera_worker.db import session_scope
     from tessera_worker.universe import META_BY_TICKER
 
     meta = META_BY_TICKER.get(ticker_u)
@@ -546,8 +588,9 @@ async def get_ticker_prices(
     # both find the canonical row. Equity tickers don't contain '-' so this
     # is safe: BRK.B uses '.', no ticker in our universe uses dash.
     ticker_u = ticker.upper().replace("-", "/")
-    from tessera_worker.db import session_scope
     from sqlalchemy import text as _sql
+
+    from tessera_worker.db import session_scope
     from tessera_worker.universe import META_BY_TICKER
 
     meta = META_BY_TICKER.get(ticker_u)
@@ -656,10 +699,14 @@ def _reshape_report_row(
         # same thresholds when it decides whether to size the slot.
         conv_label = ""
         if isinstance(conv, (int, float)):
-            if   conv >= 0.80: conv_label = "Strong buy"
-            elif conv >= 0.65: conv_label = "Buy"
-            elif conv >= 0.50: conv_label = "Hold"
-            else:              conv_label = "Watch"
+            if conv >= 0.80:
+                conv_label = "Strong buy"
+            elif conv >= 0.65:
+                conv_label = "Buy"
+            elif conv >= 0.50:
+                conv_label = "Hold"
+            else:
+                conv_label = "Watch"
         # Drop the raw `side` token when we have a conviction label and
         # the side is buy-ish — "buy (Strong buy)" reads redundant since
         # the label already carries the direction. For non-buy sides

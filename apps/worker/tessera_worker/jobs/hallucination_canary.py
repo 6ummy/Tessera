@@ -38,6 +38,7 @@ CLI:
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import re
 import sys
@@ -51,10 +52,8 @@ from tessera_worker.logging import get_logger
 
 log = get_logger(__name__)
 
-try:
+with contextlib.suppress(AttributeError):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-except AttributeError:
-    pass
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -325,11 +324,11 @@ def run_canary(
 
 def print_summary(result: CanaryResult) -> None:
     print()
-    print(f"=== Hallucination canary ===")
+    print("=== Hallucination canary ===")
     print(f"  rows checked: {result.rows_checked}")
     print(f"  violations:   {len(result.violations)}")
     if result.violations:
-        print(f"  by check:")
+        print("  by check:")
         for check, n in sorted(result.by_check().items()):
             print(f"    {check}: {n}")
         print()

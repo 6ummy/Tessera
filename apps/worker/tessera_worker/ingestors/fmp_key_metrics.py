@@ -33,10 +33,10 @@ return 404 — we treat 404 as "no data, skip" rather than error.
 
 from __future__ import annotations
 
+import json
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
-from typing import Iterable
-import json
 
 import httpx
 from sqlalchemy import text

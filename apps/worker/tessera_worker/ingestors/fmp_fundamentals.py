@@ -14,9 +14,10 @@ land in DB now so Phase B has data to play with.)
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date, datetime
-from typing import Iterable, Literal
+from typing import Literal
 
 import httpx
 from sqlalchemy import text
