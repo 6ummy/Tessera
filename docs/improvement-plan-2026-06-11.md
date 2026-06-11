@@ -86,7 +86,7 @@
 ### Step 3 — Phase C 본 작업 (Plan.md §5와 정렬)
 
 1. ~~2-pass 페르소나~~ → v2로 출하 완료. 집계기 정리도 본 변경에서 완료.
-2. 리스크 게이트웨이(`risk/gateway.py`) — v2 덕분에 "얇은 검증기"로 충분.
+2. ✅ 리스크 게이트웨이(`risk/gateway.py`) — **shipped 2026-06-11**. 얇은 검증기: 유니버스 멤버십(반-환각 최종 관문), sum=1.0·single-name cap 재확인, 그리고 그동안 프롬프트로만 존재하던 **sector cap 강제**. `construct_portfolio` retry 루프에 연결되어 거부 사유가 LLM 재시도 피드백으로 전달됨. cash 범위·conviction floor는 soft(로그만). VaR·drawdown floor·Ray regime 게이트는 페이퍼 엔진(포지션 존재) 이후. 테스트 7개.
 3. PaperEngine + 원장 + mark-to-market → `persona_performance` 채우기.
 4. 프론트 mock 교체(`lib/mock/performance.ts` — 현재 랜딩/대시보드/카드에 시드 랜덤워크 표시 중). 교체 전까지 "시뮬레이션 데이터" 라벨 권장.
 5. Grafana 비용 + cross_validated 불일치 대시보드, Voyage prod 활성화.

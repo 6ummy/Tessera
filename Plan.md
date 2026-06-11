@@ -638,12 +638,14 @@ All five §4 acceptance criteria 🟢:
 **Goal**: Each persona's portfolio executes in paper. Daily P&L tracked. Leaderboard shows real Sharpe/MDD.
 
 ### Week 4 — Risk gateway + paper engine + mark-to-market
-- [ ] **Risk gateway** (`apps/worker/tessera_worker/risk/gateway.py` — note: not `tessera/risk/`, the monorepo path was finalized in Phase A). Pure Python. Single function `gate(report, persona, current_portfolio) → RiskCheckResult`. Checks:
-    - **Ticker exists** in `universe.py` (defense vs. hallucination — `assemble_prompt` already restricts but gateway is the final stop)
-    - **Per-persona single-name cap** — pulls from `personas` metadata (`max_single_name`); rejects any `Proposal.target_weight > cap` (e.g. Warren 0.18, Cathie 0.30). **Subsumes Phase B's deferred "Hard rule enforcement" task — single home, single code path.**
-    - **Sector cap** from `Persona.max_sector`
-    - **Parametric VaR** at 99% — fast Python compute against the correlation matrix
-    - **Drawdown floor** — refuses orders that would push the portfolio past its persona-specific max drawdown
+- [x] **Risk gateway — thin-validator core shipped 2026-06-11** (`apps/worker/tessera_worker/risk/gateway.py`). Pure Python `gate(report) → RiskCheckResult`, wired into `construct_portfolio`'s retry loop so a rejection becomes specific feedback to the construction LLM on attempt 0. 7 unit tests. Per-check status:
+    - [x] **Ticker exists** in `universe.py` — final anti-hallucination stop on the persistence path
+    - [x] **Per-persona single-name cap** from `persona_constraints.PERSONA_CONSTRAINTS` (re-check; `normalize_book` enforces it deterministically first). **Subsumes Phase B's deferred "Hard rule enforcement" task — single home, single code path.**
+    - [x] **Sector cap** — was prompt-only until now (`normalize_book` can't see sectors); sector from `universe.META_BY_TICKER`
+    - [x] **Conservation of NAV** — sum=1.0 re-check (under-allocation side; schema only rejects >1.0)
+    - [ ] **Parametric VaR** at 99% — deferred to paper-engine time (needs live positions + correlation matrix)
+    - [ ] **Drawdown floor** — deferred to paper-engine time (needs portfolio history)
+    - [ ] **Ray regime-allocation gate** — schema already enforces slice cap 0.40 + probability sum; a dedicated gate joins when the paper engine executes his allocations
 - [ ] **PaperEngine** (`ExecutionAdapter` impl): diff vs current positions → orders → fill at next-day open
 - [ ] **Order ledger** (orders, positions, ledger): full audit trail
 - [ ] **LISTEN/NOTIFY**: `analyst_reports` INSERT → Cloud Run job evaluates rebalance
