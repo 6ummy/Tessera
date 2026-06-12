@@ -102,6 +102,93 @@ def test_gate_accumulates_all_reasons():
     assert len(result.reasons) == 3
 
 
+def test_gate_var_cap_rejects_hot_book():
+    """A book whose measured VaR99 exceeds the persona cap must reject
+    with an actionable reason; the same book passes with no market
+    context (structural checks only — tests/dry paths)."""
+    from tessera_worker.risk.var import MarketContext
+
+    # ±4% daily swings → σ≈4% → VaR99≈9.3% on a 100% gross book,
+    # far above Warren's 3.5% cap.
+    wild = [0.04, -0.04] * 50
+    report = _report("warren", [
+        _proposal("AAPL", 0.18), _proposal("JPM", 0.18),
+        _proposal("COST", 0.18), _proposal("WMT", 0.18),
+        _proposal("JNJ", 0.10),
+    ], cash=0.18)
+    market = MarketContext(
+        returns=dict.fromkeys(("AAPL", "JPM", "COST", "WMT", "JNJ"), wild),
+        current_drawdown=None,
+    )
+    rejected = gate(report, market=market)
+    assert not rejected.ok
+    assert any("VaR99" in r for r in rejected.reasons)
+    assert gate(report).ok  # no market context → structural checks only
+
+
+def test_gate_var_unmeasurable_is_soft():
+    """<60 aligned obs → VaR can't be assessed → never a rejection."""
+    from tessera_worker.risk.var import MarketContext
+
+    report = _report("warren", [_proposal("AAPL", 0.15)], cash=0.85)
+    market = MarketContext(returns={"AAPL": [0.01] * 30},
+                           current_drawdown=None)
+    assert gate(report, market=market).ok
+
+
+def test_gate_drawdown_floor_blocks_execution():
+    from tessera_worker.risk.var import MarketContext
+
+    report = _report("warren", [_proposal("AAPL", 0.15)], cash=0.85)
+    market = MarketContext(returns={}, current_drawdown=0.30)  # floor 0.20
+    rejected = gate(report, market=market)
+    assert not rejected.ok
+    assert any("drawdown" in r for r in rejected.reasons)
+
+
+def test_gate_regime_checks_universe_sum_and_var():
+    from tessera_shared.schemas import RegimeAllocation, RegimeProbabilities
+
+    from tessera_worker.agents.models import RegimeReport
+    from tessera_worker.risk.gateway import gate_regime
+    from tessera_worker.risk.var import MarketContext
+
+    def _regime_report(allocations, cash):
+        return RegimeReport(
+            persona_id="ray",
+            as_of=date(2026, 6, 12),
+            regime=RegimeProbabilities(
+                goldilocks_prob=0.4, reflation_prob=0.3,
+                stagflation_prob=0.2, deflation_prob=0.1,
+                delta_from_last_week_md="no change.",
+            ),
+            allocations=allocations,
+            cash_target=cash,
+            notes_to_manager="x",
+            inputs_hash="t", model="claude-sonnet-4-6",
+            tokens_in=1, tokens_out=1, cost_usd=0.0,
+        )
+
+    def _alloc(inst, w):
+        return RegimeAllocation(asset_class="test", instrument=inst,
+                                target_weight=w, thesis_md="A" * 25)
+
+    ok = _regime_report([_alloc("VTI", 0.40), _alloc("GLD", 0.30)], 0.30)
+    assert gate_regime(ok).ok
+
+    bad_universe = _regime_report([_alloc("ZZZZ", 0.40)], 0.60)
+    assert any("not in universe" in r for r in gate_regime(bad_universe).reasons)
+
+    bad_sum = _regime_report([_alloc("VTI", 0.40)], 0.30)  # = 0.70
+    assert any("!= 1.0" in r for r in gate_regime(bad_sum).reasons)
+
+    wild = [0.03, -0.03] * 50  # σ≈3% → VaR99 ≈ 4.9% on 0.7 gross > ray 2.5%
+    hot = _regime_report([_alloc("VTI", 0.40), _alloc("QQQ", 0.30)], 0.30)
+    market = MarketContext(returns={"VTI": wild, "QQQ": wild},
+                           current_drawdown=None)
+    assert any("VaR99" in r for r in gate_regime(hot, market=market).reasons)
+
+
 def test_gate_soft_checks_do_not_fail():
     """Cash outside the persona range + active position below the
     conviction floor are logged, never rejected (the normalizer's

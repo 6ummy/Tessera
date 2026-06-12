@@ -1,4 +1,4 @@
-"""Per-persona portfolio construction constraints.
+﻿"""Per-persona portfolio construction constraints.
 
 Reads as the rulebook the construction-pass LLM is given alongside the
 research notes. Values are the operational reading of each persona's
@@ -75,6 +75,21 @@ class PortfolioConstraints:
     """Ceiling on active book size. Stops Cathie spraying across all 14
     candidates at single-digit-percent weights."""
 
+    # Market-risk limits — enforced by risk/gateway.py with inputs from
+    # risk/var.py (added 2026-06-12 once paper positions existed).
+    max_var99_1d: float = 0.10
+    """Hard ceiling on the book's one-day parametric VaR at 99%, as a
+    fraction of NAV. Delta-normal estimate understates fat tails, so
+    these carry headroom over each persona's measured book VaR — the
+    gate exists to catch a book whose gross risk DRIFTED far past the
+    mandate, not to fine-tune sizing."""
+
+    max_drawdown: float = 0.50
+    """Drawdown floor: when the persona's LIVE paper track is already
+    down more than this from peak, the gateway refuses to auto-execute a
+    new book — an operator looks first. Hypothetical backfill rows never
+    count toward this."""
+
 
 # ─────────────────────────────────────────────────────────────────────────
 # Per-persona values — operational reading of personalities.md
@@ -93,6 +108,8 @@ PERSONA_CONSTRAINTS: dict[PersonaId, PortfolioConstraints] = {
         min_strong_conviction=0.80,
         target_position_count_min=3,
         target_position_count_max=10,
+        max_var99_1d=0.035,   # measured book VaR99 1.6% on 2026-06-12
+        max_drawdown=0.20,
     ),
     # ── Cathie — Disruptive growth ─────────────────────────────────────
     # Concentrated by S-curve sector, single names sized to asymmetry.
@@ -107,6 +124,8 @@ PERSONA_CONSTRAINTS: dict[PersonaId, PortfolioConstraints] = {
         min_strong_conviction=0.75,
         target_position_count_min=10,
         target_position_count_max=20,
+        max_var99_1d=0.085,   # measured 5.1% (crypto sleeve) — high-risk mandate
+        max_drawdown=0.35,
     ),
     # ── Peter — GARP, diversified by growth-driver ─────────────────────
     # Many smaller positions across sectors. Strict on single-name risk
@@ -129,6 +148,8 @@ PERSONA_CONSTRAINTS: dict[PersonaId, PortfolioConstraints] = {
         min_strong_conviction=0.70,
         target_position_count_min=8,
         target_position_count_max=30,
+        max_var99_1d=0.045,   # measured 2.1%
+        max_drawdown=0.25,
     ),
     # ── Ray — Regime allocator (asset-class slices) ────────────────────
     # NOT a stock picker. The construction agent treats Ray differently:
@@ -145,6 +166,8 @@ PERSONA_CONSTRAINTS: dict[PersonaId, PortfolioConstraints] = {
         min_strong_conviction=0.0,
         target_position_count_min=5,
         target_position_count_max=8,
+        max_var99_1d=0.025,   # measured 1.0% — allocator must stay low-risk
+        max_drawdown=0.15,
     ),
 }
 

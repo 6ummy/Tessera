@@ -645,6 +645,21 @@ def run_regime_thesis(
                     tokens_out=tokens_out,
                     cost_usd=cost,
                 )
+                # Risk gateway (2026-06-12): same final stop the stock-
+                # pickers get. ValueError → this retry loop feeds the
+                # reasons back to the model on attempt 0.
+                from tessera_worker.risk.gateway import gate_regime
+                from tessera_worker.risk.var import load_market_context
+
+                market = load_market_context(
+                    session, [a.instrument for a in report.allocations], "ray",
+                )
+                gate_result = gate_regime(report, market=market)
+                if not gate_result.ok:
+                    raise ValueError(
+                        "risk gateway rejected the regime book: "
+                        + "; ".join(gate_result.reasons)
+                    )
                 log_llm_call(
                     session, persona_id="ray", stage="regime", model=model,
                     tokens_in=tokens_in, tokens_out=tokens_out, cost_usd=cost,
