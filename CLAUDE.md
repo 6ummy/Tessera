@@ -44,16 +44,17 @@ first fills. If still 0, check `gcloud logging read ... textPayload:paper_engine
    `lib/mock/performance.ts` (landing page still shows seeded random
    walks until the paper track has enough days to chart).
 2. Gateway VaR/drawdown checks + Ray regime gate (positions now exist).
-3. Operator console (~20 min): Grafana Cloud + Voyage key. Runbook:
-   `docs/runbooks/observability-grafana-voyage.md`; dashboard JSON:
-   `docs/grafana/llm-cost-dashboard.json`.
-4. 1y back-history: **frozen-book backfill chosen + shipped 2026-06-12**
-   (`jobs/backfill_paper_history.py` + migration 007 `hypothetical` flag
-   on both paper tables). Operator: apply 007 → `--dry-run` → run. The
-   frozen book = first real snapshot's exact qty/cash, so the seam into
-   the real track is continuous by construction. UI must label the
-   segment "Hypothetical — current book held 1y" (look-ahead bias);
-   `/api/performance` must expose the flag.
+3. ~~Operator console: Grafana + Voyage~~ — DONE 2026-06-12. Grafana
+   Cloud dashboard live over `llm_call_log`; `VOYAGE_API_KEY` on Cloud
+   Run (chat memory recall now similarity-based, `sim=` log tag).
+4. ~~1y back-history~~ — frozen-book backfill **shipped + RUN on prod
+   2026-06-12**: 251 hypothetical days per persona (2025-06-11 →
+   2026-06-10), seam exact into the real track (warren/ray/peter equal
+   to the bootstrap value; cathie differs only by crypto's one-day
+   move). 1y hypothetical returns: ray +16.0%, peter +8.4%, cathie
+   -2.0%, warren -7.0%. UI must label the segment "Hypothetical —
+   current book held 1y"; `/api/performance` must expose the
+   `hypothetical` flag.
 
 (mypy backlog: DONE 2026-06-12 — CI blocking with a pyproject
 ignore_errors ledger for 16 legacy modules; see Commands section.)
