@@ -1,150 +1,204 @@
-# CLAUDE.md — instant catch-up for Claude Code sessions
+# CLAUDE.md — operator handbook for AI sessions (zero-context handoff)
 
-## What this is
+You are working on **Tessera** with 정우 (@6ummy, Korean, replies in
+Korean — answer in Korean, keep code/identifiers/commits in English).
+Read this file top to bottom once; it is written so you can act without
+any prior conversation.
 
-**Tessera**: 4 AI analyst personas (Warren=value, Cathie=disruptive growth
-+crypto, Ray=macro regime allocator, Peter=GARP) write weekly Sonnet 4.6
-investment theses over a shared market-data plane, and a paper engine
-executes their books against $100K virtual accounts. Public repo, 5-person
-team (정우 @6ummy owns coordination; CONTRIBUTING.md has the track map),
-paper-trading pilot — **no real money, ever, without Phase E/F clearance**.
+## 1. What this product is
 
-Monorepo: `apps/web` (Next.js 14, Vercel) · `apps/worker` (Python 3.11
-FastAPI, Cloud Run `tessera-worker`, us-east1) · `packages/shared`
-(Pydantic schemas) · `migrations/` (plain SQL → Neon Postgres + Timescale
-+ pgvector, 001–006 applied).
+4 AI analyst personas — Warren (value), Cathie (disruptive growth +
+crypto), Ray (macro regime allocator, ETF book), Peter (GARP) — write
+weekly Sonnet 4.6 investment theses over a shared market-data plane.
+A deterministic paper engine executes each persona's book against a
+$100K virtual account; the Next.js site shows their books, P&L, and a
+live chat with each persona. **Paper trading only. `FEATURE_LIVE_TRADING`
+stays false until Phase E/F legal clearance — never flip it.**
 
-Deeper docs: `architecture.md` (system + data flow + file map) → `Plan.md`
-(phase roadmap §5 = current work) → `docs/improvement-plan-2026-06-11.md`
-(audit P0–P3 + step plan) → `personalities.md` (persona specs, team-owned).
+Monorepo: `apps/web` (Next.js 14 App Router, Vercel) · `apps/worker`
+(Python 3.11 FastAPI on Cloud Run `tessera-worker`, us-east1, project
+`tessera-498200`) · `packages/shared` (Pydantic schemas) ·
+`migrations/` (plain SQL → Neon Postgres + Timescale + pgvector,
+**001–007 all applied to prod**).
 
-## State as of 2026-06-12 (read this first)
+## 2. State as of 2026-06-12 (evening)
 
-**Live in prod**: Phases A+B done. Daily 14-step ingest (Vercel cron 21:30
-UTC weekdays → Cloud Run), weekly v2 persona batch (Fri 22:00 UTC: research
-per ticker → ONE construction call → one analyst_reports row per persona),
-live SSE chat, real reports/proposals in the UI. Phase C core shipped:
-**risk gateway** (#94) validates every book pre-persist; **PaperEngine v1**
-(#95) + `FEATURE_PAPER_EXECUTION=true` (#96) fills books at next bar open,
-marks to market at close, writes `persona_performance`.
+Everything below is LIVE in prod unless marked otherwise:
 
-**Pending verification**: the paper engine's FIRST run (2026-06-12 21:30
-UTC cron). Check: `persona_trades` / `persona_portfolios` /
-`persona_performance` were 0 rows before it; expect 4 × $100K bootstraps +
-first fills. If still 0, check `gcloud logging read ... textPayload:paper_engine`.
+- **Daily 14-step ingest**, weekdays 21:30 UTC: Vercel cron →
+  `/api/cron/daily` → Cloud Run `/jobs/ingest-daily` → ohlcv (Alpaca +
+  Coinbase) → FRED → fundamentals 3-tier (FMP → SEC XBRL → FMP
+  key-metrics → yfinance shares daily / history Fri) → news → SEC
+  filings → features → coverage audit → **SPY canary** (>100bps vs
+  Yahoo fails the run; baseline 2.62bps) → **paper engine**
+  (`FEATURE_PAPER_EXECUTION=true`). Advisory-locked (dup trigger no-ops).
+- **Weekly persona batch**, Fri 22:00 UTC: v2 two-pass — research call
+  per shortlist ticker, then ONE construction call per persona →
+  `normalize_book` (deterministic sum=1.0) → **risk gateway** →
+  ONE `analyst_reports` row per persona. Hallucination canary chains after.
+- **Paper track**: engine bootstrapped 4 × $100K on 2026-06-11 (36
+  fills); plus a **251-day hypothetical backfill** per persona
+  (frozen-book: current holdings projected back 1y, `hypothetical=true`
+  flag in DB/API, look-ahead bias). 1y hypothetical: ray +16.0%,
+  peter +8.4%, cathie −2.0%, warren −7.0%. **UI policy (product decision
+  2026-06-12): one solid line per persona, no dashed split — captions
+  state "real fills since Jun 11, 2026"; the hypothetical flag stays in
+  the data and `/api/performance` for any future use.**
+- **Frontend**: all real — reports/proposals/chat (since 06-05),
+  performance/portfolio (since 06-12, mock deleted). Remaining mocks:
+  dashboard "My portfolio" positions + Social tab (Phase-D demos,
+  labelled) and auth (assumes "jshin").
+- **Observability**: Grafana Cloud dashboard over `llm_call_log`
+  (`docs/grafana/llm-cost-dashboard.json`); Sentry errors-only; Voyage
+  embeddings on prod (similarity recall fires in the WEEKLY BATCH logs
+  as `sim=0.xx` — chat has no memory recall, that's Phase D).
+- **CI** (`.github/workflows/ci.yml`): ruff + pytest + mypy ALL
+  blocking (mypy via a legacy `ignore_errors` ledger in
+  `apps/worker/pyproject.toml` — NEW modules must be strict-clean and
+  must NOT be added to the ledger). gitleaks pre-commit configured.
+- **PR trail this week**: #90 audit hotfixes → #93 re-land Steps 1+2 →
+  #94 risk gateway → #95/#96 paper engine + flag → #97 docs → #98 Ray
+  as_of fix → #99 mypy/tests/observability → #100 backfill → #101/#102
+  ops sync → #103 frontend swap.
 
-**PR trail (all squash-merged to main)**: #90 audit Step 0 hotfixes →
-#93 re-land of Steps 1+2 (#91/#92 were merged into stack bases by mistake)
-→ #94 risk gateway → #95 paper engine → #96 flag flip.
+## 3. Hard invariants (each from a real incident — don't relearn them)
 
-**Next up (improvement plan Step 3 remainder)**:
-1. ~~Frontend performance/portfolio swap~~ — DONE 2026-06-12.
-   `lib/mock/performance.ts` deleted; landing/sheet/dashboard read
-   `/api/performance` + `/api/portfolio` (worker endpoints + Edge
-   proxies + `lib/performance-data.ts` cached hook). Hypothetical
-   segment renders dashed + captioned; CumulativeChart merges by date.
-2. **← next** — Gateway VaR/drawdown checks + Ray regime gate
-   (positions exist now). Then: 90d backtest baseline, Cloud Run Jobs,
-   attribution breakdown, mypy-ledger burn-down.
-3. ~~Operator console: Grafana + Voyage~~ — DONE 2026-06-12. Grafana
-   Cloud dashboard live over `llm_call_log`; `VOYAGE_API_KEY` on Cloud
-   Run. NOTE: Voyage similarity recall (`sim=` log tag) fires in the
-   WEEKLY THESIS BATCH prompt assembly, not in chat — chat has no memory
-   recall at all (pgvector chat memory = Phase D scope). Verify in the
-   Friday batch logs, not chat logs.
-4. ~~1y back-history~~ — frozen-book backfill **shipped + RUN on prod
-   2026-06-12**: 251 hypothetical days per persona (2025-06-11 →
-   2026-06-10), seam exact into the real track (warren/ray/peter equal
-   to the bootstrap value; cathie differs only by crypto's one-day
-   move). 1y hypothetical returns: ray +16.0%, peter +8.4%, cathie
-   -2.0%, warren -7.0%. UI must label the segment "Hypothetical —
-   current book held 1y"; `/api/performance` must expose the
-   `hypothetical` flag.
+- **`ohlcv_1d` = ONE row per (ticker, calendar day).** Mixed sources
+  once stored the same day twice (Alpaca 04:00Z vs Yahoo 00:00Z) and
+  silently halved every row-window feature horizon for ~6y (P0-1, #90).
+  New read paths: `DISTINCT ON (ticker, ts::date)` with source priority
+  alpaca/coinbase > yahoo. Backfills must skip covered days. The
+  nightly SPY canary is the tripwire.
+- **Numbers in Python, narrative in LLM.** `features/compute.py` is the
+  only path numbers reach prompts. The LLM never computes a price,
+  weight, or P&L. Sizing intent from the LLM is normalized
+  deterministically (`normalize_book`).
+- **Book readers scope to `MAX(as_of_date)` only.** v2 writes one row
+  per persona per batch; unioning across batch days resurrects dropped
+  tickers ("ghost positions", P0-2).
+- **Server-authoritative fields are force-set, never `setdefault`.**
+  Ray's LLM volunteered its own `as_of` and won the tie for weeks (#98).
+- **Every book passes `risk/gateway.py` pre-persist** (universe
+  membership, sum=1.0, single-name + sector caps; rejection reasons feed
+  the construction retry). VaR/drawdown checks are the next gateway item.
+- **Paper engine**: NAV conservation exact (no fees v1), execution
+  idempotent via `report_id` on `persona_trades`, fills at next bar
+  OPEN, MTM at CLOSE. Hypothetical rows are write-guarded
+  (`WHERE hypothetical`) — real rows are untouchable by the backfill.
+- **Budgets**: every Anthropic call logs to `llm_call_log`. Global
+  $5/day + chat-only $2/day pool (public chat must not starve Friday's
+  batch). `check_daily_budget()` hard-pauses.
+- **Chat is public until Phase D** — keep the guards: message ≤4K,
+  history sanitized ≤20 turns, Edge 10/min/IP rate limit.
+- **yfinance**: core dependency, but strictly tier-3 fallback,
+  sanity-enveloped; its steps fail loudly if missing.
 
-(mypy backlog: DONE 2026-06-12 — CI blocking with a pyproject
-ignore_errors ledger for 16 legacy modules; see Commands section.)
-
-## Commands
+## 4. Commands (Windows / PowerShell)
 
 ```powershell
-# Worker (venv exists at apps/worker/.venv — never recreate)
+# Worker — venv EXISTS at apps/worker/.venv, never recreate it
 cd apps\worker
-.\.venv\Scripts\python.exe -m pytest tests -q                          # ~200 tests, no DB needed
+.\.venv\Scripts\python.exe -m pytest tests -q                          # 223 tests, no DB needed
 .\.venv\Scripts\python.exe -m ruff check tessera_worker tests scripts  # MUST stay 0
+.\.venv\Scripts\python.exe -m mypy tessera_worker                      # MUST stay 0
 .\.venv\Scripts\python.exe -m tessera_worker.jobs.ingest_daily --only features coverage
 
 # Web
 cd apps\web
-npm run typecheck   # tsc --noEmit
+npm run typecheck    # tsc --noEmit
 npm run lint
 
-# Deploy worker (operator): apps\worker\scripts\deploy_cloud_run.ps1
-# DB: psql NOT installed locally — use Neon console SQL editor, or
-# read-only queries via the worker venv (sqlalchemy + session_scope).
+# Deploy worker (rebuild + ship; operator runs it, or hand them the cmd)
+.\apps\worker\scripts\deploy_cloud_run.ps1
+# Flag-only change without rebuild:
+#   gcloud run services update tessera-worker --region us-east1 --update-env-vars K=V
 ```
 
-CI (`.github/workflows/ci.yml`): ruff + pytest + **mypy ALL BLOCKING**
-(since 2026-06-12 — legacy modules sit in pyproject's
-`[[tool.mypy.overrides]]` ignore_errors ledger; NEW modules must be
-strict-clean and must NOT be added to the ledger), web tsc + lint.
-gitleaks pre-commit configured. Repo is PUBLIC — never commit keys.
+**DB access**: psql is NOT installed locally. Read-only queries → write
+a small script using `tessera_worker.db.session_scope` and run it with
+the venv python (this is routine and allowed). Schema changes / row
+deletes → migrations applied by the operator in the Neon console SQL
+editor. Never run prod-mutating jobs without explicit user consent in
+the conversation.
 
-## Hard invariants (each one was a real incident — see improvement plan)
+## 5. Architecture in one breath
 
-- **`ohlcv_1d` = one row per (ticker, calendar day).** Mixed sources once
-  stored the same day twice (Alpaca 04:00Z vs Yahoo backfill 00:00Z),
-  silently halving every row-window feature horizon for ~6 years (P0-1).
-  Any new read path must `DISTINCT ON (ticker, ts::date)` (priority
-  alpaca/coinbase > yahoo); any backfill must skip covered days. Tripwire:
-  nightly SPY canary step, >100bps vs Yahoo fails the run (baseline 2.62).
-- **Numbers in Python, narrative in LLM.** `features/compute.py` is the
-  only path numbers reach prompts; the LLM never computes price/weight/P&L.
-- **v2 batch = ONE analyst_reports row per persona per batch** (whole book
-  in `parsed.proposals`; Pydantic + `normalize_book` force weights+cash=1.0).
-  Book readers (API, paper engine) scope to `MAX(as_of_date)` ONLY —
-  unioning across batch days resurrects dropped tickers (P0-2).
-- **Every book passes `risk/gateway.py` before persisting** (universe
-  membership, sum=1.0, single-name + sector caps). Rejection reasons feed
-  the construction LLM's retry. Don't bypass it.
-- **Paper engine NAV conservation is exact** (no fees in v1) and
-  unit-pinned; book execution is idempotent via `report_id` on
-  `persona_trades`. Fills at next bar OPEN, MTM at CLOSE, $100K bootstrap.
-- **yfinance**: core dependency but always tier-3 fallback
-  (FMP → SEC XBRL → yfinance), sanity-enveloped; its ingest steps fail
-  loudly if missing — don't soften.
-- **Budgets**: all Anthropic calls log to `llm_call_log`;
-  `LLM_MAX_DAILY_COST_USD=5` global + `LLM_MAX_DAILY_COST_CHAT_USD=2`
-  chat-only pool (public chat must not starve the Friday batch).
-- **Chat endpoint is public until Phase D** — keep guards: message ≤4K,
-  history sanitized ≤20 turns, Edge per-IP rate limit (10/min).
-- `ingest_daily` holds a Postgres advisory lock — duplicate triggers no-op.
+Vercel cron → Cloud Run FastAPI (`tessera_worker/main.py`) →
+`jobs/ingest_daily.py` STEPS dict (idempotent, advisory-locked) →
+Neon. Weekly: `jobs/persona_batch.py run_batch_v2` →
+`agents/portfolio_construction.py` (+ `risk/gateway.py`) →
+`analyst_reports`. Nightly: `risk/paper_engine.py` (fill/MTM/perf) →
+`persona_trades` / `persona_portfolios` / `persona_performance`.
+UI reads via worker HTTP endpoints proxied by Next Edge routes
+(`apps/web/app/api/*` → IAM identity token via `lib/gcp-auth.ts`).
 
-## Ops facts
+Key worker endpoints: `/api/reports/{p}`, `/api/proposals/{p}` (latest
+batch day only), `/api/performance/{p}` (curve + hypothetical flags),
+`/api/portfolio/{p}` (real snapshot only), `/api/features/{t}`,
+`/api/prices/{t}`, `/api/chat/{p}` (SSE), `/jobs/ingest-daily`,
+`/jobs/persona-batch`.
 
-- `WORKER_WEBHOOK_URL` (Vercel) = **base** Cloud Run URL, no `/jobs/...`
-  path. Both URL styles Cloud Run prints are the same service.
-- Cloud Run runs `--no-cpu-throttling` (BackgroundTasks survive past the
-  202). Structural fix = Cloud Run Jobs, still open.
-- Feature flags (deploy script env line): `FEATURE_REAL_LLM=true`,
-  `FEATURE_PAPER_EXECUTION=true`, `FEATURE_LIVE_TRADING=false` (never
-  flip without compliance). Quick flag change without rebuild:
-  `gcloud run services update tessera-worker --region us-east1 --update-env-vars K=V`.
+Key tables: `ohlcv_1d`, `ticker_features` (the only numbers LLMs see),
+`fundamentals` (JSONB, 3-tier merged), `analyst_reports` (parsed book
+JSONB; `rejected` flag), `persona_trades/portfolios/performance`
+(+ `hypothetical` flag), `llm_call_log`, `persona_memory` (pgvector).
+
+## 6. Process rules (violations have burned us)
+
+- main is branch-protected: every change = branch → squash-merge PR.
+  Commits end with `Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>`.
+- **Stacked PRs: merge bottom-up AND delete each base branch** — GitHub
+  only retargets children when the base is deleted; #91/#92 once merged
+  into their bases instead of main and needed a cherry-pick re-land (#93).
+  When unsure: `gh pr view N --json baseRefName,state`.
+- PowerShell here-strings break `git commit -m` / `gh pr create --body`
+  → always write to a temp file, use `-F` / `--body-file`.
+- Repo text has UTF-8 em-dashes/box-chars; PowerShell `Get-Content`
+  reads them as cp1252 mojibake. **Use the Read tool for Edit match
+  strings; never bulk-rewrite files via PowerShell `-replace`** (it
+  corrupted paper_engine.py once; had to restore from git).
+- The operator (정우) runs gcloud/Neon/Vercel console steps — hand exact
+  commands. Verify their reports with read-only queries when cheap.
 - After any ohlcv-touching migration: rebuild features
-  (`--only features coverage`) + run the SPY canary.
-- Daily cron 21:30 UTC weekdays; weekly batch Fri 22:00 UTC; Friday's book
-  fills at Monday's open by design.
+  (`--only features coverage`) + run SPY canary.
+- Docs are part of done: update Plan.md (+ its versioning table),
+  architecture.md, improvement plan, and this file in the same PR as
+  the change they describe.
 
-## Process gotchas (Windows / GitHub)
+## 7. Debugging entry points
 
-- **Stacked PRs: merge bottom-up and DELETE each base branch** (or rely on
-  auto-delete). #91/#92 once merged into their stack bases instead of main
-  and had to be cherry-pick re-landed (#93). Verify with
-  `gh pr view N --json baseRefName,state` when in doubt.
-- PowerShell here-strings break with `git commit -m` / `gh pr create
-  --body` — always write to a temp file and use `-F` / `--body-file`.
-- Repo text contains UTF-8 em-dashes/box-chars that PowerShell `Get-Content`
-  mangles (cp1252) — use the Read tool for exact Edit match strings.
-- Commits end with `Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>`;
-  main is branch-protected — every change goes through a squash-merge PR.
-- The user (정우) operates gcloud/Neon-console/Vercel steps themselves —
-  hand them exact commands; don't run prod-mutating commands without asking.
+- Cron ran? `gcloud logging read "resource.labels.service_name=tessera-worker" --freshness=1d`
+  (filter `textPayload:paper_engine`, `:sim=`, `:step_failed` as needed).
+- Data fresh? `SELECT MAX(fetched_at) FROM news;` / latest `ts` per table.
+- Ticker blank in UI? `python -m scripts.inspect_ticker_features <T>`
+  walks the whole fundamentals fall-through.
+- Book looks wrong? Check `analyst_reports` latest `as_of_date` row's
+  `parsed`, then `risk_gateway.*` log lines, then `paper_engine.*`.
+- Cost spike? Grafana dashboard or `SELECT stage, SUM(cost_usd) FROM
+  llm_call_log WHERE ts >= CURRENT_DATE GROUP BY 1;`
+
+## 8. Backlog (priority order, with pointers)
+
+1. **Gateway VaR (99%, parametric) + drawdown floor + Ray regime gate**
+   — positions exist now; correlation matrix from `ohlcv_1d`. Plan §5.
+2. **90-day point-in-time backtest baseline** — credibility anchor;
+   harness exists (`jobs/backtest_harness.py`), ~$10–20 LLM. Plan §5 Week 5.
+3. **Attribution breakdown** (ticker-level MTD contribution) — Plan §5.
+4. **Cloud Run Jobs migration** for ingest/persona_batch — structural
+   fix for BackgroundTasks (currently mitigated by --no-cpu-throttling).
+5. **mypy ledger burn-down** (16 legacy modules in pyproject overrides).
+6. **hit_rate** (needs closed-lot tracking) · quarterly margin series
+   ingest (low) · Phase D (auth, follow, chat memory) per Plan §6.
+
+## 9. Doc map
+
+`README.md` (quick start) → `architecture.md` (system + data flow +
+file map; §6 is current-state) → `Plan.md` (phase roadmap; §5 = Phase C
+live state; versioning table at bottom) →
+`docs/improvement-plan-2026-06-11.md` (the audit that drove this week;
+P0–P3 + step statuses) → per-phase "Lessons" live INSIDE Plan.md
+(§3 Phase A, §4 Phase B — keep that convention, no separate retro files)
+→ `docs/runbooks/` (observability, Cloud Run IAM) → `personalities.md`
+(persona specs — TEAM-OWNED, big voice changes need a 카톡 heads-up).
+CONTRIBUTING.md has the team/track map (5 people; you mostly interact
+with 정우).

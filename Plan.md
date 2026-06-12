@@ -1,4 +1,4 @@
-# Tessera Build Plan
+﻿# Tessera Build Plan
 
 > From frontend-only MVP → working paper-trading pilot with real LLM theses
 > for self + 2 friends-and-family users. **6 weeks part-time, 3–4 weeks
@@ -652,6 +652,37 @@ All five §4 acceptance criteria 🟢:
 - Performance + portfolio frontend swap → blocked on Phase C paper engine populating `persona_performance`
 - fcf_yield precision edge cases (UNH/NVDA/AMZN/COIN) → needs dedicated daily mcap source (Phase C ingest plane work)
 
+### Lessons from Phase B (written 2026-06-12, with Phase-C hindsight)
+
+Same convention as "Lessons from Phase A" in §3 — the expensive ones,
+kept inline here so they're in view when the next phase gets planned:
+
+1. **Silent signal loss is the worst failure mode.** A field rename in
+   personalities.md (`confidence` → `conviction`) zeroed a signal with no
+   error anywhere. Every LLM-output field needs a consumer-side existence
+   check or a canary — and the canary should exist BEFORE the first prod
+   batch, not after.
+2. **LLMs decorate JSON.** ~5% of Cathie's cells appended narrative after
+   the closing brace. `JSONDecoder.raw_decode` (parse the first object,
+   log the rest) beat prompt-nagging.
+3. **Retry feedback must be specific.** Generic "fix your JSON" wasted
+   the retry; pattern-matching the validation error into a targeted
+   instruction (`_retry_guidance_for`) made attempt 2 actually converge.
+4. **Single-source fundamentals fail per-ticker, not globally.** Visa
+   broke FMP and XBRL differently than NVDA did → became Phase C's
+   3-tier fall-through with per-field newest-non-null walking.
+5. **Per-cell sizing can't produce a coherent book.** Warren's 8% BRK.B
+   + nine 0% rows + "12% cash" = 20% total exposed the structural flaw →
+   the v2 two-pass redesign (research per ticker, ONE construction call,
+   deterministic `normalize_book`).
+6. **Server-authoritative fields must be force-set, never `setdefault`.**
+   Ray's Sonnet volunteered its own `as_of` and won the tie for weeks —
+   every Ray row carried a 17-month-old book date until the paper
+   engine's first run surfaced it (#98).
+7. **Acceptance tests should name the exact log line and where it
+   appears.** "Verify Voyage via chat" was unverifiable — recall's
+   `sim=` tag only ever fires in the weekly batch (#102).
+
 ---
 
 ## 5. Phase C — Paper execution + attribution (Weeks 4–5)
@@ -673,7 +704,7 @@ All five §4 acceptance criteria 🟢:
 - [x] **EOD mark-to-market** — same step: values at latest bar CLOSE, recomputes `persona_portfolios.total_value` daily even when no rebalance fired.
 - [x] **Persona performance writer** — same step: pnl_day/pnl_cum/return_day/return_cum vs $100K start, sharpe_30d (needs ≥5 obs), mdd_30d, trades_count. hit_rate deferred (needs closed-lot tracking).
 - [x] **Flip `FEATURE_PAPER_EXECUTION=true`** — flipped in `deploy_cloud_run.ps1` 2026-06-12 (PR #96; the same deploy ships the #94 gateway + #95 engine code). First flagged nightly run bootstraps 4 × $100K paper portfolios and executes each persona's latest book at the next bar open — verify `persona_trades` / `persona_portfolios` / `persona_performance` row counts after.
-- [ ] **Cost observability — Grafana visualization + Slack alerts** (rolled forward from Phase B Week 2 plan). Source data already populated in `llm_call_log`; this is dashboard + webhook wiring. Alert thresholds: $5/day (info), $10/day (warning), $20/day (page). The hard pause (`check_daily_budget`) stays as the safety net — alerts give earlier warning.
+- [x] **Cost observability — Grafana dashboard LIVE 2026-06-12** (operator setup per `docs/runbooks/observability-grafana-voyage.md`: read-only `grafana_ro` role + datasource + `docs/grafana/llm-cost-dashboard.json` import — 7 panels over `llm_call_log`). Remaining optional: alert rules at $5/$10/$20 (email/Slack contact point). Original scope: (rolled forward from Phase B Week 2 plan). Source data already populated in `llm_call_log`; this is dashboard + webhook wiring. Alert thresholds: $5/day (info), $10/day (warning), $20/day (page). The hard pause (`check_daily_budget`) stays as the safety net — alerts give earlier warning.
 - [x] **Quant fundamentals features — PEG / EPS CAGR 3y / debt-to-equity / gross margin trend** — shipped locally 2026-06-06. `004_quality_features.sql` adds any missing columns idempotently; `features/compute.py` computes the values from existing Neon `fundamentals` + latest `ohlcv_1d` close; prompt assembly and chat now read the columns. Remaining Phase C work is **consumption + hardening**: wire these into the risk gateway/backtest selection rules, add dashboards for coverage/null rates, and tighten known market-cap precision edge cases with a dedicated daily FMP `key_metrics` source.
 - [x] **Data resilience layer — 3-tier fundamentals fall-through + cross-validation** — shipped 2026-06-09. Phase B's single-source assumption broke on Visa: FMP returned mostly-null preliminary rows for the latest filing, EDGAR's `WeightedAverageNumberOfShares*` concept isn't tagged by V (and `EntityCommonStockSharesOutstanding` stopped being filed after 2010), `GrossProfit` isn't reported at all. Fix is a layered pattern, see architecture.md §6 "Data resilience":
   - **Loader walks rows newest-first per field** instead of locking the latest row — partial filings can be rescued by older non-null observations (`features/compute.py::_load_fundamentals_latest`). Same pattern applied to balance.
@@ -701,7 +732,7 @@ All five §4 acceptance criteria 🟢:
 - [x] **Crypto universe expansion** — shipped 2026-06-09 (PR #71 + #72 + #73). Coinbase `CRYPTO` list grows 2 → 8 pairs (BTC, ETH, SOL, AVAX, LINK, DOT, DOGE, XRP). All listed on Coinbase Exchange (same public API, no new auth). `UNIVERSE = _RAW + CRYPTO` so `by_asset_class("crypto")` works uniformly. `coinbase_eod.DEFAULT_PAIRS` derives from `universe.CRYPTO` so adding a coin is a one-line change. URL convention: clients send `SOL-USD` (dash, URL-safe), worker normalizes `dash → slash` for the universe + SQL lookup (`SOL/USD` is the canonical form). Cathie's prompt grows a "Crypto allocation (4th asset class, not a sector)" subsection — 0–20% sleeve cap, ≤10% per coin, BTC+ETH ≥50% of any non-zero sleeve, no stablecoins, bull scenarios must cite on-chain economics. Production check: `/api/prices/SOL-USD?range=max` returns history from 2021-06-02 (Coinbase listing day).
 - [x] **BRK.B SEC ticker alias** — shipped 2026-06-09 (PR #73). SEC tickers feed uses `BRK-B` (dash) while our universe uses `BRK.B` (dot, matching Alpaca + most vendors). `_load_cik_map` now mirrors each dashed SEC ticker under the dotted form too, so the EDGAR + companyfacts lookups succeed for the universe ticker without per-call patching. Generalizes to any future dual-class name (BF-B, etc.).
 - [ ] **`fiscal_year_end_month` per ticker → precise FCF decomposer anchoring** — UNH / AMZN / COIN still have edge cases where TTM FCF picks `max(window)` because the precise decomposer can't find a row exactly ~365 days back. Add `fiscal_year_end_month` to universe metadata (or derive from the most-common period_end month in EDGAR rows) and let `_decompose_cumulative_ytd_to_ttm` snap to it. Lower priority now that NVDA-class concept-switching is solved.
-- [ ] **2-pass persona architecture — research + portfolio construction** — Surfaced 2026-06-09 while diagnosing Warren's last batch (8% BRK.B + 9 × 0% + 12% cash = 20%). Root cause: each `run_thesis()` call sizes its position independently with no view of siblings. PR #76 patched the aggregator to infer cash from the coverage gap, but that's a bandage on a structural problem: a human PM doesn't size each name in isolation, they research individually and then allocate across the surviving set with relative-comparison reasoning. Plan:
+- [x] **2-pass persona architecture — SHIPPED as v2, default since #87 (2026-06-10)** — research per ticker → ONE construction call → `normalize_book` deterministic sum=1.0 → risk gateway (#94) → one row per persona. The aggregator cash-inference became log-only belt-and-suspenders (#90). Original design note: — Surfaced 2026-06-09 while diagnosing Warren's last batch (8% BRK.B + 9 × 0% + 12% cash = 20%). Root cause: each `run_thesis()` call sizes its position independently with no view of siblings. PR #76 patched the aggregator to infer cash from the coverage gap, but that's a bandage on a structural problem: a human PM doesn't size each name in isolation, they research individually and then allocate across the surviving set with relative-comparison reasoning. Plan:
   1. New `agents/portfolio_construction.py` — one LLM call per persona per batch. Input: all per-ticker theses + constraint envelope (single-name cap, sector cap, cash range). Output: a `Proposal` whose `target_weights + cash = 1.0` enforced by Pydantic. The persona's prompt does the relative comparison ("MSFT 9/10 vs MCO 7/10 → size MSFT heavier") instead of the aggregator reaching for an average.
   2. `run_thesis()` slimmed down — no `target_weight`, just `conviction` + thesis body. Lower per-call token budget (~$0.03 vs $0.05).
   3. `persona_batch.py` flow: research all tickers → portfolio construction → persist single proposal row. Errors per ticker still don't take down a persona, but construction sees the surviving set.
@@ -770,10 +801,10 @@ Queued from the same audit (ordered):
 - [ ] **Attribution breakdown**: ticker-level contribution to each persona's MTD return
 - [ ] **Backtest mode**: replay 90 days → simulate 90 days of paper trades → baseline Sharpe/MDD
 - [ ] **Weight distribution telemetry**: weekly histogram per persona — alert on bimodal distribution at cap (see risk: *mode collapse*); decide by end of week whether to refactor to conviction-only schema
-- [ ] **Enable Voyage embeddings on prod chat memory** (rolled forward from Phase B 2026-06-05). Decision was to ship chat with `VOYAGE_API_KEY` absent on Cloud Run; `fetch_memory_recall` falls back to recency. By Phase C Week 5 `persona_memory` should have ~100+ rows (4 personas × 10 tickers × 3-5 weekly batches), at which point similarity-based recall starts surfacing meaningfully more relevant past theses than recency. Steps: (1) `gcloud secrets create VOYAGE_API_KEY` + populate, (2) add `,VOYAGE_API_KEY=VOYAGE_API_KEY:latest` to `deploy_cloud_run.ps1` --set-secrets, (3) redeploy worker, (4) compare a chat sample with vs without — confirm the 'sim=X' recall-tag actually fires + that the surfaced past theses are more topical than what recency picked. Cost stays $0 (Voyage free tier 200M tokens/month; pilot uses ~500K).
+- [x] **Enable Voyage embeddings on prod — DONE 2026-06-12** (secret + SA grant + deploy; similarity recall fires in the WEEKLY BATCH prompt assembly as `sim=` — chat memory itself stays Phase D, see #102). Original steps: (rolled forward from Phase B 2026-06-05). Decision was to ship chat with `VOYAGE_API_KEY` absent on Cloud Run; `fetch_memory_recall` falls back to recency. By Phase C Week 5 `persona_memory` should have ~100+ rows (4 personas × 10 tickers × 3-5 weekly batches), at which point similarity-based recall starts surfacing meaningfully more relevant past theses than recency. Steps: (1) `gcloud secrets create VOYAGE_API_KEY` + populate, (2) add `,VOYAGE_API_KEY=VOYAGE_API_KEY:latest` to `deploy_cloud_run.ps1` --set-secrets, (3) redeploy worker, (4) compare a chat sample with vs without — confirm the 'sim=X' recall-tag actually fires + that the surfaced past theses are more topical than what recency picked. Cost stays $0 (Voyage free tier 200M tokens/month; pilot uses ~500K).
 - [ ] **Push notification on rebalance**: FCM → browser
 - [ ] **Sentry alert**: paper engine error → page within 5 min
-- [ ] **Skeleton/error states**: all frontend reads have loading + error UIs
+- [x] **Skeleton/error states** — done across reports/proposals (06-05) and performance/portfolio/cards (#103): loading pulses, empty states, fetch-failure fallbacks ("—").
 - [ ] **Quant data integrity gates**: point-in-time guard, stale-data check, adjusted-price policy, and invalid-feature handling before leaderboard/backtest metrics are written
 - [ ] **fcf_yield precision edge cases** (Quant) — UNH (5.7% vs real ~3%), NVDA (0.07%), AMZN (0.35%), COIN (14.7%) read off-band on the Phase B shipping pass. Sanity bound (±100%) prevents these from polluting the LLM prompt, but precision is too loose for risk-gated backtests. Root causes:
     1. **Sparse FY anchors** — some issuers' fundamentals history doesn't include a row ~12 months back, so the TTM decomposition falls back to `max(window)` (= last full FY annual; up to 12 months stale for fast growers).
@@ -918,8 +949,21 @@ deferred to post-launch. Auth + mirror engine + onboarding ship in one week.
 
 ### Documentation
 - Keep `architecture.md` and `personalities.md` in sync with code; treat as ADRs
-- After each phase, write a short retro note in `docs/retro-phase-X.md`
+- After each phase, write a **"Lessons from Phase X" subsection inside
+  this file** (§3 has Phase A's, §4 has Phase B's — added 2026-06-12).
+  Policy changed from separate `docs/retro-phase-X.md` files: lessons
+  belong inline where the next phase gets planned, and one growing
+  roadmap file beats a graveyard of unopened retro files. `docs/` stays
+  reserved for individually-referenced artifacts (adr/, runbooks/,
+  grafana/, one-off audits).
 - Update `Plan.md` (this file) if scope changes
+- `CLAUDE.md` at repo root is the AI-session operator handbook —
+  rewritten 2026-06-12 for zero-context handoff (state, invariants with
+  incident rationale, process rules, debugging entry points, backlog).
+  Update it in the same PR as any change it describes.
+- Presentation decks (`*.pptx`) are local-only as of 2026-06-12
+  (`decks/`, gitignored) — the public repo stays lean; `build-deck.js`
+  regenerates.
 
 ---
 
@@ -967,7 +1011,7 @@ deferred to post-launch. Auth + mirror engine + onboarding ship in one week.
 
 The pilot is "done" (ready to consider expansion or shutdown) when:
 
-- [ ] **All 4 personas** writing real Sonnet 4.6 theses on the agreed cadence (**weekly Fri close** per 2026-06-04 decision; daily reserved for Phase F live mode), validated by passing the same <2% schema-fail gate the backtest harness measures
+- [x] **All 4 personas** writing real Sonnet 4.6 theses on the agreed cadence (✅ weekly batch live since 2026-06-05; v2 + gateway since 06-11/12) (**weekly Fri close** per 2026-06-04 decision; daily reserved for Phase F live mode), validated by passing the same <2% schema-fail gate the backtest harness measures
 - [ ] **30+ days** of paper P&L track record, accurate Sharpe/MDD displayed
 - [ ] **Self** running paper successfully for 30+ days, no manual intervention required
 - [ ] **3 F&F users** onboarded, each following a different persona, with their own dashboard
@@ -1017,3 +1061,4 @@ Each of these could be a future phase. Keeping them out of pilot scope is the di
 | 0.4 | 2026-05-18 | **Phase A complete.** Marked tasks done in Section 3 with actual production metrics (1,020 ohlcv_equity rows, 13,983 features, SPY canary 0.49 bps, etc.). Updated baseline (Section 0) to reflect new monorepo + worker + 5 ingestors. Added "Lessons from Phase A" subsection capturing 4 real footguns hit (FMP legacy endpoint deprecation, httpx URL logging leak, SQLAlchemy psycopg2 default, `unnest(:tickers::text[])` SQL collision). Phase A took 1 working session, well under the 1-week budget. |
 | 0.5 | 2026-06-11 | **Codebase audit + Step 0 hotfixes.** New `docs/improvement-plan-2026-06-11.md` (P0–P3 findings + 4-step plan). Shipped: OHLCV canonical-day dedup (006 + compute/_load_ohlcv/prices/backfill fixes — the mixed-source ⚠️ note in §5 was found to also distort PRODUCTION features, not just backtests), `/api/proposals` v2 aggregator fix (ghost-positions), yfinance promoted to core dep (prod yf steps were silently no-op), constant-time bearer compare. §5 gains a "2026-06-11 codebase audit" subsection; §9 CI section gains an honest status check (no workflows exist). Removed duplicated cross-source-dashboards bullet. |
 | 0.6 | 2026-06-12 | **Phase C Week 4 core live.** Audit Steps 1–2 landed (#93: CI ruff-0 + pytest gate, gitleaks pre-commit, ingest advisory lock, chat abuse guards + chat budget pool, nightly SPY canary step, `--no-cpu-throttling`). Risk gateway (#94) inside construction retry loop. PaperEngine v1 (#95) + `FEATURE_PAPER_EXECUTION=true` (#96) — Week-4 ledger tasks (engine / order ledger / MTM / performance writer) marked done, LISTEN/NOTIFY dropped for the simpler daily-step design. §0 baseline rewritten. `CLAUDE.md` added. |
+| 0.7 | 2026-06-12 | **Audit Step 4 — docs closed out.** Frozen-book 1y backfill run on prod (#100, 251 days × 4 personas, seam exact); frontend performance/portfolio swap shipped (#103, `lib/mock/performance.ts` deleted, hypothetical segments dashed + captioned); Week-5 leaderboard/chart tasks marked done. Retro policy decided: per-phase "Lessons" subsections live INSIDE this file (§4 gains Phase B's 7 lessons; no separate retro files). `CLAUDE.md` rewritten as a zero-context AI operator handbook. Decks moved to local-only `decks/` (gitignored). mypy CI-blocking via pyproject debt ledger (#99). |

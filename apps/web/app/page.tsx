@@ -3,7 +3,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { ArrowDown, ArrowRight, ChevronRight, Database, FileText, GitBranch, ShieldCheck, Sparkles } from "lucide-react";
 import { PERSONAS, PERSONA_BY_ID, type Persona } from "@/lib/mock/personas";
-import { splitSegments, usePerformance } from "@/lib/performance-data";
+import { toPoints, usePerformance } from "@/lib/performance-data";
 import { Header } from "@/components/header";
 import { PersonaCard } from "@/components/persona-card";
 import { PersonaDetailSheet } from "@/components/persona-detail-sheet";
@@ -25,20 +25,13 @@ export default function Page() {
   const persona = openId ? PERSONA_BY_ID[openId] : null;
   const { perf, benchmark, loading } = usePerformance(PERSONA_IDS);
 
-  // Each persona contributes two chart series: the dashed hypothetical
-  // backfill ("current book held for the past year" — look-ahead bias,
-  // labelled below the chart) and the solid live paper track.
+  // One solid line per persona — the full paper-track curve (product
+  // decision 2026-06-12: no dashed split in the UI; the data-level
+  // hypothetical flag stays in /api/performance for anything downstream).
   const heroSeries: Series[] = PERSONAS.flatMap((p) => {
     const data = perf[p.id];
     if (!data || data.series.length === 0) return [];
-    const { hyp, live } = splitSegments(data);
-    const color = ACCENT_HEX[p.accent];
-    const out: Series[] = [];
-    if (hyp.length > 1)
-      out.push({ id: `${p.id}-hyp`, name: `${p.name} (hypothetical)`, color, data: hyp, dashed: true });
-    if (live.length > 1)
-      out.push({ id: p.id, name: p.name, color, data: live });
-    return out;
+    return [{ id: p.id, name: p.name, color: ACCENT_HEX[p.accent], data: toPoints(data) }];
   });
   if (benchmark)
     heroSeries.push({ id: "sp500", name: "S&P 500", color: "#A8A39A", data: benchmark, dashed: true });
@@ -124,11 +117,8 @@ export default function Page() {
                 <CumulativeChart height={260} series={heroSeries} />
               )}
               <p className="mt-3 text-[11px] leading-relaxed text-ink-500">
-                Dashed persona lines are{" "}
-                <span className="font-medium text-ink-700">hypothetical</span> — each
-                analyst&apos;s current book projected backwards one year (carries
-                look-ahead bias). Solid lines are the live paper track, real fills
-                since Jun 11, 2026.
+                Live paper track — real fills since{" "}
+                <span className="font-medium text-ink-700">Jun 11, 2026</span>.
               </p>
             </div>
           </div>
