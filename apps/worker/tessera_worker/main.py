@@ -679,6 +679,173 @@ async def get_ticker_prices(
     }
 
 
+def _build_performance_payload(
+    persona_id: str,
+    points: list[tuple],  # (date, total_value: float, hypothetical: bool) ASC
+    sharpe30d: float | None,
+    mdd30d: float | None,
+) -> dict:
+    """Reshape persona_portfolios rows into the UI's equity-curve payload.
+
+    Values are normalized so the FIRST point of the window = 1.0 — the
+    chart plots (value − 1) as cumulative %. Each point carries its
+    `hypothetical` flag so the frontend can split the line into a dashed
+    backfilled segment and a solid live segment (the honesty-labelling
+    requirement from migration 007 / the frozen-book decision)."""
+    if not points:
+        return {"personaId": persona_id, "asOf": None, "series": [],
+                "metrics": None}
+    base = float(points[0][1])
+    series = [
+        {"date": d.isoformat(), "value": round(float(v) / base, 6),
+         "hypothetical": bool(h)}
+        for d, v, h in points
+    ]
+
+    def _window_return(n: int) -> float | None:
+        if len(points) < 2:
+            return None
+        window = points[-n:] if len(points) > n else points
+        first, last = float(window[0][1]), float(window[-1][1])
+        return round(last / first - 1.0, 4) if first > 0 else None
+
+    track_start = next((d for d, _v, h in points if not h), None)
+    return {
+        "personaId": persona_id,
+        "asOf": points[-1][0].isoformat(),
+        "series": series,
+        "metrics": {
+            "totalValue": round(float(points[-1][1]), 2),
+            # ~252 trading days ≈ 1y, ~63 ≈ 90d on the equity calendar
+            "return1y": _window_return(252),
+            "return90d": _window_return(63),
+            "sharpe30d": sharpe30d,
+            "mdd30d": mdd30d,
+            "trackStart": track_start.isoformat() if track_start else None,
+        },
+    }
+
+
+@app.get("/api/performance/{persona_id}")
+async def get_persona_performance(
+    persona_id: str,
+    days: int = 400,
+    authorization: str | None = Header(default=None),
+) -> dict:
+    """Equity curve + headline metrics for one persona's paper track.
+
+    Series = daily persona_portfolios snapshots (hypothetical backfill +
+    real track, flagged per point). Metrics: returns computed from the
+    curve; sharpe/mdd from the latest persona_performance row (real row
+    preferred, hypothetical fallback while the live track is young)."""
+    _require_webhook_auth(authorization)
+    if persona_id not in ("warren", "cathie", "ray", "peter"):
+        raise HTTPException(400, f"unknown persona: {persona_id}")
+    days = max(30, min(days, 800))
+
+    from sqlalchemy import text as _sql
+
+    from tessera_worker.db import session_scope
+
+    with session_scope() as session:
+        rows = session.execute(
+            _sql("""
+                SELECT * FROM (
+                    SELECT ts::date AS d, total_value, hypothetical
+                    FROM persona_portfolios
+                    WHERE persona_id = :p
+                    ORDER BY ts DESC
+                    LIMIT :n
+                ) recent ORDER BY d ASC
+            """),
+            {"p": persona_id, "n": days},
+        ).all()
+        # Latest row that actually HAS a sharpe: the live track's first
+        # days carry NULL (sharpe needs ≥5 observations), so this
+        # naturally serves the hypothetical track's trailing stats until
+        # the live track matures, then live values win by date.
+        perf = session.execute(
+            _sql("""
+                SELECT sharpe_30d, mdd_30d
+                FROM persona_performance
+                WHERE persona_id = :p AND sharpe_30d IS NOT NULL
+                ORDER BY date DESC
+                LIMIT 1
+            """),
+            {"p": persona_id},
+        ).first()
+
+    sharpe = float(perf.sharpe_30d) if perf and perf.sharpe_30d is not None else None
+    mdd = float(perf.mdd_30d) if perf and perf.mdd_30d is not None else None
+    return _build_performance_payload(
+        persona_id,
+        [(r.d, float(r.total_value), bool(r.hypothetical)) for r in rows],
+        sharpe, mdd,
+    )
+
+
+@app.get("/api/portfolio/{persona_id}")
+async def get_persona_portfolio(
+    persona_id: str,
+    authorization: str | None = Header(default=None),
+) -> dict:
+    """Latest REAL portfolio snapshot (positions with qty/close/value/
+    weight + cash). Hypothetical snapshots are never served here — this
+    endpoint answers "what does the persona actually hold on paper"."""
+    _require_webhook_auth(authorization)
+    if persona_id not in ("warren", "cathie", "ray", "peter"):
+        raise HTTPException(400, f"unknown persona: {persona_id}")
+
+    from sqlalchemy import text as _sql
+
+    from tessera_worker.db import session_scope
+    from tessera_worker.universe import META_BY_TICKER
+
+    with session_scope() as session:
+        row = session.execute(
+            _sql("""
+                SELECT ts::date AS d, cash, positions, total_value
+                FROM persona_portfolios
+                WHERE persona_id = :p AND NOT hypothetical
+                ORDER BY ts DESC
+                LIMIT 1
+            """),
+            {"p": persona_id},
+        ).first()
+
+    if not row:
+        return {"personaId": persona_id, "asOf": None, "totalValue": None,
+                "cash": None, "cashWeight": None, "positions": []}
+
+    total = float(row.total_value)
+    raw = row.positions if isinstance(row.positions, dict) else {}
+    positions = []
+    for ticker, v in raw.items():
+        if not isinstance(v, dict):
+            continue
+        value = float(v.get("value") or 0.0)
+        meta = META_BY_TICKER.get(ticker)
+        positions.append({
+            "ticker": ticker,
+            "name": meta.name if meta else ticker,
+            "sector": meta.sector if meta else "Unknown",
+            "qty": float(v.get("qty") or 0.0),
+            "close": float(v.get("close") or 0.0),
+            "value": round(value, 2),
+            "weight": round(value / total, 4) if total > 0 else 0.0,
+        })
+    positions.sort(key=lambda p: -p["weight"])
+    cash = float(row.cash)
+    return {
+        "personaId": persona_id,
+        "asOf": row.d.isoformat(),
+        "totalValue": round(total, 2),
+        "cash": round(cash, 2),
+        "cashWeight": round(cash / total, 4) if total > 0 else None,
+        "positions": positions,
+    }
+
+
 def _reshape_report_row(
     row_id: str, persona_id: str, date_iso: str, parsed: dict,
 ) -> dict:

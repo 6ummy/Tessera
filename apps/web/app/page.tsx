@@ -3,11 +3,11 @@ import { useState } from "react";
 import Link from "next/link";
 import { ArrowDown, ArrowRight, ChevronRight, Database, FileText, GitBranch, ShieldCheck, Sparkles } from "lucide-react";
 import { PERSONAS, PERSONA_BY_ID, type Persona } from "@/lib/mock/personas";
-import { SERIES, BENCHMARK } from "@/lib/mock/performance";
+import { splitSegments, usePerformance } from "@/lib/performance-data";
 import { Header } from "@/components/header";
 import { PersonaCard } from "@/components/persona-card";
 import { PersonaDetailSheet } from "@/components/persona-detail-sheet";
-import { CumulativeChart } from "@/components/cumulative-chart";
+import { CumulativeChart, type Series } from "@/components/cumulative-chart";
 import { Button } from "@/components/ui/button";
 import { fmt } from "@/lib/utils";
 
@@ -18,9 +18,30 @@ const ACCENT_HEX: Record<Persona["accent"], string> = {
   ink: "#1F1E1B",
 };
 
+const PERSONA_IDS = PERSONAS.map((p) => p.id);
+
 export default function Page() {
   const [openId, setOpenId] = useState<string | null>(null);
   const persona = openId ? PERSONA_BY_ID[openId] : null;
+  const { perf, benchmark, loading } = usePerformance(PERSONA_IDS);
+
+  // Each persona contributes two chart series: the dashed hypothetical
+  // backfill ("current book held for the past year" — look-ahead bias,
+  // labelled below the chart) and the solid live paper track.
+  const heroSeries: Series[] = PERSONAS.flatMap((p) => {
+    const data = perf[p.id];
+    if (!data || data.series.length === 0) return [];
+    const { hyp, live } = splitSegments(data);
+    const color = ACCENT_HEX[p.accent];
+    const out: Series[] = [];
+    if (hyp.length > 1)
+      out.push({ id: `${p.id}-hyp`, name: `${p.name} (hypothetical)`, color, data: hyp, dashed: true });
+    if (live.length > 1)
+      out.push({ id: p.id, name: p.name, color, data: live });
+    return out;
+  });
+  if (benchmark)
+    heroSeries.push({ id: "sp500", name: "S&P 500", color: "#A8A39A", data: benchmark, dashed: true });
 
   return (
     <main className="min-h-screen">
@@ -97,13 +118,18 @@ export default function Page() {
                   </span>
                 </div>
               </div>
-              <CumulativeChart
-                height={260}
-                series={[
-                  ...PERSONAS.map((p) => ({ id: p.id, name: p.name, color: ACCENT_HEX[p.accent], data: SERIES[p.id] })),
-                  { id: "sp500", name: "S&P 500", color: "#A8A39A", data: BENCHMARK, dashed: true },
-                ]}
-              />
+              {loading || heroSeries.length === 0 ? (
+                <div className="h-[260px] w-full animate-pulse rounded-2xl bg-ink-900/[0.04]" />
+              ) : (
+                <CumulativeChart height={260} series={heroSeries} />
+              )}
+              <p className="mt-3 text-[11px] leading-relaxed text-ink-500">
+                Dashed persona lines are{" "}
+                <span className="font-medium text-ink-700">hypothetical</span> — each
+                analyst&apos;s current book projected backwards one year (carries
+                look-ahead bias). Solid lines are the live paper track, real fills
+                since Jun 11, 2026.
+              </p>
             </div>
           </div>
         </div>
@@ -138,7 +164,7 @@ export default function Page() {
                 className="animate-fade-up"
                 style={{ animationDelay: `${i * 60}ms`, animationFillMode: "both" }}
               >
-                <PersonaCard persona={p} onOpen={setOpenId} />
+                <PersonaCard persona={p} onOpen={setOpenId} performance={perf[p.id]} />
               </div>
             ))}
           </div>

@@ -2,7 +2,8 @@
 import { ArrowUpRight } from "lucide-react";
 import type { Persona } from "@/lib/mock/personas";
 import { ACCENT_CLASS } from "@/lib/mock/personas";
-import { SPARKLINES } from "@/lib/mock/performance";
+import type { PersonaPerformance } from "@/lib/performance-types";
+import { rebase, toPoints } from "@/lib/performance-data";
 import { Sparkline } from "./sparkline";
 import { Badge } from "./ui/badge";
 import { PersonaAvatar } from "./persona-avatar";
@@ -15,9 +16,21 @@ const ACCENT_HEX: Record<Persona["accent"], string> = {
   ink: "#1F1E1B",
 };
 
-export function PersonaCard({ persona, onOpen }: { persona: Persona; onOpen: (id: string) => void }) {
+export function PersonaCard({
+  persona,
+  onOpen,
+  performance,
+}: {
+  persona: Persona;
+  onOpen: (id: string) => void;
+  // Real paper-track data (null while loading / on fetch failure).
+  // Includes the labelled hypothetical backfill — the card's 1y number
+  // is the blended curve; the detail sheet carries the full caveat.
+  performance?: PersonaPerformance | null;
+}) {
   const a = ACCENT_CLASS[persona.accent];
-  const m = persona.metrics;
+  const m = performance?.metrics ?? null;
+  const spark = performance ? rebase(toPoints(performance).slice(-90)) : [];
 
   return (
     <button
@@ -45,13 +58,28 @@ export function PersonaCard({ persona, onOpen }: { persona: Persona; onOpen: (id
       <p className="mt-2 text-[15px] leading-relaxed text-ink-700">{persona.tagline}</p>
 
       <div className="mt-6 grid grid-cols-3 gap-3">
-        <Metric label="1y" value={fmt.pct(m.return1y)} sign={m.return1y} />
-        <Metric label="Sharpe" value={fmt.num(m.sharpe)} />
-        <Metric label="MDD" value={fmt.pct(m.mdd)} sign={m.mdd} />
+        <Metric
+          label="1y"
+          value={m?.return1y != null ? fmt.pct(m.return1y) : "—"}
+          sign={m?.return1y ?? undefined}
+        />
+        <Metric
+          label="Sharpe 30d"
+          value={m?.sharpe30d != null ? fmt.num(m.sharpe30d) : "—"}
+        />
+        <Metric
+          label="MDD 30d"
+          value={m?.mdd30d != null ? fmt.pct(-m.mdd30d) : "—"}
+          sign={m?.mdd30d != null ? -m.mdd30d : undefined}
+        />
       </div>
 
       <div className="mt-5 h-12">
-        <Sparkline data={SPARKLINES[persona.id]} color={ACCENT_HEX[persona.accent]} height={48} />
+        {spark.length > 1 ? (
+          <Sparkline data={spark} color={ACCENT_HEX[persona.accent]} height={48} />
+        ) : (
+          <div className="h-full w-full animate-pulse rounded-lg bg-ink-900/[0.04]" />
+        )}
       </div>
 
       <div className="mt-5 flex items-center justify-between border-t border-ink-900/[0.06] pt-4 text-xs">

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, Heart, MessageCircle, Repeat2, TrendingUp } from "lucide-react";
 import { ACCENT_CLASS, PERSONAS, PERSONA_BY_ID, type Persona } from "@/lib/mock/personas";
-import { SERIES, BENCHMARK } from "@/lib/mock/performance";
+import { rebase, splitSegments, usePerformance } from "@/lib/performance-data";
 import { Header } from "@/components/header";
 import { CumulativeChart } from "@/components/cumulative-chart";
 import { Badge } from "@/components/ui/badge";
@@ -64,7 +64,22 @@ function DashboardInner() {
   const followed = PERSONA_BY_ID[MY.followedPersona];
   const pnlPct = MY.positions.reduce((s, p) => s + p.weight * p.pnl, 0);
   const value = MY.startingCapital * (1 + pnlPct);
-  const series = SERIES[MY.followedPersona].slice(-180);
+  // Real paper-track data: followed persona's curve for the portfolio
+  // tab, all four personas' metrics for the leaderboard.
+  const personaIds = PERSONAS.map((p) => p.id);
+  const { perf, benchmark } = usePerformance(personaIds);
+  const followedPerf = perf[MY.followedPersona] ?? null;
+  const followedSegments = followedPerf ? splitSegments(followedPerf) : null;
+  // Last ~180 trading days, re-based so the window starts at 0%.
+  const series = followedPerf
+    ? rebase(
+        followedPerf.series
+          .slice(-180)
+          .map((s, i) => ({ day: i, date: s.date, value: s.value })),
+      )
+    : [];
+  const bench180 = benchmark ? rebase(benchmark.slice(-180)) : null;
+  const followedHypDays = followedSegments?.hyp.length ?? 0;
 
   return (
     <main className="min-h-screen">
@@ -117,13 +132,26 @@ function DashboardInner() {
                       <h2 className="display-serif mt-1 text-2xl text-ink-900">Performance vs benchmark</h2>
                     </div>
                   </div>
-                  <CumulativeChart
-                    height={280}
-                    series={[
-                      { id: followed.id, name: "You", color: ACCENT_HEX[followed.accent], data: series },
-                      { id: "sp500", name: "S&P 500", color: "#A8A39A", data: BENCHMARK.slice(-180), dashed: true },
-                    ]}
-                  />
+                  {series.length > 1 ? (
+                    <CumulativeChart
+                      height={280}
+                      series={[
+                        { id: followed.id, name: "You", color: ACCENT_HEX[followed.accent], data: series },
+                        ...(bench180
+                          ? [{ id: "sp500", name: "S&P 500", color: "#A8A39A", data: bench180, dashed: true }]
+                          : []),
+                      ]}
+                    />
+                  ) : (
+                    <div className="h-[280px] w-full animate-pulse rounded-2xl bg-ink-900/[0.04]" />
+                  )}
+                  {followedHypDays > 0 && (
+                    <p className="mt-2 text-[11px] text-ink-500">
+                      Includes {followed.name}&apos;s hypothetical backfill (current
+                      book projected backwards) before Jun 11, 2026 — the live paper
+                      track starts there. Positions below are Phase-D demo data.
+                    </p>
+                  )}
                 </div>
 
                 <div className="space-y-4">
@@ -158,11 +186,14 @@ function DashboardInner() {
             <TabsContent value="leaderboard">
               <div className="overflow-hidden rounded-3xl border border-ink-900/[0.06] bg-cream-50">
                 <div className="grid grid-cols-[40px_1.4fr_1fr_1fr_1fr_1fr_1fr] border-b border-ink-900/[0.06] bg-ink-900/[0.025] px-5 py-3 text-[10px] uppercase tracking-[0.14em] text-ink-500">
-                  <div>#</div><div>Analyst</div><div>1y</div><div>90d</div><div>Sharpe</div><div>MDD</div><div className="text-right">Hit rate</div>
+                  <div>#</div><div>Analyst</div><div>1y †</div><div>90d</div><div>Sharpe 30d</div><div>MDD 30d</div><div className="text-right">Value</div>
                 </div>
                 {[...PERSONAS]
-                  .sort((a, b) => b.metrics.sharpe - a.metrics.sharpe)
+                  .sort((a, b) =>
+                    (perf[b.id]?.metrics?.return1y ?? -Infinity) -
+                    (perf[a.id]?.metrics?.return1y ?? -Infinity))
                   .map((p, i) => {
+                    const pm = perf[p.id]?.metrics ?? null;
                     return (
                       <div key={p.id} className="grid grid-cols-[40px_1.4fr_1fr_1fr_1fr_1fr_1fr] items-center border-b border-ink-900/[0.05] px-5 py-4 last:border-b-0 hover:bg-ink-900/[0.02]">
                         <div className="num text-xs text-ink-400">{(i + 1).toString().padStart(2, "0")}</div>
@@ -173,15 +204,33 @@ function DashboardInner() {
                             <div className="text-[11px] text-ink-500">{p.archetype}</div>
                           </div>
                         </div>
-                        <div className={cn("num text-sm", signClass(p.metrics.return1y))}>{fmt.pct(p.metrics.return1y)}</div>
-                        <div className={cn("num text-sm", signClass(p.metrics.return90d))}>{fmt.pct(p.metrics.return90d)}</div>
-                        <div className="num text-sm text-ink-800">{fmt.num(p.metrics.sharpe)}</div>
-                        <div className={cn("num text-sm", signClass(p.metrics.mdd))}>{fmt.pct(p.metrics.mdd)}</div>
-                        <div className="num text-right text-sm text-ink-800">{fmt.pctAbs(p.metrics.hitRate)}</div>
+                        <div className={cn("num text-sm", pm?.return1y != null ? signClass(pm.return1y) : "text-ink-400")}>
+                          {pm?.return1y != null ? fmt.pct(pm.return1y) : "—"}
+                        </div>
+                        <div className={cn("num text-sm", pm?.return90d != null ? signClass(pm.return90d) : "text-ink-400")}>
+                          {pm?.return90d != null ? fmt.pct(pm.return90d) : "—"}
+                        </div>
+                        <div className="num text-sm text-ink-800">
+                          {pm?.sharpe30d != null ? fmt.num(pm.sharpe30d) : "—"}
+                        </div>
+                        <div className={cn("num text-sm", pm?.mdd30d != null ? signClass(-pm.mdd30d) : "text-ink-400")}>
+                          {pm?.mdd30d != null ? fmt.pct(-pm.mdd30d) : "—"}
+                        </div>
+                        <div className="num text-right text-sm text-ink-800">
+                          {pm?.totalValue != null
+                            ? `$${pm.totalValue.toLocaleString("en-US", { maximumFractionDigits: 0 })}`
+                            : "—"}
+                        </div>
                       </div>
                     );
                   })}
               </div>
+              <p className="mt-3 text-[11px] text-ink-500">
+                † 1y blends the hypothetical backfill (current book projected
+                backwards — look-ahead bias) with the live paper track that
+                started Jun 11, 2026. Sharpe/MDD are 30-day trailing on paper
+                NAV. Hit rate lands once closed-lot tracking ships.
+              </p>
             </TabsContent>
 
             {/* ───── SOCIAL ───── */}

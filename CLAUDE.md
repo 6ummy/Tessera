@@ -38,12 +38,14 @@ first fills. If still 0, check `gcloud logging read ... textPayload:paper_engine
 → #94 risk gateway → #95 paper engine → #96 flag flip.
 
 **Next up (improvement plan Step 3 remainder)**:
-1. **← next dev slice** — Frontend performance/portfolio swap:
-   `/api/performance` + `/api/portfolio` routes over
-   `persona_performance`/`persona_portfolios`, then delete
-   `lib/mock/performance.ts` (landing page still shows seeded random
-   walks until the paper track has enough days to chart).
-2. Gateway VaR/drawdown checks + Ray regime gate (positions now exist).
+1. ~~Frontend performance/portfolio swap~~ — DONE 2026-06-12.
+   `lib/mock/performance.ts` deleted; landing/sheet/dashboard read
+   `/api/performance` + `/api/portfolio` (worker endpoints + Edge
+   proxies + `lib/performance-data.ts` cached hook). Hypothetical
+   segment renders dashed + captioned; CumulativeChart merges by date.
+2. **← next** — Gateway VaR/drawdown checks + Ray regime gate
+   (positions exist now). Then: 90d backtest baseline, Cloud Run Jobs,
+   attribution breakdown, mypy-ledger burn-down.
 3. ~~Operator console: Grafana + Voyage~~ — DONE 2026-06-12. Grafana
    Cloud dashboard live over `llm_call_log`; `VOYAGE_API_KEY` on Cloud
    Run. NOTE: Voyage similarity recall (`sim=` log tag) fires in the
