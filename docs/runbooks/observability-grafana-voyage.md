@@ -79,7 +79,21 @@ gcloud secrets add-iam-policy-binding VOYAGE_API_KEY --project tessera-498200 `
 .\apps\worker\scripts\deploy_cloud_run.ps1
 ```
 
-**Verify**: open a chat with any persona about a ticker they've covered
-before and check worker logs for a `sim=0.xx` recall tag (similarity
-path) instead of `recency`. Compare whether the surfaced past theses are
-more topical — that was the acceptance test written in Plan §5 Week 5.
+**Verify** (corrected 2026-06-12 — the original instruction said "open a
+chat", which can never show the tag): memory recall lives in the **thesis
+prompt assembly** (`prompt_assembler.fetch_memory_recall`), NOT in chat —
+`agents/chat.py` doesn't call recall at all (pgvector chat memory is
+Phase D scope). So the `sim=0.xx` tag appears in the **weekly persona
+batch** logs (Fri 22:00 UTC), where each research prompt recalls similar
+past theses from `persona_memory`:
+
+```powershell
+gcloud logging read "resource.labels.service_name=tessera-worker AND textPayload:sim=" --freshness=2d --limit 5
+# similarity path firing → lines tagged sim=0.xx
+# key missing/unreachable → lines tagged recency (fallback)
+```
+
+Note: only `persona_memory` rows with a non-NULL embedding are
+similarity-searchable. Rows written while the key was absent stay
+recency-only; ~100 rows were already embedded from local runs as of
+2026-06-12, and every new batch embeds its own rows going forward.
