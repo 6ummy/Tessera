@@ -530,10 +530,16 @@ plane is shipped; the LLM pipeline is the Week 2 / Week 3 work.
 - Buffer for chat (Week 3): ~$1.00/day
 - **Total: ~$2.50–4.00/day in steady-state.**
 
-### Still mocked (as of 2026-06-12 — everything else is real)
-- Return series + portfolio tab (`lib/mock/performance.ts`, `lib/mock/personas.ts` static metadata aside): seeded random walks, **intentionally retained** until the paper engine's `persona_performance` track accumulates enough days to chart. The swap (`/api/performance` + `/api/portfolio` routes) is the next frontend slice.
+### Still mocked (as of 2026-06-12 evening — everything else is real)
+- Dashboard "My portfolio" positions table + Social feed: Phase-D demo
+  data (user accounts don't exist yet), labelled as such in the UI.
 - User identity (no auth — assumes "jshin"). Phase D.
-- Already swapped and deleted: `lib/mock/proposals.ts`, `lib/mock/reports.ts`, `lib/mock/chat.ts` (2026-06-05).
+- Already swapped and deleted: `lib/mock/proposals.ts`, `lib/mock/reports.ts`,
+  `lib/mock/chat.ts` (2026-06-05), **`lib/mock/performance.ts` (2026-06-12)** —
+  charts/cards/leaderboard now read `/api/performance` + `/api/portfolio`
+  (real paper track + dashed-and-labelled hypothetical backfill).
+  `lib/mock/personas.ts` remains as static character metadata (bios,
+  accents, avgHold/turnover traits), not performance data.
 
 ### File map
 ```

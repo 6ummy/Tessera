@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowUpRight, Briefcase, MessageCircle, Sparkles, Target, TrendingUp } from "lucide-react";
 import { ACCENT_CLASS, type Persona } from "@/lib/mock/personas";
-import { SERIES, BENCHMARK } from "@/lib/mock/performance";
+import { splitSegments, usePerformance } from "@/lib/performance-data";
 import { fetchProposal, fetchReports } from "@/lib/analyst-data";
 import type { Proposal, Report } from "@/lib/thesis-types";
 import { PositionFeatures } from "./position-features";
@@ -40,6 +40,9 @@ export function PersonaDetailSheet({
   const [reports, setReports] = useState<Report[]>([]);
   const [loadingData, setLoadingData] = useState(false);
   const [expandedTicker, setExpandedTicker] = useState<string | null>(null);
+  // Real paper-track curve (cached module-wide — the landing page has
+  // usually warmed this already, so opening the sheet is instant).
+  const { perf, benchmark } = usePerformance(persona ? [persona.id] : []);
 
   // Reset to thesis view whenever a new persona opens
   useEffect(() => {
@@ -72,7 +75,10 @@ export function PersonaDetailSheet({
 
   if (!persona) return null;
   const a = ACCENT_CLASS[persona.accent];
-  const m = persona.metrics;
+  const m = persona.metrics; // character traits only (avgHold, turnover)
+  const perfData = perf[persona.id] ?? null;
+  const pm = perfData?.metrics ?? null;
+  const segments = perfData ? splitSegments(perfData) : null;
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -118,10 +124,10 @@ export function PersonaDetailSheet({
 
           <div className="mt-8 grid grid-cols-4 gap-px overflow-hidden border-y border-ink-900/[0.06] bg-ink-900/[0.06]">
             {[
-              { l: "1-year return", v: fmt.pct(m.return1y), s: m.return1y },
-              { l: "Sharpe (1y)", v: fmt.num(m.sharpe) },
-              { l: "Max drawdown", v: fmt.pct(m.mdd), s: m.mdd },
-              { l: "Hit rate", v: fmt.pctAbs(m.hitRate) },
+              { l: "1-year return †", v: pm?.return1y != null ? fmt.pct(pm.return1y) : "—", s: pm?.return1y ?? undefined },
+              { l: "90-day return", v: pm?.return90d != null ? fmt.pct(pm.return90d) : "—", s: pm?.return90d ?? undefined },
+              { l: "Sharpe (30d)", v: pm?.sharpe30d != null ? fmt.num(pm.sharpe30d) : "—" },
+              { l: "Max DD (30d)", v: pm?.mdd30d != null ? fmt.pct(-pm.mdd30d) : "—", s: pm?.mdd30d != null ? -pm.mdd30d : undefined },
             ].map((s, i) => (
               <div key={i} className="bg-cream-50 px-4 py-4">
                 <div className="text-[10px] uppercase tracking-[0.16em] text-ink-500">{s.l}</div>
@@ -134,19 +140,36 @@ export function PersonaDetailSheet({
             <div className="mb-3 flex items-center justify-between">
               <h3 className="text-sm font-medium text-ink-900">Cumulative return · last 365 days</h3>
               <div className="flex items-center gap-3 text-[11px] text-ink-500">
-                <Legend color={ACCENT_HEX[persona.accent]} label={persona.name} />
+                <Legend color={ACCENT_HEX[persona.accent]} label="Hypothetical" dashed />
+                <Legend color={ACCENT_HEX[persona.accent]} label="Live paper" />
                 <Legend color="#A8A39A" label="S&P 500" dashed />
               </div>
             </div>
             <div className="rounded-2xl border border-ink-900/[0.06] bg-cream-50 p-3">
-              <CumulativeChart
-                height={220}
-                series={[
-                  { id: persona.id, name: persona.name, color: ACCENT_HEX[persona.accent], data: SERIES[persona.id] },
-                  { id: "sp500", name: "S&P 500", color: "#A8A39A", data: BENCHMARK, dashed: true },
-                ]}
-              />
+              {segments ? (
+                <CumulativeChart
+                  height={220}
+                  series={[
+                    ...(segments.hyp.length > 1
+                      ? [{ id: `${persona.id}-hyp`, name: `${persona.name} (hypothetical)`, color: ACCENT_HEX[persona.accent], data: segments.hyp, dashed: true }]
+                      : []),
+                    ...(segments.live.length > 1
+                      ? [{ id: persona.id, name: persona.name, color: ACCENT_HEX[persona.accent], data: segments.live }]
+                      : []),
+                    ...(benchmark
+                      ? [{ id: "sp500", name: "S&P 500", color: "#A8A39A", data: benchmark, dashed: true }]
+                      : []),
+                  ]}
+                />
+              ) : (
+                <div className="h-[220px] w-full animate-pulse rounded-xl bg-ink-900/[0.04]" />
+              )}
             </div>
+            <p className="mt-2 text-[11px] leading-relaxed text-ink-500">
+              † Dashed segment is hypothetical: {persona.name}&apos;s current book
+              projected backwards (look-ahead bias). The solid line is the live
+              paper track — real fills since Jun 11, 2026.
+            </p>
           </div>
 
           <div className="grid grid-cols-2 gap-3 px-8">

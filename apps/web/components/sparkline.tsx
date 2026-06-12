@@ -1,6 +1,6 @@
 "use client";
 import { Area, AreaChart, ResponsiveContainer, YAxis } from "recharts";
-import type { Point } from "@/lib/mock/performance";
+import type { Point } from "@/lib/performance-types";
 
 export function Sparkline({
   data,

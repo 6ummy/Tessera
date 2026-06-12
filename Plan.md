@@ -765,8 +765,8 @@ Queued from the same audit (ordered):
   is sound as-is.
 
 ### Week 5 — Frontend wire-up + baseline backtest + weight-distribution telemetry
-- [ ] **Leaderboard tab** reads from `persona_performance` (delete mock)
-- [ ] **Cumulative return charts**: read real persona equity curve
+- [x] **Leaderboard tab** reads from `persona_performance` — **shipped 2026-06-12**: real 1y† (hypothetical-blended, footnoted) / 90d / sharpe_30d / mdd_30d / NAV per persona via `/api/performance`; hit-rate column shows "—" until closed-lot tracking. `lib/mock/performance.ts` DELETED.
+- [x] **Cumulative return charts**: read real persona equity curve — **shipped 2026-06-12**. Landing hero (4 personas × dashed-hypothetical + solid-live segments + SPY from `/api/prices`), persona detail sheet (same split + caption), dashboard portfolio tab (followed persona, 180d re-based). `CumulativeChart` now merges by DATE (index-merge silently misaligned mixed calendars). New worker endpoints `GET /api/performance/{persona}` + `GET /api/portfolio/{persona}` with Edge proxies; client fetcher `lib/performance-data.ts` with module-level cache.
 - [ ] **Attribution breakdown**: ticker-level contribution to each persona's MTD return
 - [ ] **Backtest mode**: replay 90 days → simulate 90 days of paper trades → baseline Sharpe/MDD
 - [ ] **Weight distribution telemetry**: weekly histogram per persona — alert on bimodal distribution at cap (see risk: *mode collapse*); decide by end of week whether to refactor to conviction-only schema

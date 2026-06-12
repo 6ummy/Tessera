@@ -1,15 +1,26 @@
 "use client";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import type { Point } from "@/lib/mock/performance";
+import type { Point } from "@/lib/performance-types";
 
 export type Series = { id: string; name: string; color: string; data: Point[]; dashed?: boolean };
 
 export function CumulativeChart({ series, height = 320 }: { series: Series[]; height?: number }) {
-  // Merge data by day index
-  const len = Math.min(...series.map((s) => s.data.length));
-  const merged = Array.from({ length: len }).map((_, i) => {
-    const row: Record<string, number | string> = { date: series[0].data[i].date };
-    series.forEach((s) => (row[s.id] = (s.data[i].value - 1) * 100));
+  // Merge by DATE, not index: real series sit on different calendars
+  // (persona snapshots vs SPY bars vs hypothetical/live segment splits),
+  // so index-merging would silently misalign dates. Missing dates render
+  // as gaps bridged by connectNulls.
+  const dates = Array.from(
+    new Set(series.flatMap((s) => s.data.map((p) => p.date))),
+  ).sort();
+  const valueByDate = series.map(
+    (s) => new Map(s.data.map((p) => [p.date, p.value])),
+  );
+  const merged = dates.map((date) => {
+    const row: Record<string, number | string | null> = { date };
+    series.forEach((s, i) => {
+      const v = valueByDate[i].get(date);
+      row[s.id] = v === undefined ? null : (v - 1) * 100;
+    });
     return row;
   });
 
@@ -54,6 +65,7 @@ export function CumulativeChart({ series, height = 320 }: { series: Series[]; he
             strokeWidth={s.dashed ? 1.5 : 2}
             strokeDasharray={s.dashed ? "4 4" : undefined}
             dot={false}
+            connectNulls
             isAnimationActive={false}
           />
         ))}

@@ -99,6 +99,40 @@ def test_aggregate_book_scales_over_allocation():
     assert abs(weights["AAPL"] / weights["MSFT"] - 2.0) < 1e-9
 
 
+# ── /api/performance payload ─────────────────────────────────────────────
+
+def test_performance_payload_normalizes_and_flags():
+    from datetime import date as _d
+
+    from tessera_worker.main import _build_performance_payload
+
+    points = [
+        (_d(2026, 6, 8), 90_000.0, True),
+        (_d(2026, 6, 9), 99_000.0, True),
+        (_d(2026, 6, 10), 94_500.0, False),
+    ]
+    payload = _build_performance_payload("warren", points, 0.5, 0.04)
+
+    assert payload["asOf"] == "2026-06-10"
+    series = payload["series"]
+    # normalized to first point = 1.0; flags preserved per point
+    assert series[0] == {"date": "2026-06-08", "value": 1.0, "hypothetical": True}
+    assert series[1]["value"] == 1.1
+    assert series[2] == {"date": "2026-06-10", "value": 1.05, "hypothetical": False}
+    m = payload["metrics"]
+    assert m["totalValue"] == 94_500.0
+    assert m["return1y"] == 0.05          # whole 3-point window
+    assert m["trackStart"] == "2026-06-10"  # first non-hypothetical day
+    assert m["sharpe30d"] == 0.5 and m["mdd30d"] == 0.04
+
+
+def test_performance_payload_empty():
+    from tessera_worker.main import _build_performance_payload
+
+    payload = _build_performance_payload("ray", [], None, None)
+    assert payload["series"] == [] and payload["metrics"] is None
+
+
 # ── Ray's RegimeReport shape ─────────────────────────────────────────────
 
 def test_sanitize_chat_history_caps_and_filters():
