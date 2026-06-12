@@ -46,7 +46,10 @@ first fills. If still 0, check `gcloud logging read ... textPayload:paper_engine
 2. Gateway VaR/drawdown checks + Ray regime gate (positions now exist).
 3. ~~Operator console: Grafana + Voyage~~ — DONE 2026-06-12. Grafana
    Cloud dashboard live over `llm_call_log`; `VOYAGE_API_KEY` on Cloud
-   Run (chat memory recall now similarity-based, `sim=` log tag).
+   Run. NOTE: Voyage similarity recall (`sim=` log tag) fires in the
+   WEEKLY THESIS BATCH prompt assembly, not in chat — chat has no memory
+   recall at all (pgvector chat memory = Phase D scope). Verify in the
+   Friday batch logs, not chat logs.
 4. ~~1y back-history~~ — frozen-book backfill **shipped + RUN on prod
    2026-06-12**: 251 hypothetical days per persona (2025-06-11 →
    2026-06-10), seam exact into the real track (warren/ray/peter equal
