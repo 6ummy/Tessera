@@ -56,10 +56,20 @@ Everything below is LIVE in prod unless marked otherwise:
   blocking (mypy via a legacy `ignore_errors` ledger in
   `apps/worker/pyproject.toml` — NEW modules must be strict-clean and
   must NOT be added to the ledger). gitleaks pre-commit configured.
+- **Risk/analytics layer (#105–#108, deployed 06-12 PM)**: gateway now
+  full — VaR99 (`risk/var.py`, per-persona caps calibrated vs measured
+  books) + drawdown floor (live track only) + Ray's `gate_regime`;
+  weight-distribution telemetry (canary check 6, §11 tripwire);
+  ticker-level attribution (`/api/attribution`, contributions sum to
+  period return); paper-engine failures page via explicit Sentry
+  capture + operator alert rule. Known: warren/cathie's pre-#94 books
+  violate SECTOR caps → the next Friday batch re-shapes them via retry
+  feedback (expected `risk_gateway.rejected` → `passed` log pairs).
 - **PR trail this week**: #90 audit hotfixes → #93 re-land Steps 1+2 →
   #94 risk gateway → #95/#96 paper engine + flag → #97 docs → #98 Ray
   as_of fix → #99 mypy/tests/observability → #100 backfill → #101/#102
-  ops sync → #103 frontend swap.
+  ops sync → #103 frontend swap → #105 VaR/DD/Ray gate → #106 weight
+  telemetry → #107 attribution → #108 Sentry paging.
 
 ## 3. Hard invariants (each from a real incident — don't relearn them)
 
@@ -78,9 +88,12 @@ Everything below is LIVE in prod unless marked otherwise:
   tickers ("ghost positions", P0-2).
 - **Server-authoritative fields are force-set, never `setdefault`.**
   Ray's LLM volunteered its own `as_of` and won the tie for weeks (#98).
-- **Every book passes `risk/gateway.py` pre-persist** (universe
-  membership, sum=1.0, single-name + sector caps; rejection reasons feed
-  the construction retry). VaR/drawdown checks are the next gateway item.
+- **Every book passes `risk/gateway.py` pre-persist** — stock-pickers
+  via `gate()`, Ray via `gate_regime()`: universe membership, sum=1.0,
+  single-name + sector caps, parametric VaR99 vs calibrated persona
+  caps (3.5/8.5/4.5/2.5%), drawdown floor on the LIVE track
+  (20/35/25/15%). Rejection reasons feed the construction retry.
+  "VaR unmeasurable" (<60 aligned obs) is soft — never rejects.
 - **Paper engine**: NAV conservation exact (no fees v1), execution
   idempotent via `report_id` on `persona_trades`, fills at next bar
   OPEN, MTM at CLOSE. Hypothetical rows are write-guarded
@@ -98,7 +111,7 @@ Everything below is LIVE in prod unless marked otherwise:
 ```powershell
 # Worker — venv EXISTS at apps/worker/.venv, never recreate it
 cd apps\worker
-.\.venv\Scripts\python.exe -m pytest tests -q                          # 223 tests, no DB needed
+.\.venv\Scripts\python.exe -m pytest tests -q                          # 238 tests, no DB needed
 .\.venv\Scripts\python.exe -m ruff check tessera_worker tests scripts  # MUST stay 0
 .\.venv\Scripts\python.exe -m mypy tessera_worker                      # MUST stay 0
 .\.venv\Scripts\python.exe -m tessera_worker.jobs.ingest_daily --only features coverage
@@ -134,9 +147,9 @@ UI reads via worker HTTP endpoints proxied by Next Edge routes
 
 Key worker endpoints: `/api/reports/{p}`, `/api/proposals/{p}` (latest
 batch day only), `/api/performance/{p}` (curve + hypothetical flags),
-`/api/portfolio/{p}` (real snapshot only), `/api/features/{t}`,
-`/api/prices/{t}`, `/api/chat/{p}` (SSE), `/jobs/ingest-daily`,
-`/jobs/persona-batch`.
+`/api/portfolio/{p}` (real snapshot only), `/api/attribution/{p}`
+(?period=mtd|7d|30d), `/api/features/{t}`, `/api/prices/{t}`,
+`/api/chat/{p}` (SSE), `/jobs/ingest-daily`, `/jobs/persona-batch`.
 
 Key tables: `ohlcv_1d`, `ticker_features` (the only numbers LLMs see),
 `fundamentals` (JSONB, 3-tier merged), `analyst_reports` (parsed book
@@ -179,16 +192,19 @@ JSONB; `rejected` flag), `persona_trades/portfolios/performance`
 
 ## 8. Backlog (priority order, with pointers)
 
-1. **Gateway VaR (99%, parametric) + drawdown floor + Ray regime gate**
-   — positions exist now; correlation matrix from `ohlcv_1d`. Plan §5.
-2. **90-day point-in-time backtest baseline** — credibility anchor;
+1. **90-day point-in-time backtest baseline** — credibility anchor;
    harness exists (`jobs/backtest_harness.py`), ~$10–20 LLM. Plan §5 Week 5.
-3. **Attribution breakdown** (ticker-level MTD contribution) — Plan §5.
-4. **Cloud Run Jobs migration** for ingest/persona_batch — structural
+2. **Cloud Run Jobs migration** for ingest/persona_batch — structural
    fix for BackgroundTasks (currently mitigated by --no-cpu-throttling).
-5. **mypy ledger burn-down** (16 legacy modules in pyproject overrides).
-6. **hit_rate** (needs closed-lot tracking) · quarterly margin series
-   ingest (low) · Phase D (auth, follow, chat memory) per Plan §6.
+3. **mypy ledger burn-down** (16 legacy modules in pyproject overrides).
+4. **Attribution UI table** (endpoint shipped #107; surface in the
+   persona detail sheet once a week of rebalances accumulates).
+5. **hit_rate** (needs closed-lot tracking) · quarterly margin series
+   ingest (low) · §10 weight-authority decision once a few weeks of
+   `canary.weight_telemetry` accumulate · Phase D (auth, follow, chat
+   memory) per Plan §6.
+   (Gateway VaR/DD/Ray + attribution endpoint + weight telemetry:
+   DONE 2026-06-12, #105–#108.)
 
 ## 9. Doc map
 
