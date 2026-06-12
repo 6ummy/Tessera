@@ -610,15 +610,24 @@ apps/
         persona_constraints.py      # construction-pass constraint registry
         portfolio_construction.py   # v2 pass-2: research → one book/persona
       risk/
-        gateway.py                  # gate(report) → RiskCheckResult; universe
-                                    # membership + sum=1.0 + single-name +
-                                    # sector caps (shipped 2026-06-11);
-                                    # VaR/drawdown wait for the paper engine
+        gateway.py                  # gate(report) + gate_regime(report) →
+                                    # RiskCheckResult; universe + sum=1.0 +
+                                    # single-name + sector caps (06-11) +
+                                    # VaR99/drawdown-floor (06-12, #105)
+        var.py                      # delta-normal VaR99 over calendar-
+                                    # intersected log returns; MarketContext
+                                    # loader; per-persona caps calibrated
+                                    # against measured books (~2× headroom)
+        attribution.py              # ticker-level P&L: qty_{d−1} × Δclose
+                                    # over snapshots; contributions sum to
+                                    # the period return (/api/attribution)
         paper_engine.py             # paper execution (shipped 2026-06-12,
                                     # FEATURE_PAPER_EXECUTION-gated): fill
                                     # latest book at next bar open → EOD
                                     # MTM → persona_performance; $100K
-                                    # bootstrap; NAV conservation pinned
+                                    # bootstrap; NAV conservation pinned;
+                                    # failures page via explicit Sentry
+                                    # capture (#108)
       jobs/
         ingest_daily.py             # 14-step orchestrator (what cron triggers);
                                     # advisory-locked against double-trigger
@@ -694,7 +703,7 @@ build-deck.js                       # generates the Tessera deck (.pptx files
 |---|---|---|
 | **A. Live data wiring** | 5 ingestors + feature builder + universe + Vercel Cron + daily orchestrator | **✅ Done** — see Phase A retro below |
 | **B. Real LLM theses** (wk 2–3) | Wire `respond()` and report generation to Claude | **✅ Done 2026-06-05** — weekly v2 batch, live chat, reports/proposals UI |
-| **C. Paper execution** (wk 4–5) | Persona positions executed in paper; daily P&L attribution | **🚧 Core live 2026-06-12** — risk gateway + paper engine shipped, `FEATURE_PAPER_EXECUTION=true`; remaining: performance/portfolio frontend swap, VaR/drawdown gate, Grafana |
+| **C. Paper execution** (wk 4–5) | Persona positions executed in paper; daily P&L attribution | **🚧 Nearly done (2026-06-12 PM)** — gateway full (incl. VaR99/DD/Ray), paper engine live, performance/portfolio UI real, attribution endpoint, weight telemetry, Sentry paging. Remaining: 90d backtest baseline, attribution UI table, quant edge cases |
 | **D. User auth + own portfolio** (wk 6) | Real user accounts following a persona on paper | ⏳ Planned |
 | **E. Compliance review** (wk 6, parallel) | Securities-lawyer consult before any non-self user runs live | ⏳ Planned |
 | **F. Live trading (optional)** (wk 7+) | Feature-flag flip; OAuth to user's Alpaca | ⏳ Optional |
@@ -773,3 +782,4 @@ One-time: securities-lawyer consult (~$300) before Phase E.
 | 0.4 | 2026-06-11 | Codebase-audit sync (`docs/improvement-plan-2026-06-11.md`). Canonical-day note added (mixed-source OHLCV duplicates distorted production features; migration 006 + code dedup). File map refreshed to post-Phase-B reality (agents/ + jobs/ modules, 9 test files / 179 tests, migration 006). yfinance marked a core worker dependency (was a never-shipped optional extra). |
 | 0.5 | 2026-06-12 | **Phase C core live.** Risk gateway (#94: universe/sum/single-name/sector caps inside construction retry loop) + PaperEngine v1 (#95/#96: fills at next bar open, EOD MTM, persona_performance, $100K bootstrap, `FEATURE_PAPER_EXECUTION=true`). §6 rewritten from "frontend-only demo" to current working-desk reality; roadmap B done / C in-progress; "Still mocked" trimmed to performance chart + auth. |
 | 0.6 | 2026-06-12 | Step-4 doc close-out: file map refreshed (14 test files / 223 tests, migration 007, risk/paper_engine), LLM-pipeline section header no longer "in progress", performance mock removed from "Still mocked" (frontend swap #103 — only Phase-D account demos + auth remain), decks noted local-only. |
+| 0.7 | 2026-06-12 | Risk/analytics layer (#105–#108): gateway gains VaR99 (risk/var.py, calibrated caps) + drawdown floor + Ray's gate_regime; risk/attribution.py + `/api/attribution`; canary weight telemetry; paper-engine Sentry paging. Roadmap C → "nearly done"; file map updated. |

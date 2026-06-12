@@ -110,7 +110,7 @@ See `architecture.md` §6 "Daily data flow" for the full diagram.
 | **Frontend MVP** | ✅ shipped | 4 routes, 4 personas with photos + bios + chat UI, all on Vercel |
 | **A — Data backbone** (wk 1) | ✅ shipped | Ingestors + features + Neon schema + Cloud Run worker + Sentry |
 | **B — Real LLM theses** (wks 2–3) | ✅ shipped | Weekly persona batch, live reports/proposals, SSE chat, pgvector recall |
-| **C — Paper execution** (wks 4–5) | 🚧 core live (2026-06-12) | Risk gateway + paper engine running nightly (4 × $100K paper accounts, fills at next open, EOD MTM); real performance/portfolio UI with labelled 1y hypothetical backfill; 3-tier fundamentals resilience layer. Remaining: VaR/DD gate, 90d backtest baseline, attribution |
+| **C — Paper execution** (wks 4–5) | 🚧 nearly done (2026-06-12) | Full risk gateway (universe/sum/caps + VaR99 + drawdown floor + Ray's regime gate), paper engine nightly (4 × $100K, fills at next open, EOD MTM), real performance/portfolio UI, ticker-level attribution endpoint, weight telemetry, Sentry paging. Remaining: 90d backtest baseline, attribution UI |
 | **D — User auth + follow** (wk 6) | ⏳ planned | Firebase Auth + 3 F&F users |
 | **E — Compliance** (wk 6, parallel) | ⏳ planned | Securities-lawyer consult |
 | **F — Live trading** (wk 7+, optional) | ⏳ planned | Alpaca OAuth, behind feature flag |
