@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, Heart, MessageCircle, Repeat2, TrendingUp } from "lucide-react";
 import { ACCENT_CLASS, PERSONAS, PERSONA_BY_ID, type Persona } from "@/lib/mock/personas";
-import { rebase, splitSegments, usePerformance } from "@/lib/performance-data";
+import { rebase, usePerformance } from "@/lib/performance-data";
 import { Header } from "@/components/header";
 import { CumulativeChart } from "@/components/cumulative-chart";
 import { Badge } from "@/components/ui/badge";
@@ -69,7 +69,6 @@ function DashboardInner() {
   const personaIds = PERSONAS.map((p) => p.id);
   const { perf, benchmark } = usePerformance(personaIds);
   const followedPerf = perf[MY.followedPersona] ?? null;
-  const followedSegments = followedPerf ? splitSegments(followedPerf) : null;
   // Last ~180 trading days, re-based so the window starts at 0%.
   const series = followedPerf
     ? rebase(
@@ -79,7 +78,6 @@ function DashboardInner() {
       )
     : [];
   const bench180 = benchmark ? rebase(benchmark.slice(-180)) : null;
-  const followedHypDays = followedSegments?.hyp.length ?? 0;
 
   return (
     <main className="min-h-screen">
@@ -145,13 +143,10 @@ function DashboardInner() {
                   ) : (
                     <div className="h-[280px] w-full animate-pulse rounded-2xl bg-ink-900/[0.04]" />
                   )}
-                  {followedHypDays > 0 && (
-                    <p className="mt-2 text-[11px] text-ink-500">
-                      Includes {followed.name}&apos;s hypothetical backfill (current
-                      book projected backwards) before Jun 11, 2026 — the live paper
-                      track starts there. Positions below are Phase-D demo data.
-                    </p>
-                  )}
+                  <p className="mt-2 text-[11px] text-ink-500">
+                    Live paper track — real fills since Jun 11, 2026. Positions
+                    below are Phase-D demo data.
+                  </p>
                 </div>
 
                 <div className="space-y-4">
@@ -186,7 +181,7 @@ function DashboardInner() {
             <TabsContent value="leaderboard">
               <div className="overflow-hidden rounded-3xl border border-ink-900/[0.06] bg-cream-50">
                 <div className="grid grid-cols-[40px_1.4fr_1fr_1fr_1fr_1fr_1fr] border-b border-ink-900/[0.06] bg-ink-900/[0.025] px-5 py-3 text-[10px] uppercase tracking-[0.14em] text-ink-500">
-                  <div>#</div><div>Analyst</div><div>1y †</div><div>90d</div><div>Sharpe 30d</div><div>MDD 30d</div><div className="text-right">Value</div>
+                  <div>#</div><div>Analyst</div><div>1y</div><div>90d</div><div>Sharpe 30d</div><div>MDD 30d</div><div className="text-right">Value</div>
                 </div>
                 {[...PERSONAS]
                   .sort((a, b) =>
@@ -226,10 +221,9 @@ function DashboardInner() {
                   })}
               </div>
               <p className="mt-3 text-[11px] text-ink-500">
-                † 1y blends the hypothetical backfill (current book projected
-                backwards — look-ahead bias) with the live paper track that
-                started Jun 11, 2026. Sharpe/MDD are 30-day trailing on paper
-                NAV. Hit rate lands once closed-lot tracking ships.
+                Paper track — real fills since Jun 11, 2026. Sharpe/MDD are
+                30-day trailing on paper NAV. Hit rate lands once closed-lot
+                tracking ships.
               </p>
             </TabsContent>
 

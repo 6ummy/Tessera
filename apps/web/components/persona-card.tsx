@@ -24,8 +24,6 @@ export function PersonaCard({
   persona: Persona;
   onOpen: (id: string) => void;
   // Real paper-track data (null while loading / on fetch failure).
-  // Includes the labelled hypothetical backfill — the card's 1y number
-  // is the blended curve; the detail sheet carries the full caveat.
   performance?: PersonaPerformance | null;
 }) {
   const a = ACCENT_CLASS[persona.accent];

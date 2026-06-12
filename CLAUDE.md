@@ -39,8 +39,11 @@ Everything below is LIVE in prod unless marked otherwise:
 - **Paper track**: engine bootstrapped 4 × $100K on 2026-06-11 (36
   fills); plus a **251-day hypothetical backfill** per persona
   (frozen-book: current holdings projected back 1y, `hypothetical=true`
-  flag, look-ahead bias → always labelled in UI). 1y hypothetical:
-  ray +16.0%, peter +8.4%, cathie −2.0%, warren −7.0%.
+  flag in DB/API, look-ahead bias). 1y hypothetical: ray +16.0%,
+  peter +8.4%, cathie −2.0%, warren −7.0%. **UI policy (product decision
+  2026-06-12): one solid line per persona, no dashed split — captions
+  state "real fills since Jun 11, 2026"; the hypothetical flag stays in
+  the data and `/api/performance` for any future use.**
 - **Frontend**: all real — reports/proposals/chat (since 06-05),
   performance/portfolio (since 06-12, mock deleted). Remaining mocks:
   dashboard "My portfolio" positions + Social tab (Phase-D demos,

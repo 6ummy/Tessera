@@ -536,10 +536,13 @@ plane is shipped; the LLM pipeline is the Week 2 / Week 3 work.
 - User identity (no auth — assumes "jshin"). Phase D.
 - Already swapped and deleted: `lib/mock/proposals.ts`, `lib/mock/reports.ts`,
   `lib/mock/chat.ts` (2026-06-05), **`lib/mock/performance.ts` (2026-06-12)** —
-  charts/cards/leaderboard now read `/api/performance` + `/api/portfolio`
-  (real paper track + dashed-and-labelled hypothetical backfill).
-  `lib/mock/personas.ts` remains as static character metadata (bios,
-  accents, avgHold/turnover traits), not performance data.
+  charts/cards/leaderboard now read `/api/performance` + `/api/portfolio`.
+  The 1y hypothetical backfill is flagged in the DB/API (`hypothetical`,
+  migration 007); UI renders one solid line per persona with the caption
+  "real fills since Jun 11, 2026" (product decision 2026-06-12 — no
+  dashed split on screen). `lib/mock/personas.ts` remains as static
+  character metadata (bios, accents, avgHold/turnover traits), not
+  performance data.
 
 ### File map
 ```
