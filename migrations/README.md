@@ -32,3 +32,4 @@ psql "postgresql://USER:PASS@HOST.neon.tech/tessera?sslmode=require" \
 | 004 | Quality/growth feature columns on `ticker_features`: `peg`, `eps_cagr_3y`, `debt_to_equity`, `gross_margin`, `gross_margin_trend`, plus `market_cap_usd` and `operating_margin` support fields |
 | 005 | `pe_trailing` + `pe_forward` columns on `ticker_features` |
 | 006 | Canonical one-row-per-calendar-day cleanup of `ohlcv_1d` (Alpaca 04:00Z vs Yahoo-backfill 00:00Z duplicates) + orphaned `ticker_features` rows. **Run `ingest_daily --only features coverage` + SPY canary after applying.** |
+| 007 | `hypothetical` flag on `persona_portfolios` + `persona_performance` — labels the frozen-book 1y backfill (look-ahead bias) apart from the real paper track. Run before `jobs/backfill_paper_history.py`. |
