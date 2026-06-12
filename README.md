@@ -1,4 +1,4 @@
-# Tessera
+﻿# Tessera
 
 > A multi-agent LLM research desk for long-term investing. Four AI analyst
 > personas — each with a distinct philosophy and voice — publish daily theses
@@ -11,7 +11,6 @@
 🗺️ Build plan:     Plan.md       (6-week phased pilot)
 🧑‍💼 Personas:       personalities.md  (LLM-ready system prompts + chat fine-tuning specs)
 🩺 Audit:          docs/improvement-plan-2026-06-11.md (findings + step-by-step plan)
-📝 Retros:         docs/retro-phase-B.md
 🪩 Decks:          local-only decks/ folder (gitignored; build-deck.js regenerates)
 ```
 
@@ -24,7 +23,7 @@ apps/
 packages/
   shared/             Pydantic schemas shared across worker boundaries
 migrations/           Plain SQL files for Neon Postgres (Timescale + pgvector)
-docs/                 Phase retros, ADRs
+docs/                 ADRs, runbooks, audit, Grafana dashboards
 build-deck.js         Generates the Tessera deck (.pptx output is local-only, gitignored)
 ```
 
@@ -82,6 +81,7 @@ psql "$DATABASE_URL" -f migrations/003_backtest_reports.sql
 psql "$DATABASE_URL" -f migrations/004_quality_features.sql
 psql "$DATABASE_URL" -f migrations/005_pe_ratios.sql
 psql "$DATABASE_URL" -f migrations/006_ohlcv_canonical_day.sql
+psql "$DATABASE_URL" -f migrations/007_hypothetical_track.sql
 ```
 
 ### Production runtime (cloud)
@@ -110,7 +110,7 @@ See `architecture.md` §6 "Daily data flow" for the full diagram.
 | **Frontend MVP** | ✅ shipped | 4 routes, 4 personas with photos + bios + chat UI, all on Vercel |
 | **A — Data backbone** (wk 1) | ✅ shipped | Ingestors + features + Neon schema + Cloud Run worker + Sentry |
 | **B — Real LLM theses** (wks 2–3) | ✅ shipped | Weekly persona batch, live reports/proposals, SSE chat, pgvector recall |
-| **C — Paper execution** (wks 4–5) | 🚧 in progress | Risk gateway + paper engine + real P&L; quality features pre-shipped; **data resilience layer** (3-tier fundamentals fall-through FMP → EDGAR XBRL → yfinance + per-field newest-non-null walk) shipped 2026-06-09 |
+| **C — Paper execution** (wks 4–5) | 🚧 core live (2026-06-12) | Risk gateway + paper engine running nightly (4 × $100K paper accounts, fills at next open, EOD MTM); real performance/portfolio UI with labelled 1y hypothetical backfill; 3-tier fundamentals resilience layer. Remaining: VaR/DD gate, 90d backtest baseline, attribution |
 | **D — User auth + follow** (wk 6) | ⏳ planned | Firebase Auth + 3 F&F users |
 | **E — Compliance** (wk 6, parallel) | ⏳ planned | Securities-lawyer consult |
 | **F — Live trading** (wk 7+, optional) | ⏳ planned | Alpaca OAuth, behind feature flag |

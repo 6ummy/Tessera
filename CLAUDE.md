@@ -193,8 +193,9 @@ JSONB; `rejected` flag), `persona_trades/portfolios/performance`
 file map; §6 is current-state) → `Plan.md` (phase roadmap; §5 = Phase C
 live state; versioning table at bottom) →
 `docs/improvement-plan-2026-06-11.md` (the audit that drove this week;
-P0–P3 + step statuses) → `docs/retro-phase-B.md` (lessons) →
-`docs/runbooks/` (observability, Cloud Run IAM) → `personalities.md`
+P0–P3 + step statuses) → per-phase "Lessons" live INSIDE Plan.md
+(§3 Phase A, §4 Phase B — keep that convention, no separate retro files)
+→ `docs/runbooks/` (observability, Cloud Run IAM) → `personalities.md`
 (persona specs — TEAM-OWNED, big voice changes need a 카톡 heads-up).
 CONTRIBUTING.md has the team/track map (5 people; you mostly interact
 with 정우).

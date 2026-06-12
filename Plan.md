@@ -1,4 +1,4 @@
-# Tessera Build Plan
+﻿# Tessera Build Plan
 
 > From frontend-only MVP → working paper-trading pilot with real LLM theses
 > for self + 2 friends-and-family users. **6 weeks part-time, 3–4 weeks
@@ -652,6 +652,37 @@ All five §4 acceptance criteria 🟢:
 - Performance + portfolio frontend swap → blocked on Phase C paper engine populating `persona_performance`
 - fcf_yield precision edge cases (UNH/NVDA/AMZN/COIN) → needs dedicated daily mcap source (Phase C ingest plane work)
 
+### Lessons from Phase B (written 2026-06-12, with Phase-C hindsight)
+
+Same convention as "Lessons from Phase A" in §3 — the expensive ones,
+kept inline here so they're in view when the next phase gets planned:
+
+1. **Silent signal loss is the worst failure mode.** A field rename in
+   personalities.md (`confidence` → `conviction`) zeroed a signal with no
+   error anywhere. Every LLM-output field needs a consumer-side existence
+   check or a canary — and the canary should exist BEFORE the first prod
+   batch, not after.
+2. **LLMs decorate JSON.** ~5% of Cathie's cells appended narrative after
+   the closing brace. `JSONDecoder.raw_decode` (parse the first object,
+   log the rest) beat prompt-nagging.
+3. **Retry feedback must be specific.** Generic "fix your JSON" wasted
+   the retry; pattern-matching the validation error into a targeted
+   instruction (`_retry_guidance_for`) made attempt 2 actually converge.
+4. **Single-source fundamentals fail per-ticker, not globally.** Visa
+   broke FMP and XBRL differently than NVDA did → became Phase C's
+   3-tier fall-through with per-field newest-non-null walking.
+5. **Per-cell sizing can't produce a coherent book.** Warren's 8% BRK.B
+   + nine 0% rows + "12% cash" = 20% total exposed the structural flaw →
+   the v2 two-pass redesign (research per ticker, ONE construction call,
+   deterministic `normalize_book`).
+6. **Server-authoritative fields must be force-set, never `setdefault`.**
+   Ray's Sonnet volunteered its own `as_of` and won the tie for weeks —
+   every Ray row carried a 17-month-old book date until the paper
+   engine's first run surfaced it (#98).
+7. **Acceptance tests should name the exact log line and where it
+   appears.** "Verify Voyage via chat" was unverifiable — recall's
+   `sim=` tag only ever fires in the weekly batch (#102).
+
 ---
 
 ## 5. Phase C — Paper execution + attribution (Weeks 4–5)
@@ -918,9 +949,13 @@ deferred to post-launch. Auth + mirror engine + onboarding ship in one week.
 
 ### Documentation
 - Keep `architecture.md` and `personalities.md` in sync with code; treat as ADRs
-- After each phase, write a short retro note in `docs/retro-phase-X.md`
-  — ✅ `docs/retro-phase-B.md` written 2026-06-12 (a week late; the retro
-  itself flags that as a lesson). Phase C retro due when Phase C closes.
+- After each phase, write a **"Lessons from Phase X" subsection inside
+  this file** (§3 has Phase A's, §4 has Phase B's — added 2026-06-12).
+  Policy changed from separate `docs/retro-phase-X.md` files: lessons
+  belong inline where the next phase gets planned, and one growing
+  roadmap file beats a graveyard of unopened retro files. `docs/` stays
+  reserved for individually-referenced artifacts (adr/, runbooks/,
+  grafana/, one-off audits).
 - Update `Plan.md` (this file) if scope changes
 - `CLAUDE.md` at repo root is the AI-session operator handbook —
   rewritten 2026-06-12 for zero-context handoff (state, invariants with
@@ -1026,4 +1061,4 @@ Each of these could be a future phase. Keeping them out of pilot scope is the di
 | 0.4 | 2026-05-18 | **Phase A complete.** Marked tasks done in Section 3 with actual production metrics (1,020 ohlcv_equity rows, 13,983 features, SPY canary 0.49 bps, etc.). Updated baseline (Section 0) to reflect new monorepo + worker + 5 ingestors. Added "Lessons from Phase A" subsection capturing 4 real footguns hit (FMP legacy endpoint deprecation, httpx URL logging leak, SQLAlchemy psycopg2 default, `unnest(:tickers::text[])` SQL collision). Phase A took 1 working session, well under the 1-week budget. |
 | 0.5 | 2026-06-11 | **Codebase audit + Step 0 hotfixes.** New `docs/improvement-plan-2026-06-11.md` (P0–P3 findings + 4-step plan). Shipped: OHLCV canonical-day dedup (006 + compute/_load_ohlcv/prices/backfill fixes — the mixed-source ⚠️ note in §5 was found to also distort PRODUCTION features, not just backtests), `/api/proposals` v2 aggregator fix (ghost-positions), yfinance promoted to core dep (prod yf steps were silently no-op), constant-time bearer compare. §5 gains a "2026-06-11 codebase audit" subsection; §9 CI section gains an honest status check (no workflows exist). Removed duplicated cross-source-dashboards bullet. |
 | 0.6 | 2026-06-12 | **Phase C Week 4 core live.** Audit Steps 1–2 landed (#93: CI ruff-0 + pytest gate, gitleaks pre-commit, ingest advisory lock, chat abuse guards + chat budget pool, nightly SPY canary step, `--no-cpu-throttling`). Risk gateway (#94) inside construction retry loop. PaperEngine v1 (#95) + `FEATURE_PAPER_EXECUTION=true` (#96) — Week-4 ledger tasks (engine / order ledger / MTM / performance writer) marked done, LISTEN/NOTIFY dropped for the simpler daily-step design. §0 baseline rewritten. `CLAUDE.md` added. |
-| 0.7 | 2026-06-12 | **Audit Step 4 — docs closed out.** Frozen-book 1y backfill run on prod (#100, 251 days × 4 personas, seam exact); frontend performance/portfolio swap shipped (#103, `lib/mock/performance.ts` deleted, hypothetical segments dashed + captioned); Week-5 leaderboard/chart tasks marked done. `docs/retro-phase-B.md` written (Plan §9 promise). `CLAUDE.md` rewritten as a zero-context AI operator handbook. Decks moved to local-only `decks/` (gitignored). mypy CI-blocking via pyproject debt ledger (#99). |
+| 0.7 | 2026-06-12 | **Audit Step 4 — docs closed out.** Frozen-book 1y backfill run on prod (#100, 251 days × 4 personas, seam exact); frontend performance/portfolio swap shipped (#103, `lib/mock/performance.ts` deleted, hypothetical segments dashed + captioned); Week-5 leaderboard/chart tasks marked done. Retro policy decided: per-phase "Lessons" subsections live INSIDE this file (§4 gains Phase B's 7 lessons; no separate retro files). `CLAUDE.md` rewritten as a zero-context AI operator handbook. Decks moved to local-only `decks/` (gitignored). mypy CI-blocking via pyproject debt ledger (#99). |
