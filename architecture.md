@@ -450,7 +450,7 @@ The web app's `lib/api.ts` will wrap these calls so components stay agnostic to 
 | Local Next.js (npm run dev) | `apps/web/.env.local` | Next.js auto-loads `.env.local` |
 | Vercel production | Vercel project env vars | Set in dashboard → Settings → Environment Variables |
 
-### LLM pipeline (Phase B — in progress)
+### LLM pipeline (shipped in Phase B; v2 two-pass since 2026-06-10)
 
 This is what sits on top of the data plane. It's the chain that turns the
 Neon rows into a written thesis a persona could defend out loud. The data
@@ -641,16 +641,22 @@ apps/
                                     # (used to diagnose null capex / FCF)
       dump_nvda_capex_obs.py        # per-XBRL-concept observations by form
                                     # /fy/fp; finds concept-name switches
-    tests/                          # 9 files / 179 tests (2026-06-11)
+    tests/                          # 14 files / 223 tests (2026-06-12)
       test_features.py              # feature math + hypothesis properties
-      test_anthropic_runner.py      # parse/normalize/retry paths
+      test_anthropic_runner.py      # parse/normalize/retry + as_of authority
       test_prompt_assembler.py      # incl. as_of leakage guards
       test_persona_loader.py        # personalities.md parsing
       test_persona_batch.py         # batch flow + budget handling
       test_chat.py                  # chat system assembly
       test_ticker_resolver.py       # 6-level resolution
       test_hallucination_canary.py  # 5 invariant checks
-      test_main_api.py              # /api/proposals book aggregation
+      test_main_api.py              # book aggregation, chat sanitize,
+                                    # performance payload
+      test_risk_gateway.py          # universe/sum/caps incl. sector
+      test_paper_engine.py          # NAV conservation, sharpe/mdd math
+      test_portfolio_construction.py # normalize_book invariants
+      test_backfill_paper_history.py # ffill valuation + perf baseline
+      test_ingestor_helpers.py      # yf symbol/NaN/label helpers
 
 packages/
   shared/
@@ -669,9 +675,12 @@ migrations/
                                     # removes Alpaca-04:00Z / Yahoo-00:00Z
                                     # duplicates + orphaned feature rows;
                                     # re-run features + canary after apply
+  007_hypothetical_track.sql        # hypothetical flag on the paper tables
+                                    # (labels the frozen-book 1y backfill)
 
-docs/                               # phase retros (Phase B-onwards)
-build-deck.js                       # generates tessera-deck.pptx
+docs/                               # retros, ADRs, runbooks, Grafana JSON
+build-deck.js                       # generates the Tessera deck (.pptx files
+                                    # live in local-only decks/, gitignored)
 ```
 
 ---
@@ -760,3 +769,4 @@ One-time: securities-lawyer consult (~$300) before Phase E.
 | 0.3 | 2026-05-18 | Phase A complete. Monorepo (apps/web + apps/worker + packages/shared + migrations). Neon + Timescale + pgvector live. 5 ingestors (Alpaca, Coinbase, FRED, FMP, NewsAPI) + feature builder + daily orchestrator + Vercel Cron endpoint. 51-ticker universe. 13/13 property tests; SPY canary 0.49 bps vs Yahoo. File map and Phase A retro added; roadmap updated with status indicators. |
 | 0.4 | 2026-06-11 | Codebase-audit sync (`docs/improvement-plan-2026-06-11.md`). Canonical-day note added (mixed-source OHLCV duplicates distorted production features; migration 006 + code dedup). File map refreshed to post-Phase-B reality (agents/ + jobs/ modules, 9 test files / 179 tests, migration 006). yfinance marked a core worker dependency (was a never-shipped optional extra). |
 | 0.5 | 2026-06-12 | **Phase C core live.** Risk gateway (#94: universe/sum/single-name/sector caps inside construction retry loop) + PaperEngine v1 (#95/#96: fills at next bar open, EOD MTM, persona_performance, $100K bootstrap, `FEATURE_PAPER_EXECUTION=true`). §6 rewritten from "frontend-only demo" to current working-desk reality; roadmap B done / C in-progress; "Still mocked" trimmed to performance chart + auth. |
+| 0.6 | 2026-06-12 | Step-4 doc close-out: file map refreshed (14 test files / 223 tests, migration 007, risk/paper_engine), LLM-pipeline section header no longer "in progress", performance mock removed from "Still mocked" (frontend swap #103 — only Phase-D account demos + auth remain), decks noted local-only. |

@@ -10,8 +10,9 @@
 📐 Architecture:   architecture.md
 🗺️ Build plan:     Plan.md       (6-week phased pilot)
 🧑‍💼 Personas:       personalities.md  (LLM-ready system prompts + chat fine-tuning specs)
-🪩 Deck:           tessera-deck.pptx (17 slides, technical)
 🩺 Audit:          docs/improvement-plan-2026-06-11.md (findings + step-by-step plan)
+📝 Retros:         docs/retro-phase-B.md
+🪩 Decks:          local-only decks/ folder (gitignored; build-deck.js regenerates)
 ```
 
 ## Monorepo layout
@@ -24,7 +25,7 @@ packages/
   shared/             Pydantic schemas shared across worker boundaries
 migrations/           Plain SQL files for Neon Postgres (Timescale + pgvector)
 docs/                 Phase retros, ADRs
-build-deck.js         Generates tessera-deck.pptx
+build-deck.js         Generates the Tessera deck (.pptx output is local-only, gitignored)
 ```
 
 ## Quick start

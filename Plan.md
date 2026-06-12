@@ -919,7 +919,16 @@ deferred to post-launch. Auth + mirror engine + onboarding ship in one week.
 ### Documentation
 - Keep `architecture.md` and `personalities.md` in sync with code; treat as ADRs
 - After each phase, write a short retro note in `docs/retro-phase-X.md`
+  — ✅ `docs/retro-phase-B.md` written 2026-06-12 (a week late; the retro
+  itself flags that as a lesson). Phase C retro due when Phase C closes.
 - Update `Plan.md` (this file) if scope changes
+- `CLAUDE.md` at repo root is the AI-session operator handbook —
+  rewritten 2026-06-12 for zero-context handoff (state, invariants with
+  incident rationale, process rules, debugging entry points, backlog).
+  Update it in the same PR as any change it describes.
+- Presentation decks (`*.pptx`) are local-only as of 2026-06-12
+  (`decks/`, gitignored) — the public repo stays lean; `build-deck.js`
+  regenerates.
 
 ---
 
@@ -1017,3 +1026,4 @@ Each of these could be a future phase. Keeping them out of pilot scope is the di
 | 0.4 | 2026-05-18 | **Phase A complete.** Marked tasks done in Section 3 with actual production metrics (1,020 ohlcv_equity rows, 13,983 features, SPY canary 0.49 bps, etc.). Updated baseline (Section 0) to reflect new monorepo + worker + 5 ingestors. Added "Lessons from Phase A" subsection capturing 4 real footguns hit (FMP legacy endpoint deprecation, httpx URL logging leak, SQLAlchemy psycopg2 default, `unnest(:tickers::text[])` SQL collision). Phase A took 1 working session, well under the 1-week budget. |
 | 0.5 | 2026-06-11 | **Codebase audit + Step 0 hotfixes.** New `docs/improvement-plan-2026-06-11.md` (P0–P3 findings + 4-step plan). Shipped: OHLCV canonical-day dedup (006 + compute/_load_ohlcv/prices/backfill fixes — the mixed-source ⚠️ note in §5 was found to also distort PRODUCTION features, not just backtests), `/api/proposals` v2 aggregator fix (ghost-positions), yfinance promoted to core dep (prod yf steps were silently no-op), constant-time bearer compare. §5 gains a "2026-06-11 codebase audit" subsection; §9 CI section gains an honest status check (no workflows exist). Removed duplicated cross-source-dashboards bullet. |
 | 0.6 | 2026-06-12 | **Phase C Week 4 core live.** Audit Steps 1–2 landed (#93: CI ruff-0 + pytest gate, gitleaks pre-commit, ingest advisory lock, chat abuse guards + chat budget pool, nightly SPY canary step, `--no-cpu-throttling`). Risk gateway (#94) inside construction retry loop. PaperEngine v1 (#95) + `FEATURE_PAPER_EXECUTION=true` (#96) — Week-4 ledger tasks (engine / order ledger / MTM / performance writer) marked done, LISTEN/NOTIFY dropped for the simpler daily-step design. §0 baseline rewritten. `CLAUDE.md` added. |
+| 0.7 | 2026-06-12 | **Audit Step 4 — docs closed out.** Frozen-book 1y backfill run on prod (#100, 251 days × 4 personas, seam exact); frontend performance/portfolio swap shipped (#103, `lib/mock/performance.ts` deleted, hypothetical segments dashed + captioned); Week-5 leaderboard/chart tasks marked done. `docs/retro-phase-B.md` written (Plan §9 promise). `CLAUDE.md` rewritten as a zero-context AI operator handbook. Decks moved to local-only `decks/` (gitignored). mypy CI-blocking via pyproject debt ledger (#99). |
