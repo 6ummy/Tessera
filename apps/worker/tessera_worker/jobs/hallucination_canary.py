@@ -216,6 +216,63 @@ def check_citations_resolve(rows: list[dict], valid_ids: set[str],
                     ))
 
 
+def check_weight_distribution(rows: list[dict], result: CanaryResult) -> None:
+    """Weight-distribution telemetry + mode-collapse tripwire (Plan §11).
+
+    The §11 risk: the LLM treats the persona's single-name cap as the
+    "max conviction default" and parks several names right at it —
+    disguised concentration. Per book:
+      - ALWAYS emit a structured `canary.weight_telemetry` line with a
+        histogram (Grafana scrapes it; the weekly trend is the real
+        telemetry the §10 weight-authority decision needs);
+      - VIOLATION when ≥3 active names sit within 1pp of the persona
+        cap — the §11 bimodality proxy ("4-5 names all at 17-18%").
+    Ray's allocations are exempt: an allocator's slices legitimately
+    cluster at his 0.40 slice cap less often, and his cap semantics
+    differ (asset-class, not single-name)."""
+    from tessera_worker.agents.persona_constraints import PERSONA_CONSTRAINTS
+
+    for r in rows:
+        persona = r["persona_id"]
+        if persona == "ray":
+            continue
+        constraints = PERSONA_CONSTRAINTS.get(persona)
+        if constraints is None:
+            continue
+        cap = constraints.max_single_name
+        weights = []
+        for prop in (r["parsed"].get("proposals") or []):
+            try:
+                tw = float(prop.get("target_weight", 0))
+            except (TypeError, ValueError):
+                continue
+            if tw > 0:
+                weights.append(tw)
+        if not weights:
+            continue
+        at_cap = sum(1 for w in weights if w >= cap - 0.01)
+        histogram = {
+            "lt_5pp": sum(1 for w in weights if w < 0.05),
+            "5_to_10pp": sum(1 for w in weights if 0.05 <= w < 0.10),
+            "10pp_to_cap": sum(1 for w in weights if 0.10 <= w < cap - 0.01),
+            "at_cap": at_cap,
+        }
+        log.info("canary.weight_telemetry",
+                 persona=persona, row_id=r["id"], cap=cap,
+                 n_active=len(weights),
+                 max_weight=round(max(weights), 4),
+                 histogram=histogram)
+        if at_cap >= 3:
+            result.violations.append(Violation(
+                check="weight_mode_collapse",
+                row_id=r["id"], persona=persona, ticker=None,
+                detail=(f"{at_cap} of {len(weights)} active names within "
+                        f"1pp of the {cap:.0%} cap — §11 mode-collapse "
+                        f"signal; consider the conviction-only schema "
+                        f"refactor (Plan §10 weight authority decision)"),
+            ))
+
+
 def check_no_cap_anchoring(rows: list[dict], result: CanaryResult) -> None:
     for r in rows:
         for prop in (r["parsed"].get("proposals") or []):
@@ -319,6 +376,7 @@ def run_canary(
     check_buy_conviction_floor(rows, result)
     check_forbidden_phrases(rows, result)
     check_persona_topic_drift(rows, result)
+    check_weight_distribution(rows, result)
     return result
 
 
