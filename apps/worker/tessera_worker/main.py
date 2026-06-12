@@ -846,6 +846,65 @@ async def get_persona_portfolio(
     }
 
 
+@app.get("/api/attribution/{persona_id}")
+async def get_persona_attribution(
+    persona_id: str,
+    period: str = "mtd",
+    authorization: str | None = Header(default=None),
+) -> dict:
+    """Ticker-level P&L attribution over the paper track.
+
+    period: 'mtd' (default, calendar month-to-date), '7d', '30d'.
+    Contributions are fractions of period-start NAV and sum ≈ the
+    period's total return. Spans hypothetical + live snapshots
+    transparently (the frozen backfill is a constant-qty book)."""
+    _require_webhook_auth(authorization)
+    if persona_id not in ("warren", "cathie", "ray", "peter"):
+        raise HTTPException(400, f"unknown persona: {persona_id}")
+    from datetime import date as _date
+    from datetime import timedelta as _timedelta
+
+    today = _date.today()
+    if period == "7d":
+        start = today - _timedelta(days=7)
+    elif period == "30d":
+        start = today - _timedelta(days=30)
+    else:
+        period = "mtd"
+        start = today.replace(day=1)
+
+    from tessera_worker.db import session_scope
+    from tessera_worker.risk.attribution import compute_attribution, load_snapshots
+    from tessera_worker.universe import META_BY_TICKER
+
+    with session_scope() as session:
+        snapshots = load_snapshots(session, persona_id, start)
+    rows = compute_attribution(snapshots)
+
+    if not snapshots:
+        return {"personaId": persona_id, "period": period, "start": None,
+                "end": None, "totalReturn": None, "rows": []}
+    start_nav = snapshots[0].total_value
+    end_nav = snapshots[-1].total_value
+    return {
+        "personaId": persona_id,
+        "period": period,
+        "start": snapshots[0].day.isoformat(),
+        "end": snapshots[-1].day.isoformat(),
+        "totalReturn": round(end_nav / start_nav - 1.0, 6) if start_nav > 0 else None,
+        "rows": [
+            {
+                "ticker": a.ticker,
+                "name": (META_BY_TICKER[a.ticker].name
+                         if a.ticker in META_BY_TICKER else a.ticker),
+                "pnl": a.pnl,
+                "contribution": a.contribution,
+            }
+            for a in rows
+        ],
+    }
+
+
 def _reshape_report_row(
     row_id: str, persona_id: str, date_iso: str, parsed: dict,
 ) -> dict:
