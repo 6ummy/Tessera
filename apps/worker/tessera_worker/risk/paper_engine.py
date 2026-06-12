@@ -325,6 +325,13 @@ def _run_persona(session: Session, persona: str, today: date) -> dict[str, Any]:
     if missing:
         log.error("paper_engine.mtm_skipped_unpriced",
                   persona=persona, tickers=missing)
+        # A held position we can't price means the persona's NAV is
+        # frozen/unknown — page-worthy even though we degrade gracefully.
+        import sentry_sdk
+        sentry_sdk.capture_message(
+            f"paper_engine: {persona} MTM skipped — held positions "
+            f"unpriced: {missing}", level="error",
+        )
         return {"persona": persona, "fills": len(fills), "mtm": "skipped"}
     closes = {t: b[2] for t, b in bars.items()}
     total_value = mark_to_market(positions, cash, closes)
@@ -419,6 +426,13 @@ def run_paper_engine(as_of: date | None = None) -> dict[str, Any]:
             errors += 1
             log.error("paper_engine.persona_failed",
                       persona=persona, err=f"{type(e).__name__}: {e}")
+            # Per-persona isolation swallows the exception so the other
+            # books still mark-to-market — but that also hid it from
+            # Sentry's unhandled-exception capture. Page explicitly:
+            # a persona whose ledger stops updating is a Sev-2 (Plan §9
+            # "paper engine error → page within 5 min").
+            import sentry_sdk
+            sentry_sdk.capture_exception(e)
     total_fills = sum(r.get("fills", 0) for r in results)
     log.info("paper_engine.done", date=str(today),
              personas=len(results), errors=errors, fills=total_fills)

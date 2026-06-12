@@ -39,6 +39,22 @@ Panels: spend today vs $5 cap · chat pool vs $2 cap · month-to-date ·
 failed calls (7d) · daily cost stacked by stage (30d) · cost by persona
 (7d) · calls/tokens/latency table.
 
+### 1-2b. Sentry alert — paper engine error → page within 5 min (~3 min setup)
+
+The worker now explicitly captures paper-engine failures to Sentry
+(`capture_exception` on a persona ledger failure, `capture_message` when
+a held position can't be priced — both were previously swallowed by the
+per-persona isolation and never reached Sentry). One-time console step
+to turn captures into a page:
+
+1. sentry.io → **tessera-worker** project → **Alerts → Create Alert →
+   Issues**.
+2. Condition: "A new issue is created" OR "an issue changes state from
+   resolved to unresolved"; filter `message:paper_engine` (or leave
+   unfiltered — the project is errors-only and low-volume).
+3. Action: notify your email immediately. Action interval: 5 minutes.
+4. Name: `paper-engine-page`.
+
 ### 1-3. Alerts (optional but recommended — Plan §9 thresholds)
 
 Grafana Alerting → New alert rule on the "Spend today" query:
