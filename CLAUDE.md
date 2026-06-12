@@ -47,10 +47,13 @@ first fills. If still 0, check `gcloud logging read ... textPayload:paper_engine
 3. Operator console (~20 min): Grafana Cloud + Voyage key. Runbook:
    `docs/runbooks/observability-grafana-voyage.md`; dashboard JSON:
    `docs/grafana/llm-cost-dashboard.json`.
-4. Optional 1y back-history for the performance chart — two options
-   discussed 2026-06-12: frozen-book backfill ($0, must be labelled
-   "hypothetical", look-ahead bias) vs point-in-time backtest replay
-   (honest, ~$30–70 LLM). Decide when the frontend swap lands.
+4. 1y back-history: **frozen-book backfill chosen + shipped 2026-06-12**
+   (`jobs/backfill_paper_history.py` + migration 007 `hypothetical` flag
+   on both paper tables). Operator: apply 007 → `--dry-run` → run. The
+   frozen book = first real snapshot's exact qty/cash, so the seam into
+   the real track is continuous by construction. UI must label the
+   segment "Hypothetical — current book held 1y" (look-ahead bias);
+   `/api/performance` must expose the flag.
 
 (mypy backlog: DONE 2026-06-12 — CI blocking with a pyproject
 ignore_errors ledger for 16 legacy modules; see Commands section.)
