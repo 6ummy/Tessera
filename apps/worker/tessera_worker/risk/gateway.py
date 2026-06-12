@@ -38,10 +38,11 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Any
 
-from tessera_shared.schemas import AnalystReport, RiskCheckResult
+from tessera_shared.schemas import AnalystReport, RegimeReport, RiskCheckResult
 
 from tessera_worker.agents.persona_constraints import constraints_for
 from tessera_worker.logging import get_logger
+from tessera_worker.risk.var import MarketContext, parametric_var99
 from tessera_worker.universe import META_BY_TICKER
 
 log = get_logger(__name__)
@@ -53,15 +54,59 @@ SUM_TOLERANCE = 0.011
 CAP_TOLERANCE = 1e-6
 
 
+def _market_risk_reasons(
+    persona: str,
+    weights: dict[str, float],
+    market: MarketContext | None,
+) -> list[str]:
+    """VaR + drawdown-floor checks, shared by both book shapes.
+
+    No market context (unit tests, dry paths) → both checks skip. VaR
+    unresolvable from data (young listings, <60 aligned obs) → soft log,
+    never a rejection — "can't measure" must not block the desk, the
+    threshold exists to catch books we CAN measure drifting far out."""
+    if market is None:
+        return []
+    constraints = constraints_for(persona)  # type: ignore[arg-type]
+    reasons: list[str] = []
+
+    var99 = parametric_var99(weights, market.returns)
+    if var99 is None:
+        if weights:
+            log.info("risk_gateway.var_unavailable", persona=persona,
+                     n_positions=len(weights),
+                     hint="<60 aligned return obs for some holding")
+    elif var99 > constraints.max_var99_1d + CAP_TOLERANCE:
+        reasons.append(
+            f"book 1-day VaR99 {var99:.2%} > persona cap "
+            f"{constraints.max_var99_1d:.2%} — reduce gross exposure or "
+            f"the highest-volatility names"
+        )
+    else:
+        log.info("risk_gateway.var_ok", persona=persona,
+                 var99=round(var99, 4), cap=constraints.max_var99_1d)
+
+    dd = market.current_drawdown
+    if dd is not None and dd > constraints.max_drawdown + CAP_TOLERANCE:
+        reasons.append(
+            f"live track drawdown {dd:.2%} breaches the persona floor "
+            f"{constraints.max_drawdown:.2%} — auto-execution paused, "
+            f"operator review required"
+        )
+    return reasons
+
+
 def gate(
     report: AnalystReport,
     *,
+    market: MarketContext | None = None,
     current_portfolio: Any | None = None,
 ) -> RiskCheckResult:
     """Validate a stock-picker AnalystReport against the persona's hard
     constraints. Returns RiskCheckResult — ok=False carries every reason
     found (not just the first) so retry feedback can fix the whole book
-    in one pass."""
+    in one pass. `market` enables the VaR + drawdown checks; without it
+    only the structural checks run (universe/sum/caps)."""
     persona = report.persona_id
     constraints = constraints_for(persona)
     reasons: list[str] = []
@@ -122,6 +167,13 @@ def gate(
                  persona=persona, tickers=weak,
                  floor=constraints.min_active_conviction)
 
+    # 5 — market risk (VaR + drawdown floor) when context is provided.
+    weights = {
+        p.ticker: p.target_weight
+        for p in report.proposals if p.target_weight > 0
+    }
+    reasons += _market_risk_reasons(persona, weights, market)
+
     if reasons:
         log.warning("risk_gateway.rejected",
                     persona=persona, n_reasons=len(reasons), reasons=reasons)
@@ -133,4 +185,55 @@ def gate(
              sum_positions=round(sum_positions, 4),
              cash=round(report.cash_target, 4),
              sectors={s: round(w, 3) for s, w in sector_weights.items()})
+    return RiskCheckResult.passed()
+
+
+def gate_regime(
+    report: RegimeReport,
+    *,
+    market: MarketContext | None = None,
+) -> RiskCheckResult:
+    """Ray's gate. His RegimeReport schema already enforces the per-slice
+    cap (≤0.40) and regime probabilities summing to 1.0, so this adds the
+    same final stops the stock-picker gate provides: universe membership
+    of every instrument, conservation of NAV, a slice-cap re-check, and
+    the VaR / drawdown-floor market checks."""
+    constraints = constraints_for("ray")
+    reasons: list[str] = []
+
+    unknown = [
+        a.instrument for a in report.allocations
+        if a.instrument not in META_BY_TICKER
+    ]
+    if unknown:
+        reasons.append(f"instruments not in universe: {sorted(unknown)}")
+
+    sum_alloc = sum(a.target_weight for a in report.allocations)
+    total = sum_alloc + report.cash_target
+    if abs(total - 1.0) > SUM_TOLERANCE:
+        reasons.append(
+            f"allocations sum {total:.4f} != 1.0 "
+            f"(slices {sum_alloc:.4f} + cash {report.cash_target:.4f})"
+        )
+
+    for a in report.allocations:
+        if a.target_weight > constraints.max_single_name + CAP_TOLERANCE:
+            reasons.append(
+                f"{a.instrument} slice {a.target_weight:.4f} > cap "
+                f"{constraints.max_single_name:.2f}"
+            )
+
+    weights = {
+        a.instrument: a.target_weight
+        for a in report.allocations if a.target_weight > 0
+    }
+    reasons += _market_risk_reasons("ray", weights, market)
+
+    if reasons:
+        log.warning("risk_gateway.regime_rejected",
+                    n_reasons=len(reasons), reasons=reasons)
+        return RiskCheckResult.failed(*reasons)
+    log.info("risk_gateway.regime_passed",
+             n_slices=len(report.allocations),
+             cash=round(report.cash_target, 4))
     return RiskCheckResult.passed()

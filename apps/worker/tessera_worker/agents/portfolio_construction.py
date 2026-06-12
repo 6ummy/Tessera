@@ -439,8 +439,14 @@ def construct_portfolio(
                 # specific reasons back to the LLM as retry guidance.
                 # ──────────────────────────────────────────────────────
                 from tessera_worker.risk.gateway import gate
+                from tessera_worker.risk.var import load_market_context
 
-                gate_result = gate(report)
+                market = load_market_context(
+                    session,
+                    [p.ticker for p in report.proposals],
+                    persona,
+                )
+                gate_result = gate(report, market=market)
                 if not gate_result.ok:
                     raise ValueError(
                         "risk gateway rejected the book: "
