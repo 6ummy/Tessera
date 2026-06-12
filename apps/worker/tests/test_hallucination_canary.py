@@ -15,7 +15,41 @@ from tessera_worker.jobs.hallucination_canary import (
     check_forbidden_phrases,
     check_no_cap_anchoring,
     check_persona_topic_drift,
+    check_weight_distribution,
 )
+
+
+def _book_row(persona: str, weights: list[float], row_id: str = "r1") -> dict:
+    return {
+        "id": row_id,
+        "persona_id": persona,
+        "parsed": {
+            "proposals": [
+                {"ticker": f"T{i}", "target_weight": w}
+                for i, w in enumerate(weights)
+            ],
+        },
+    }
+
+
+# ─── (6) Weight-distribution telemetry / mode collapse ────────────────
+
+
+def test_weight_mode_collapse_trips_at_three_names_at_cap() -> None:
+    # Warren cap 0.18 — three names parked within 1pp of it = §11 signal.
+    result = CanaryResult()
+    check_weight_distribution(
+        [_book_row("warren", [0.18, 0.175, 0.17, 0.05, 0.04])], result)
+    assert any(v.check == "weight_mode_collapse" for v in result.violations)
+
+
+def test_weight_distribution_healthy_book_passes() -> None:
+    result = CanaryResult()
+    check_weight_distribution(
+        [_book_row("warren", [0.18, 0.12, 0.08, 0.05]),       # one at cap: fine
+         _book_row("ray", [0.40, 0.40, 0.20], row_id="r2")],  # ray exempt
+        result)
+    assert result.violations == []
 
 
 def _row(persona: str, **proposal_kwargs) -> dict:
