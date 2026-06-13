@@ -37,7 +37,10 @@ class PortfolioConstraints:
     """Hard ceiling on any one position. Schema enforces ≤0.40."""
 
     max_sector: float
-    """Hard ceiling on any one sector. Schema enforces ≤0.60."""
+    """Hard ceiling on any one sector of the persona's book. (The shared
+    `Persona` metadata schema caps ITS max_sector at 0.60, but this
+    dataclass is the operational source the gateway enforces — cathie
+    runs 0.70 by mandate since 2026-06-12, see her entry below.)"""
 
     # Cash discipline
     cash_min: float
@@ -115,9 +118,17 @@ PERSONA_CONSTRAINTS: dict[PersonaId, PortfolioConstraints] = {
     # Concentrated by S-curve sector, single names sized to asymmetry.
     # Mandate forbids large cash drag; equity exposure IS the position.
     # Crypto sleeve is its own envelope; this is the equity-side cap.
+    #
+    # max_sector 0.50 → 0.70 (2026-06-12, product decision): the 50% cap
+    # contradicted her mandate — "concentrated by S-curve sector" IS a
+    # tech-heavy book. In live batches she breached it twice (67%, then
+    # 56% after explicit gateway feedback — case study CS-11: the persona
+    # role beat the rule). Rather than fight the persona every Friday,
+    # the cap now encodes the mandate; the gateway still hard-stops past
+    # 70%, and her risk budget is governed by max_var99_1d (8.5%).
     "cathie": PortfolioConstraints(
         max_single_name=0.16,
-        max_sector=0.50,
+        max_sector=0.70,
         cash_min=0.00,
         cash_max=0.10,
         min_active_conviction=0.50,
