@@ -82,7 +82,16 @@ recall to beat recency (Plan §5 Week 5 item).
 
 # 2. Create the secret (one-time)
 gcloud secrets create VOYAGE_API_KEY --replication-policy=automatic --project tessera-498200
-echo -n "pa-XXXX..." | gcloud secrets versions add VOYAGE_API_KEY --data-file=- --project tessera-498200
+# PowerShell-safe value upload. DO NOT use bash's `echo -n "..." | gcloud`
+# here — in PowerShell, echo mangles -n and appends a newline, which
+# corrupted this very key once (case study CS-9): Voyage rejected it as
+# "Provided API key is invalid".
+[IO.File]::WriteAllText("$env:TEMP\voyage.key", "pa-XXXX...", [Text.Encoding]::ASCII)
+gcloud secrets versions add VOYAGE_API_KEY --data-file="$env:TEMP\voyage.key" --project tessera-498200
+Remove-Item "$env:TEMP\voyage.key"
+# Note: env-var secrets pinned to :latest resolve at INSTANCE STARTUP —
+# a running instance keeps the old value until it cycles (overnight
+# scale-to-zero is enough; no redeploy needed).
 
 # 3. Grant the worker SA access (one-time)
 gcloud secrets add-iam-policy-binding VOYAGE_API_KEY --project tessera-498200 `
