@@ -94,17 +94,21 @@ plugins = ["pydantic.mypy"]
 # Modules written before mypy gating existed. Listed explicitly so the
 # debt is visible and CI can run mypy as a BLOCKING check for everything
 # else (config, db, universe, logging, observability, jobs.ingest_daily,
-# jobs.spy_canary, risk.*, agents.models/citation_validator/persona_loader/
-# persona_constraints/embeddings are all strict-clean today — keep them so).
+# jobs.spy_canary, jobs.backfill_paper_history, risk.* (incl. var,
+# attribution, gateway, paper_engine), agents.models/citation_validator/
+# persona_loader/persona_constraints/embeddings, AND main are all
+# strict-clean today — keep them so).
 # Rules:
 #   - NEW modules must NOT be added here. Write them strict-clean.
 #   - When touching a listed module substantially, burn its debt and
 #     remove it from this list (then mypy enforces it forever).
-# Backlog when this ledger was created: ~220 errors across these modules,
-# mostly no-untyped-def on `session` params and bare `dict`/`list` generics.
+# Backlog when this ledger was created (2026-06-12): ~220 errors across
+# these modules, mostly no-untyped-def on `session` params and bare
+# `dict`/`list` generics. Burned down so far: tessera_worker.main
+# (2026-06-13, #118 — 37 errors, all `_f/_i` annotations + bare dict).
+# 15 modules remain.
 [[tool.mypy.overrides]]
 module = [
-    "tessera_worker.main",
     "tessera_worker.features.compute",
     "tessera_worker.features.demo_data_explorer",
     "tessera_worker.features.demo_fcf_yield",

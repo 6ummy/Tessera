@@ -16,6 +16,9 @@ from __future__ import annotations
 
 import contextlib
 import hmac
+from collections.abc import AsyncGenerator
+from datetime import date
+from typing import Any
 
 from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
@@ -179,7 +182,7 @@ MAX_CHAT_HISTORY_TURNS = 20
 MAX_CHAT_HISTORY_ITEM_CHARS = 4_000
 
 
-def _sanitize_chat_history(raw: object) -> list[dict]:
+def _sanitize_chat_history(raw: object) -> list[dict[str, str]]:
     """Clamp client-supplied chat history to a safe shape.
 
     Keeps only well-formed {role, content} dicts with role in
@@ -189,7 +192,7 @@ def _sanitize_chat_history(raw: object) -> list[dict]:
     state worth a 400."""
     if not isinstance(raw, list):
         return []
-    clean: list[dict] = []
+    clean: list[dict[str, str]] = []
     for item in raw[-MAX_CHAT_HISTORY_TURNS:]:
         if not isinstance(item, dict):
             continue
@@ -242,7 +245,7 @@ async def chat_stream(
         run_chat_stream,
     )
 
-    async def _event_stream():
+    async def _event_stream() -> AsyncGenerator[str, None]:
         # SSE: 'data: <text>\\n\\n' chunks then 'data: [DONE]\\n\\n'.
         try:
             async for delta in run_chat_stream(persona_id, message, history):  # type: ignore[arg-type]
@@ -274,7 +277,7 @@ async def get_persona_reports(
     persona_id: str,
     limit: int = 5,
     authorization: str | None = Header(default=None),
-) -> dict:
+) -> dict[str, Any]:
     """Latest N analyst_reports for a persona, reshaped for the Vercel UI.
 
     Each report's `parsed` JSONB (AnalystReport for stock-pickers,
@@ -335,7 +338,7 @@ _PROPOSALS_SQL = """
 async def get_persona_proposal(
     persona_id: str,
     authorization: str | None = Header(default=None),
-) -> dict:
+) -> dict[str, Any]:
     """Persona's CURRENT BOOK — the latest batch day's report(s) reshaped
     into a single Proposal-like view. See _PROPOSALS_SQL for why only the
     most recent as_of_date participates, and _aggregate_book for the
@@ -363,8 +366,8 @@ async def get_persona_proposal(
 
 
 def _aggregate_book(
-    parsed_rows: list[dict], persona_id: str, latest_as_of: str,
-) -> dict:
+    parsed_rows: list[dict[str, Any]], persona_id: str, latest_as_of: str,
+) -> dict[str, Any]:
     """Collapse one batch day's parsed reports into the UI book shape.
 
     `parsed_rows` must be ordered newest-first and contain ONLY rows from a
@@ -374,9 +377,9 @@ def _aggregate_book(
     write."""
     from tessera_worker.universe import META_BY_TICKER
 
-    positions_by_ticker: dict[str, dict] = {}
+    positions_by_ticker: dict[str, dict[str, Any]] = {}
     cash_targets: list[float] = []
-    regime: dict | None = None
+    regime: dict[str, Any] | None = None
 
     for parsed in parsed_rows:
         cash = parsed.get("cash_target")
@@ -482,7 +485,7 @@ def _aggregate_book(
 async def get_ticker_features(
     ticker: str,
     authorization: str | None = Header(default=None),
-) -> dict:
+) -> dict[str, Any]:
     """Latest ticker_features row, reshaped for the UI's expandable
     position card. Returns numeric values + a snapshot date; the
     frontend handles per-field formatting (% / x / $)."""
@@ -522,9 +525,9 @@ async def get_ticker_features(
         return {"ticker": ticker_u, "name": meta.name, "sector": meta.sector,
                 "asof": None, "features": None}
 
-    def _f(v):
+    def _f(v: Any) -> float | None:
         return float(v) if v is not None else None
-    def _i(v):
+    def _i(v: Any) -> int | None:
         return int(v) if v is not None else None
 
     return {
@@ -562,7 +565,7 @@ async def get_ticker_prices(
     ticker: str,
     range: str = "20y",
     authorization: str | None = Header(default=None),
-) -> dict:
+) -> dict[str, Any]:
     """Historical close prices for one ticker, downsampled for chart display.
 
     Used by the expandable position card on /proposals + the persona
@@ -681,10 +684,10 @@ async def get_ticker_prices(
 
 def _build_performance_payload(
     persona_id: str,
-    points: list[tuple],  # (date, total_value: float, hypothetical: bool) ASC
+    points: list[tuple[date, float, bool]],  # (date, total_value, hypothetical) ASC
     sharpe30d: float | None,
     mdd30d: float | None,
-) -> dict:
+) -> dict[str, Any]:
     """Reshape persona_portfolios rows into the UI's equity-curve payload.
 
     Values are normalized so the FIRST point of the window = 1.0 — the
@@ -731,7 +734,7 @@ async def get_persona_performance(
     persona_id: str,
     days: int = 400,
     authorization: str | None = Header(default=None),
-) -> dict:
+) -> dict[str, Any]:
     """Equity curve + headline metrics for one persona's paper track.
 
     Series = daily persona_portfolios snapshots (hypothetical backfill +
@@ -788,7 +791,7 @@ async def get_persona_performance(
 async def get_persona_portfolio(
     persona_id: str,
     authorization: str | None = Header(default=None),
-) -> dict:
+) -> dict[str, Any]:
     """Latest REAL portfolio snapshot (positions with qty/close/value/
     weight + cash). Hypothetical snapshots are never served here — this
     endpoint answers "what does the persona actually hold on paper"."""
@@ -851,7 +854,7 @@ async def get_persona_attribution(
     persona_id: str,
     period: str = "mtd",
     authorization: str | None = Header(default=None),
-) -> dict:
+) -> dict[str, Any]:
     """Ticker-level P&L attribution over the paper track.
 
     period: 'mtd' (default, calendar month-to-date), '7d', '30d'.
@@ -906,8 +909,8 @@ async def get_persona_attribution(
 
 
 def _reshape_report_row(
-    row_id: str, persona_id: str, date_iso: str, parsed: dict,
-) -> dict:
+    row_id: str, persona_id: str, date_iso: str, parsed: dict[str, Any],
+) -> dict[str, Any]:
     """Turn a raw analyst_reports row into the {title, body, tickers, …}
     shape the UI's report card expects."""
     # Pick the first proposal/allocation to title the report card.
@@ -958,7 +961,7 @@ def _reshape_report_row(
     # proposal's). In v2 each report carries the whole persona book,
     # so the global title becomes misleading when shown under a sibling
     # ticker's "Related thesis" lookup.
-    per_ticker: dict[str, dict] = {}
+    per_ticker: dict[str, dict[str, Any]] = {}
     for p in (parsed.get("proposals") or []):
         t = p.get("ticker")
         if not t:
