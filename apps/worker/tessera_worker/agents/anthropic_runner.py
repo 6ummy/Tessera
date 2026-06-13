@@ -60,21 +60,43 @@ def _strip_json_fences(text: str) -> str:
 
 
 def parse_llm_json(raw: str) -> dict[str, Any]:
-    """Parse the first complete JSON object from the LLM response.
+    """Parse the first complete JSON object from the LLM response,
+    tolerating BOTH leading prose and trailing chatter.
 
-    Uses `JSONDecoder.raw_decode` instead of `json.loads` so trailing
-    chatter (Cathie's voice especially tends to append a scenario
-    paragraph after the closing brace) doesn't raise.
+    Trailing: `raw_decode` returns (obj, end_index); anything past
+    end_index is logged + ignored (2026-06-04 backtest: ~5% of Cathie
+    cells appended commentary after the brace).
 
-    `raw_decode` returns (obj, end_index); anything past end_index is
-    logged + ignored. If you instead want to be strict, swap back to
-    json.loads — but the 2026-06-04 backtest had ~5% of Cathie cells
-    fail this way and the trailing text was always commentary, never
-    a competing JSON.
+    Leading: scan forward from each '{' until one parses. Found
+    2026-06-12 — construction RETRY calls failed 4-for-4 with
+    "Expecting value: char 0" because the model prefixes its reworked
+    book with an explanation of what it changed, despite "Return ONLY
+    the JSON" (the retry feedback invites exactly that). The responses
+    carried full valid books (2-4.5K tokens) that we were throwing
+    away, costing warren+cathie their weekly rebalance.
     """
     text_in = _strip_json_fences(raw).strip()
     decoder = json.JSONDecoder()
-    obj, end_idx = decoder.raw_decode(text_in)
+    try:
+        obj, end_idx = decoder.raw_decode(text_in)
+    except json.JSONDecodeError:
+        # Leading prose: try each '{' until something parses. Prose can
+        # itself contain braces ("a {weight} of..."), hence the loop
+        # rather than a single find.
+        start = text_in.find("{")
+        obj = None
+        end_idx = 0
+        while start != -1:
+            try:
+                obj, inner_end = decoder.raw_decode(text_in[start:])
+                end_idx = start + inner_end
+                break
+            except json.JSONDecodeError:
+                start = text_in.find("{", start + 1)
+        if obj is None:
+            raise
+        log.info("parse_llm_json.leading_text_ignored",
+                 chars_dropped=start, preview=text_in[:120])
     trailing = text_in[end_idx:].strip()
     if trailing:
         log.info("parse_llm_json.trailing_text_ignored",

@@ -216,6 +216,33 @@ def test_build_regime_report_validates_allocations():
     assert report.allocations[0].target_weight == 0.30
 
 
+def test_parse_llm_json_skips_leading_prose():
+    """Construction RETRIES prefix the JSON with an explanation of what
+    changed (4-for-4 on 2026-06-12, killing warren+cathie's rebalance).
+    Leading prose — including braces inside it — must be skipped."""
+    from tessera_worker.agents.anthropic_runner import parse_llm_json
+
+    raw = (
+        "Looking at the feedback, the {sector} cap was breached, so I "
+        "trimmed JPM and MCO.\n\n"
+        '{"cash_target": 0.2, "proposals": []}\n'
+        "This book now respects the 50% cap."
+    )
+    obj = parse_llm_json(raw)
+    assert obj == {"cash_target": 0.2, "proposals": []}
+
+
+def test_parse_llm_json_still_raises_on_no_json():
+    import json as _json
+
+    import pytest as _pt
+
+    from tessera_worker.agents.anthropic_runner import parse_llm_json
+
+    with _pt.raises(_json.JSONDecodeError):
+        parse_llm_json("no json here at all, just {broken prose")
+
+
 def test_build_regime_report_overrides_llm_supplied_as_of():
     """as_of / persona_id are server-authoritative. Ray's Sonnet output
     reliably volunteers an `as_of` of its own (2025-01-24 in prod, copied
