@@ -41,6 +41,22 @@ export type PortfolioPosition = {
   weight: number;
 };
 
+export type AttributionRow = {
+  ticker: string;
+  name: string;
+  pnl: number;          // absolute $ over the period
+  contribution: number; // fraction of period-start NAV (sums to total return)
+};
+
+export type PersonaAttribution = {
+  personaId: string;
+  period: string;       // "mtd" | "7d" | "30d"
+  start: string | null;
+  end: string | null;
+  totalReturn: number | null;
+  rows: AttributionRow[];
+};
+
 export type PortfolioSnapshot = {
   personaId: string;
   asOf: string | null;

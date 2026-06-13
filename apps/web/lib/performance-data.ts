@@ -6,6 +6,7 @@
 
 import { useEffect, useState } from "react";
 import type {
+  PersonaAttribution,
   PersonaPerformance,
   Point,
   PortfolioSnapshot,
@@ -44,6 +45,15 @@ export function fetchPortfolio(
   personaId: string,
 ): Promise<PortfolioSnapshot | null> {
   return getJson<PortfolioSnapshot>(`/api/portfolio/${personaId}`);
+}
+
+export function fetchAttribution(
+  personaId: string,
+  period: "mtd" | "7d" | "30d" = "mtd",
+): Promise<PersonaAttribution | null> {
+  return getJson<PersonaAttribution>(
+    `/api/attribution/${personaId}?period=${period}`,
+  );
 }
 
 let benchCache: Promise<Point[] | null> | null = null;
