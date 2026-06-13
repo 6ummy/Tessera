@@ -14,6 +14,7 @@ import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { ReportList } from "./report-list";
 import { AnalystChat } from "./analyst-chat";
+import { AttributionTable } from "./attribution-table";
 import { PersonaAvatar } from "./persona-avatar";
 import { cn, fmt, signClass } from "@/lib/utils";
 
@@ -169,6 +170,10 @@ export function PersonaDetailSheet({
             <InfoTile icon={<TrendingUp className="h-4 w-4" />} label="Avg holding" value={m.avgHold} />
             <InfoTile icon={<Briefcase className="h-4 w-4" />} label="Turnover" value={m.turnover} />
             <InfoTile icon={<Sparkles className="h-4 w-4" />} label="Conviction floor" value="0.65 +" />
+          </div>
+
+          <div className="px-8 pt-4">
+            <AttributionTable personaId={persona.id} />
           </div>
 
           <div className="px-8 py-8">
