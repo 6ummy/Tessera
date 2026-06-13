@@ -118,7 +118,7 @@ Everything below is LIVE in prod unless marked otherwise:
 ```powershell
 # Worker — venv EXISTS at apps/worker/.venv, never recreate it
 cd apps\worker
-.\.venv\Scripts\python.exe -m pytest tests -q                          # 238 tests, no DB needed
+.\.venv\Scripts\python.exe -m pytest tests -q                          # 242 tests, no DB needed
 .\.venv\Scripts\python.exe -m ruff check tessera_worker tests scripts  # MUST stay 0
 .\.venv\Scripts\python.exe -m mypy tessera_worker                      # MUST stay 0
 .\.venv\Scripts\python.exe -m tessera_worker.jobs.ingest_daily --only features coverage

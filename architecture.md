@@ -11,7 +11,7 @@
 | | |
 |---|---|
 | **Brand** | Tessera ("a small tile in a mosaic" — each analyst is a piece of the whole) |
-| **Stage** | Frontend MVP (mock data, no backend). Paper-trading pilot to follow. |
+| **Stage** | Paper-trading pilot LIVE (2026-06-12): real data, weekly LLM theses behind a risk gateway, nightly paper execution. Phase C nearly done; Phase D (user auth) next. |
 | **Audience** | Long-term retail investors (US) — not scalpers, not pros. |
 | **Horizon** | Months to years. Daily-batch desk, no intraday signals. |
 | **Surface** | Web app (Next.js on Vercel). Mobile-responsive. |
@@ -110,15 +110,16 @@ system prompts when wiring real LLM calls.
 ## 6. Current state (what is actually built)
 
 As of 2026-06-12 this is a **working LLM research desk on real data**:
-Phases A + B shipped, Phase C (paper execution) core live. Real Sonnet 4.6
-theses land weekly, chat streams live, and the paper engine fills each
-persona's book against a $100K paper account nightly. The only mock left
-is the landing-page performance chart, which swaps once the paper track
-accumulates (see "Still mocked" below).
+Phases A + B shipped, Phase C (paper execution) nearly done. Real Sonnet
+4.6 theses land weekly behind a full risk gateway, chat streams live, and
+the paper engine fills each persona's book against a $100K paper account
+nightly — the landing/detail/dashboard charts read that real track. The
+only remaining mocks are the Phase-D account demos (dashboard "My
+portfolio" positions + Social feed) and auth (see "Still mocked" below).
 
 ### Frontend (4 routes on Vercel)
 - **Marketplace** (`/`) — landing page = persona grid; click any card opens a slide-over detail sheet. Header logo is an inline SVG mosaic mark (coral / ink / sage tiles).
-- **Persona detail sheet** — biography, signature signals, 1-year performance chart vs S&P 500 (still mock), real recent reports (accordion), real latest portfolio, and live chat.
+- **Persona detail sheet** — biography, signature signals, real 1-year performance curve vs S&P 500 (single solid line per persona; hypothetical backfill blended in, flagged at the data layer), real recent reports (accordion), real latest portfolio, and live chat.
 - **Chat with analyst** — real Sonnet 4.6 SSE stream (worker `agents/chat.py` → Edge proxy). Ticker-aware RAG, persona voice specs, abuse guards (rate limit + size caps + chat-only budget pool).
 - **Proposals** (`/proposals`) — two tabs: "By analyst" (4 real books side-by-side from `/api/proposals`) and "Consensus" (cross-analyst agreement table).
 - **Dashboard** (`/dashboard`) — user account view with tabs: My portfolio, Leaderboard, Social feed. URL-synced (`?tab=…`). Still mock-backed pending `persona_performance` swap.
@@ -418,28 +419,27 @@ html = blob.download_as_bytes()
 
 **GCS auth note**: this requires per-user IAM access to the `tessera-498200` GCP project, granted by the project owner (정우). Each developer authenticates with their *own* Google account via `gcloud auth application-default login` — never share or reuse another teammate's credentials. See `Plan.md` §4 access pattern (c) for the full 4-step setup. Most Phase B work doesn't need GCS access — the 8KB excerpt covers standard prompt-assembly needs.
 
-#### 3. HTTP API from the frontend — Phase B onwards
-Right now the Next.js app reads `lib/mock/*` (seeded fakes). Phase B Week 3 swaps these for real `/api/*` routes that query Neon server-side. The frontend never touches Neon directly; everything goes through Vercel edge routes that hold the DB credential.
-
-Sketch of the route shape (not yet implemented):
+#### 3. HTTP API from the frontend — SHIPPED (Phase B/C)
+The Next.js app reads real `/api/*` routes that proxy the Cloud Run
+worker; the frontend never touches Neon directly. All performance/report
+mocks are deleted (only Phase-D account demos + auth remain mocked — see
+§6 "Still mocked"). Live routes (Next Edge proxy → worker; path shape is
+the worker endpoint, e.g. `/api/reports/{persona}`):
 
 ```
-GET /api/performance?personaId=warren&window=30d
-  → returns equity-curve points from persona_performance
-
-GET /api/reports?personaId=warren&limit=5
-  → returns analyst_reports rows for one persona
-
-GET /api/proposals?ticker=NVDA
-  → returns latest proposal per persona (1..4 rows)
-
-POST /api/chat/[personaId]
-  → SSE stream from Anthropic Sonnet, with persona spec +
-    book + recent reports + relevant features injected as
-    system prompt context
+GET  /api/reports/{persona}        analyst_reports → UI report cards
+GET  /api/proposals/{persona}      current book (latest as_of_date only)
+GET  /api/performance/{persona}    equity curve + metrics (hypothetical flag)
+GET  /api/portfolio/{persona}      latest real paper snapshot
+GET  /api/attribution/{persona}    ticker-level P&L (?period=mtd|7d|30d)
+GET  /api/features/{ticker}        latest ticker_features row
+GET  /api/prices/{ticker}          downsampled OHLCV (?range=…)
+POST /api/chat/{persona}           SSE stream from Sonnet 4.6
 ```
 
-The web app's `lib/api.ts` will wrap these calls so components stay agnostic to mock-vs-real.
+Client fetchers live in `lib/analyst-data.ts` (reports/proposals/features)
+and `lib/performance-data.ts` (performance/portfolio + cached hook); both
+hold AbortControllers and module-level promise caches.
 
 **Connection cheatsheet** — credentials always come from secrets store, never code:
 
@@ -495,8 +495,8 @@ plane is shipped; the LLM pipeline is the Week 2 / Week 3 work.
 │        (persona_id, ts, inputs_hash, parsed jsonb,                 │
 │         raw_response, cost_usd)                                    │
 │                          ↓                                         │
-│  Frontend  →  /api/reports?personaId=warren  (Week 3 task)         │
-│        ↓ swap from lib/mock/reports.ts                             │
+│  Frontend  →  /api/reports/{persona}  (Edge proxy → worker)       │
+│        ↓ shipped 2026-06-05; lib/mock/reports.ts deleted          │
 │  UI: persona thesis appears in the desk view                       │
 └──────────────────────────────────────────────────────────────────┘
 ```
@@ -512,7 +512,7 @@ plane is shipped; the LLM pipeline is the Week 2 / Week 3 work.
 | `agents/models.py` (`AnalystReport`, `Proposal`) | LLM Pipeline | ✅ shipped (re-export from `tessera_shared`) |
 | `features/compute.py` — `fcf_yield` (TTM-decomposed cumulative-YTD, FX-converted, cross-validated mcap) | Quant | ✅ shipped 2026-06-04 |
 | `features/compute.py` — `peg`, `eps_cagr_3y`, `debt_to_equity`, `gross_margin`, `gross_margin_trend`, `market_cap_usd`, `operating_margin` | Quant | ✅ shipped locally 2026-06-06 (`004_quality_features.sql` + latest-row fundamentals pass). Next: risk-gateway consumption and coverage/precision telemetry. |
-| `apps/web/app/api/reports/route.ts` + UI swap | Frontend | ⏳ Week 3 |
+| `apps/web/app/api/{reports,proposals,performance,portfolio,attribution,features,prices,chat}/[…]/route.ts` + UI swap | Frontend | ✅ shipped (reports/proposals/chat 06-05; performance/portfolio 06-12 #103; attribution endpoint 06-12 #107) — all `lib/mock/*` deleted except personas metadata |
 | `agents/anthropic_runner.py` Ray-specific (`run_regime_thesis`, `RegimeReport`) | LLM Pipeline | ✅ shipped 2026-06-03 (parallel schema, `persona_id='ray'` discriminator in `analyst_reports`) |
 | `agents/embeddings.py` + `prompt_assembler.fetch_memory_recall` (Voyage similarity, recency fallback) | LLM Pipeline | ✅ shipped 2026-06-05 (PR #44) |
 | `jobs/backtest_harness.py` (point-in-time replay, separate `backtest_reports` table, retry + persist-unparseable) | LLM Pipeline | ✅ shipped 2026-06-05 (live verified 1.67% then 0% schema-fail rate) |
@@ -560,10 +560,14 @@ apps/
     components/                     # persona-card, persona-detail-sheet,
                                     # analyst-chat, report-list, header (with
                                     # inline mosaic mark), ui/*
-    lib/mock/                       # personas, performance, proposals,
-                                    # reports, chat (Phase B replaces)
+    lib/mock/personas.ts            # static character metadata only —
+                                    # bios, accents, traits (NOT perf data;
+                                    # performance/proposals/reports/chat
+                                    # mocks all deleted, now real /api/*)
+    lib/analyst-data.ts             # fetchers: reports/proposals/features
+    lib/performance-data.ts         # fetchers: performance/portfolio + hook
     public/personas/                # warren.jpg, cathie.jpg, ray.jpg, peter.jpg
-    vercel.json                     # cron schedule "30 21 * * 1-5"
+    vercel.json                     # crons: daily "30 21 * * 1-5", weekly "0 22 * * 5"
 
   worker/                           # Python batch worker (Cloud Run-ready)
     pyproject.toml                  # pinned deps incl. anthropic, alpaca-py,
@@ -734,7 +738,7 @@ Deferred to Phase B:
 - ~~Cloud Run worker deployment~~ — **shipped 2026-06-01** (see "Daily data flow" diagram above)
 - ~~Sentry DSN registration~~ — **shipped 2026-06-01** (errors-only, cost-guarded)
 - ~~SEC EDGAR filings ingestor~~ — **shipped 2026-06-01** (12 filings smoke-test for AAPL + MSFT, end-to-end Neon + GCS)
-- Frontend swap from `lib/mock/*` to `/api/*` (Phase B Week 3 — sequence: real theses must exist first)
+- ~~Frontend swap from `lib/mock/*` to `/api/*`~~ — **shipped** (reports/proposals/chat 2026-06-05; performance/portfolio 2026-06-12)
 
 ### Open questions to resolve before Phase B
 - Decide if Cathie's universe should formally include crypto spot (BTC/ETH) or only equity proxies (COIN, MSTR).
