@@ -837,6 +837,35 @@ instead of real elapsed paper time.
 - ✅ Backtest 90-day Sharpe is within expected range per archetype (Warren ~1.3, Cathie ~0.9, Ray ~1.5, Peter ~1.4)
 - ✅ 0 risk-gate violations slipped to paper execution
 
+### Lessons from Phase C (running list — close out with the phase)
+
+Full presentation-ready write-ups with symptom→hunt→root-cause per bug
+live in **`docs/case-studies.md`** (CS-1…CS-10, kept for the final
+project talk). The distilled rules:
+
+1. **Silent failure is THIS project's #1 bug class.** Four real
+   incidents shared one shape — an error swallowed without a sound:
+   `except ImportError → no_data` made a missing dependency report
+   ok=True (CS-3); `setdefault` let an LLM-volunteered `as_of` beat the
+   server for weeks (CS-4); a JSON parser that tolerated trailing but
+   not leading prose threw away valid retry books as "char 0" (CS-5);
+   `suppress(AttributeError)` hid that SQLAlchemy Rows are immutable,
+   so working similarity recall self-labelled "recency" forever (CS-6).
+   Rule: every caught exception either logs loudly with context or
+   re-raises; `suppress`/`except: pass` need written justification.
+2. **A verification instruction is code too** — "check the logs for
+   sim=" was unverifiable by construction (the tag was never logged,
+   and broken even in the prompt). When docs claim "verify by X",
+   confirm X can actually emit a signal.
+3. **"tokens_out=4527" + "error at char 0" = suspect the parser, not
+   the model.** Read the evidence pair, not the exception string.
+4. **--no-cpu-throttling ≠ instance immortality.** The Friday batch
+   died with its idle-reaped instance at 23:02 (CS-8). Request-scoped
+   compute is a countdown timer for 15-minute jobs → Cloud Run Jobs.
+5. **Ops docs must speak the operator's shell.** A bash `echo -n` run
+   in PowerShell corrupted the Voyage secret (CS-9). This team's shell
+   is PowerShell; write runbooks for it.
+
 ---
 
 ## 6. Phase D — User auth + personal portfolios (Week 6)
@@ -964,6 +993,11 @@ deferred to post-launch. Auth + mirror engine + onboarding ship in one week.
 - Presentation decks (`*.pptx`) are local-only as of 2026-06-12
   (`decks/`, gitignored) — the public repo stays lean; `build-deck.js`
   regenerates.
+- **`docs/case-studies.md`** — presentation-ready bug case studies
+  (CS-1…CS-10: symptom → hunt → root cause → fix → lesson, with PR
+  links). Add a CS entry whenever a nontrivial bug is fixed; it is the
+  raw material for the final project talk. Distilled rules go into the
+  per-phase Lessons subsections here.
 
 ---
 

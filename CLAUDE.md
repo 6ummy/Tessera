@@ -105,6 +105,13 @@ Everything below is LIVE in prod unless marked otherwise:
   history sanitized ≤20 turns, Edge 10/min/IP rate limit.
 - **yfinance**: core dependency, but strictly tier-3 fallback,
   sanity-enveloped; its steps fail loudly if missing.
+- **No silent failures — this codebase's #1 bug class** (4 real
+  incidents: CS-3/4/5/6 in `docs/case-studies.md`). Every caught
+  exception logs loudly with context or re-raises; `suppress` /
+  `except: pass` / `setdefault` on LLM-overlapping fields need written
+  justification. A step where every item "skipped" is a FAILURE, not a
+  success. When you fix a nontrivial bug, ADD A CS ENTRY to
+  case-studies.md (presentation material) in the same PR.
 
 ## 4. Commands (Windows / PowerShell)
 
@@ -213,8 +220,11 @@ file map; §6 is current-state) → `Plan.md` (phase roadmap; §5 = Phase C
 live state; versioning table at bottom) →
 `docs/improvement-plan-2026-06-11.md` (the audit that drove this week;
 P0–P3 + step statuses) → per-phase "Lessons" live INSIDE Plan.md
-(§3 Phase A, §4 Phase B — keep that convention, no separate retro files)
-→ `docs/runbooks/` (observability, Cloud Run IAM) → `personalities.md`
+(§3 Phase A, §4 Phase B, §5 Phase C running list — keep that
+convention, no separate retro files) → **`docs/case-studies.md`**
+(presentation-ready bug write-ups CS-1…CS-10; append on every
+nontrivial fix) → `docs/runbooks/` (observability, Cloud Run IAM)
+→ `personalities.md`
 (persona specs — TEAM-OWNED, big voice changes need a 카톡 heads-up).
 CONTRIBUTING.md has the team/track map (5 people; you mostly interact
 with 정우).
