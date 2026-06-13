@@ -861,7 +861,10 @@ project talk). The distilled rules:
    the model.** Read the evidence pair, not the exception string.
 4. **--no-cpu-throttling ≠ instance immortality.** The Friday batch
    died with its idle-reaped instance at 23:02 (CS-8). Request-scoped
-   compute is a countdown timer for 15-minute jobs → Cloud Run Jobs.
+   compute is a countdown timer for 15-minute jobs. **Resolved
+   2026-06-13**: ingest + persona_batch moved to **Cloud Run Jobs**
+   (run to completion, Cloud-Scheduler-triggered) — `deploy_cloud_run_jobs.ps1`
+   + `docs/runbooks/cloud-run-jobs.md`. Service keeps the HTTP surface.
 5. **Ops docs must speak the operator's shell.** A bash `echo -n` run
    in PowerShell corrupted the Voyage secret (CS-9). This team's shell
    is PowerShell; write runbooks for it.

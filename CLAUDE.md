@@ -201,17 +201,19 @@ JSONB; `rejected` flag), `persona_trades/portfolios/performance`
 
 1. **90-day point-in-time backtest baseline** — credibility anchor;
    harness exists (`jobs/backtest_harness.py`), ~$10–20 LLM. Plan §5 Week 5.
-2. **Cloud Run Jobs migration** for ingest/persona_batch — structural
-   fix for BackgroundTasks (currently mitigated by --no-cpu-throttling).
-3. **mypy ledger burn-down** (16 legacy modules in pyproject overrides).
-4. **Attribution UI table** (endpoint shipped #107; surface in the
-   persona detail sheet once a week of rebalances accumulates).
-5. **hit_rate** (needs closed-lot tracking) · quarterly margin series
+2. **mypy ledger burn-down** (16 legacy modules in pyproject overrides).
+3. **Attribution UI table** (endpoint shipped #107; surface in the
+   persona detail sheet).
+4. **hit_rate** (needs closed-lot tracking) · quarterly margin series
    ingest (low) · §10 weight-authority decision once a few weeks of
    `canary.weight_telemetry` accumulate · Phase D (auth, follow, chat
    memory) per Plan §6.
-   (Gateway VaR/DD/Ray + attribution endpoint + weight telemetry:
-   DONE 2026-06-12, #105–#108.)
+
+Done 2026-06-12: Gateway VaR/DD/Ray + attribution endpoint + weight
+telemetry (#105–#108). **Cloud Run Jobs migration shipped 2026-06-13**
+(`deploy_cloud_run_jobs.ps1` + `docs/runbooks/cloud-run-jobs.md` — batches
+now run to completion, no more BackgroundTask reaping). The cutover
+(Cloud Scheduler on, Vercel crons off) is an operator console step.
 
 ## 9. Doc map
 

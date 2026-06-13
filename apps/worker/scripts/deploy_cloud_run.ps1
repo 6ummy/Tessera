@@ -39,12 +39,13 @@ if ($LASTEXITCODE -ne 0) { Write-Error "Cloud Build failed"; exit 1 }
 
 Write-Output ""
 Write-Output "==> Deploying $SERVICE to Cloud Run"
-# no-cpu-throttling: ingest (~7 min) + persona_batch (5-10 min) run as
-# FastAPI BackgroundTasks AFTER the 202 response; with default
-# request-scoped CPU they get throttled/killed when the instance idles
-# (observed on the first deploy - architecture.md "Long-job survival").
-# Costs a bit more (CPU billed while instances are warm, still scales to
-# zero). Proper fix is Cloud Run Jobs - tracked in the improvement plan.
+# no-cpu-throttling: legacy mitigation for the BackgroundTask batch path
+# (ingest/persona_batch ran AFTER the 202 and got reaped when the instance
+# idled — CS-8). The structural fix shipped 2026-06-13: those batches now
+# run as Cloud Run JOBS (deploy_cloud_run_jobs.ps1 + docs/runbooks/
+# cloud-run-jobs.md). This Service still serves the HTTP surface (/api/*,
+# chat) and keeps the /jobs/* endpoints as a manual fallback; the flag
+# stays harmless and cheap (scales to zero).
 & gcloud run deploy $SERVICE `
     --image $IMAGE_TAGGED `
     --region $REGION `
