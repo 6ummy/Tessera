@@ -82,10 +82,11 @@ recall to beat recency (Plan §5 Week 5 item).
 
 # 2. Create the secret (one-time)
 gcloud secrets create VOYAGE_API_KEY --replication-policy=automatic --project tessera-498200
-# PowerShell-safe value upload. DO NOT use bash's `echo -n "..." | gcloud`
-# here — in PowerShell, echo mangles -n and appends a newline, which
-# corrupted this very key once (case study CS-9): Voyage rejected it as
-# "Provided API key is invalid".
+# Byte-exact value upload (no echo/pipes). This secret was once stored
+# with ONE stray extra character (47 bytes vs the key's 46 — verified by
+# SHA-256 against the working local key; case study CS-9) and Voyage
+# rejected it as "Provided API key is invalid". Paste-channel artifacts
+# and shell quirks both end the same way — write the file explicitly:
 [IO.File]::WriteAllText("$env:TEMP\voyage.key", "pa-XXXX...", [Text.Encoding]::ASCII)
 gcloud secrets versions add VOYAGE_API_KEY --data-file="$env:TEMP\voyage.key" --project tessera-498200
 Remove-Item "$env:TEMP\voyage.key"
