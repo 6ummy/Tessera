@@ -21,7 +21,7 @@ Monorepo: `apps/web` (Next.js 14 App Router, Vercel) · `apps/worker`
 `migrations/` (plain SQL → Neon Postgres + Timescale + pgvector,
 **001–007 all applied to prod**).
 
-## 2. State as of 2026-06-12 (evening)
+## 2. State as of 2026-06-13
 
 Everything below is LIVE in prod unless marked otherwise:
 
@@ -66,10 +66,13 @@ Everything below is LIVE in prod unless marked otherwise:
   violate SECTOR caps → the next Friday batch re-shapes them via retry
   feedback (expected `risk_gateway.rejected` → `passed` log pairs).
 - **PR trail this week**: #90 audit hotfixes → #93 re-land Steps 1+2 →
-  #94 risk gateway → #95/#96 paper engine + flag → #97 docs → #98 Ray
-  as_of fix → #99 mypy/tests/observability → #100 backfill → #101/#102
-  ops sync → #103 frontend swap → #105 VaR/DD/Ray gate → #106 weight
-  telemetry → #107 attribution → #108 Sentry paging.
+  #94 risk gateway → #95/#96 paper engine + flag → #98 Ray as_of fix →
+  #99 mypy/tests/observability → #100 backfill → #103 frontend swap →
+  #105 VaR/DD/Ray gate → #106 weight telemetry → #107 attribution →
+  #108 Sentry paging → #110 parse-leading-prose → #111 recall sim= fix
+  → #112 case-studies → #114 cathie sector cap 0.70 → #116 Cloud Run
+  Jobs → #117 attribution UI → #118 main.py mypy burn. (Doc syncs
+  along the way: #97/#101/#102/#104/#109/#113/#115.)
 
 ## 3. Hard invariants (each from a real incident — don't relearn them)
 
@@ -201,19 +204,21 @@ JSONB; `rejected` flag), `persona_trades/portfolios/performance`
 
 1. **90-day point-in-time backtest baseline** — credibility anchor;
    harness exists (`jobs/backtest_harness.py`), ~$10–20 LLM. Plan §5 Week 5.
-2. **mypy ledger burn-down** (16 legacy modules in pyproject overrides).
-3. **Attribution UI table** (endpoint shipped #107; surface in the
-   persona detail sheet).
-4. **hit_rate** (needs closed-lot tracking) · quarterly margin series
+2. **mypy ledger burn-down** — 15 legacy modules left (main.py burned
+   2026-06-13 #118). Biggest remaining: `features/compute.py` (~36),
+   `agents/anthropic_runner.py` (~19), `agents/prompt_assembler.py` (~14).
+3. **hit_rate** (needs closed-lot tracking) · quarterly margin series
    ingest (low) · §10 weight-authority decision once a few weeks of
    `canary.weight_telemetry` accumulate · Phase D (auth, follow, chat
    memory) per Plan §6.
 
-Done 2026-06-12: Gateway VaR/DD/Ray + attribution endpoint + weight
-telemetry (#105–#108). **Cloud Run Jobs migration shipped 2026-06-13**
-(`deploy_cloud_run_jobs.ps1` + `docs/runbooks/cloud-run-jobs.md` — batches
-now run to completion, no more BackgroundTask reaping). The cutover
-(Cloud Scheduler on, Vercel crons off) is an operator console step.
+Done 2026-06-12/13: Gateway VaR/DD/Ray + attribution endpoint + weight
+telemetry (#105–#108); **Cloud Run Jobs migration** (#116,
+`deploy_cloud_run_jobs.ps1` + `docs/runbooks/cloud-run-jobs.md` — batches
+run to completion, no more BackgroundTask reaping; the cutover
+[Cloud Scheduler on, Vercel crons off] is an operator console step);
+**attribution UI table** in the detail sheet (#117); **main.py mypy
+burn-down** (#118).
 
 ## 9. Doc map
 
