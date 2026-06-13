@@ -18,6 +18,9 @@ from sqlalchemy.orm import Session
 
 from tessera_worker.agents.persona_loader import PersonaId, get_persona_spec
 from tessera_worker.db import session_scope
+from tessera_worker.logging import get_logger
+
+log = get_logger(__name__)
 
 # Per-persona macro base + ticker overlay (see demo_macro_sensitivity.py).
 MACRO_BY_PERSONA: dict[str, list[str] | str] = {
@@ -333,11 +336,18 @@ def fetch_memory_recall(
         or _fetch_by_recency(session, persona, ticker, limit, as_of)
     if not rows:
         return ""
+    tags = [getattr(r, "_recall_tag", "recency") for r in rows]
+    # The strategy is ALSO logged (2026-06-12): the sim= tag used to live
+    # only inside the prompt text, which made "check the logs for sim="
+    # unverifiable — and even the prompt tag was silently broken (see
+    # _fetch_by_similarity). This line is now the observable signal.
+    log.info("memory_recall.strategy", persona=persona, ticker=ticker,
+             n=len(rows),
+             strategy="similarity" if tags[0].startswith("sim=") else "recency",
+             tags=tags)
     lines = [f'<memory count="{len(rows)}">']
-    for r in rows:
+    for r, tag in zip(rows, tags, strict=True):
         snippet = shorten(r.thesis_md or "", width=400, placeholder="...")
-        # Tag the line with how it was found so prompt audits can tell.
-        tag = getattr(r, "_recall_tag", "recency")
         lines.append(f"  [{r.ts.date()} · {tag}] {snippet}")
     lines.append("</memory>")
     return "\n".join(lines)
@@ -378,10 +388,20 @@ def _fetch_by_similarity(
         """),
         params,
     ).all()
-    for r in rows:
-        with suppress(AttributeError, TypeError):
-            r._recall_tag = f"sim={float(r.distance):.3f}"
-    return list(rows)
+    # SQLAlchemy 2.0 Rows are IMMUTABLE — the old code set `_recall_tag`
+    # on them under suppress(AttributeError), which silently no-op'd, so
+    # every recall rendered as "recency" even when this similarity path
+    # produced it (found 2026-06-12; distances were a healthy 0.37–0.60
+    # the whole time). Return lightweight objects that can carry the tag.
+    from types import SimpleNamespace
+    return [
+        SimpleNamespace(
+            thesis_md=r.thesis_md,
+            ts=r.ts,
+            _recall_tag=f"sim={float(r.distance):.3f}",
+        )
+        for r in rows
+    ]
 
 
 def _fetch_by_recency(

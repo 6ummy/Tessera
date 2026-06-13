@@ -246,3 +246,29 @@ def test_fetch_memory_recall_no_as_of_skips_cutoff_clause() -> None:
     assert "ts::date <= :cutoff" not in sql_text, (
         "recency query injected cutoff clause without an as_of value"
     )
+
+
+def test_fetch_memory_recall_renders_sim_tags(monkeypatch) -> None:
+    """The 2026-06-12 bug: SQLAlchemy Rows are immutable, so the sim=
+    tag assignment silently no-op'd under suppress(AttributeError) and
+    EVERY recall rendered as 'recency' even when similarity produced it.
+    Pin that similarity results now carry their sim= tag end-to-end."""
+    from datetime import datetime
+    from types import SimpleNamespace
+
+    from tessera_worker.agents import prompt_assembler as pa
+
+    fake_rows = [
+        SimpleNamespace(thesis_md="moat thesis " * 5,
+                        ts=datetime(2026, 6, 10, tzinfo=UTC),
+                        _recall_tag="sim=0.367"),
+        SimpleNamespace(thesis_md="margin thesis " * 5,
+                        ts=datetime(2026, 6, 5, tzinfo=UTC),
+                        _recall_tag="sim=0.371"),
+    ]
+    monkeypatch.setattr(pa, "_fetch_by_similarity",
+                        lambda *a, **k: fake_rows)
+    block = pa.fetch_memory_recall(None, "peter", "COST",
+                                   query_text="costco economics")
+    assert "sim=0.367" in block and "sim=0.371" in block
+    assert "recency" not in block
