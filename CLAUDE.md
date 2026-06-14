@@ -97,6 +97,10 @@ Everything below is LIVE in prod unless marked otherwise:
   caps (3.5/8.5/4.5/2.5%), drawdown floor on the LIVE track
   (20/35/25/15%). Rejection reasons feed the construction retry.
   "VaR unmeasurable" (<60 aligned obs) is soft — never rejects.
+  **Why hard-gate even when the prompt already states the caps**:
+  CS-11 documents Cathie repeatedly busting the sector cap after
+  explicit error feedback — LLM role-immersion can outweigh stated
+  rules, so the system-level stop is non-negotiable.
 - **Paper engine**: NAV conservation exact (no fees v1), execution
   idempotent via `report_id` on `persona_trades`, fills at next bar
   OPEN, MTM at CLOSE. Hypothetical rows are write-guarded
@@ -108,9 +112,9 @@ Everything below is LIVE in prod unless marked otherwise:
   history sanitized ≤20 turns, Edge 10/min/IP rate limit.
 - **yfinance**: core dependency, but strictly tier-3 fallback,
   sanity-enveloped; its steps fail loudly if missing.
-- **No silent failures — this codebase's #1 bug class** (5 of the
-  12 documented case studies: CS-3/4/5/6/12 in `docs/case-studies.md`).
-  Every caught exception logs loudly with context or re-raises;
+- **No silent failures — this codebase's #1 bug class** (see CS-3,
+  CS-4, CS-5, CS-6, CS-12 in `docs/case-studies.md` for the canonical
+  cases). Every caught exception logs loudly with context or re-raises;
   `suppress` / `except: pass` / `setdefault` on LLM-overlapping fields
   need written justification. A step where every item "skipped" is a
   FAILURE, not a success. **Don't pass the full universe to a

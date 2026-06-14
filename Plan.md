@@ -843,19 +843,22 @@ instead of real elapsed paper time.
 ### Lessons from Phase C (running list — close out with the phase)
 
 Full presentation-ready write-ups with symptom→hunt→root-cause per bug
-live in **`docs/case-studies.md`** (CS-1…CS-10, kept for the final
-project talk). The distilled rules:
+live in **`docs/case-studies.md`** (kept for the final project talk;
+canonical count + list of silent-failure cases live there too). The
+distilled rules:
 
-1. **Silent failure is THIS project's #1 bug class.** Four real
-   incidents shared one shape — an error swallowed without a sound:
+1. **Silent failure is THIS project's #1 bug class.** Same shape across
+   multiple incidents — an error swallowed without a sound:
    `except ImportError → no_data` made a missing dependency report
    ok=True (CS-3); `setdefault` let an LLM-volunteered `as_of` beat the
    server for weeks (CS-4); a JSON parser that tolerated trailing but
    not leading prose threw away valid retry books as "char 0" (CS-5);
    `suppress(AttributeError)` hid that SQLAlchemy Rows are immutable,
-   so working similarity recall self-labelled "recency" forever (CS-6).
-   Rule: every caught exception either logs loudly with context or
-   re-raises; `suppress`/`except: pass` need written justification.
+   so working similarity recall self-labelled "recency" forever (CS-6);
+   the Service ignored exit codes so an equity-OHLCV freeze sat hidden
+   for 9 days (CS-12). Rule: every caught exception either logs loudly
+   with context or re-raises; `suppress`/`except: pass` need written
+   justification.
 2. **A verification instruction is code too** — "check the logs for
    sim=" was unverifiable by construction (the tag was never logged,
    and broken even in the prompt). When docs claim "verify by X",
