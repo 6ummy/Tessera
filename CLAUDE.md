@@ -108,12 +108,16 @@ Everything below is LIVE in prod unless marked otherwise:
   history sanitized ≤20 turns, Edge 10/min/IP rate limit.
 - **yfinance**: core dependency, but strictly tier-3 fallback,
   sanity-enveloped; its steps fail loudly if missing.
-- **No silent failures — this codebase's #1 bug class** (4 real
-  incidents: CS-3/4/5/6 in `docs/case-studies.md`). Every caught
-  exception logs loudly with context or re-raises; `suppress` /
-  `except: pass` / `setdefault` on LLM-overlapping fields need written
-  justification. A step where every item "skipped" is a FAILURE, not a
-  success. When you fix a nontrivial bug, ADD A CS ENTRY to
+- **No silent failures — this codebase's #1 bug class** (5 of the
+  12 documented case studies: CS-3/4/5/6/12 in `docs/case-studies.md`).
+  Every caught exception logs loudly with context or re-raises;
+  `suppress` / `except: pass` / `setdefault` on LLM-overlapping fields
+  need written justification. A step where every item "skipped" is a
+  FAILURE, not a success. **Don't pass the full universe to a
+  source-specific ingest** — equity steps send `by_asset_class("equity")
+  +("etf")` only; Alpaca rejects a crypto symbol and fails the whole
+  batch (CS-12, hidden for 9 days because the Service ignored exit
+  codes). When you fix a nontrivial bug, ADD A CS ENTRY to
   case-studies.md (presentation material) in the same PR.
 
 ## 4. Commands (Windows / PowerShell)
@@ -216,9 +220,12 @@ Done 2026-06-12/13: Gateway VaR/DD/Ray + attribution endpoint + weight
 telemetry (#105–#108); **Cloud Run Jobs migration** (#116,
 `deploy_cloud_run_jobs.ps1` + `docs/runbooks/cloud-run-jobs.md` — batches
 run to completion, no more BackgroundTask reaping; the cutover
-[Cloud Scheduler on, Vercel crons off] is an operator console step);
+[Cloud Scheduler on, Vercel crons off] is an operator console step; the
+first test-run also surfaced CS-12, fixed in #119);
 **attribution UI table** in the detail sheet (#117); **main.py mypy
-burn-down** (#118).
+burn-down** (#118); **equity-ingest crypto-exclusion** (#119, CS-12 —
+equity OHLCV had silently frozen 9 days because Alpaca rejected a
+crypto symbol and the Service ignored the exit code).
 
 ## 9. Doc map
 
