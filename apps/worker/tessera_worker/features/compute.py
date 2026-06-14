@@ -41,6 +41,7 @@ from sqlalchemy import text
 
 from tessera_worker.db import session_scope
 from tessera_worker.logging import get_logger
+from tessera_worker.universe import META_BY_TICKER
 
 log = get_logger(__name__)
 
@@ -544,7 +545,11 @@ def compute_gross_margin_trend(rows: list[dict]) -> float | None:
     return latest_margin - anchor_margin
 
 
-def sum_ttm_fcf(rows: list[dict]) -> float | None:
+def sum_ttm_fcf(
+    rows: list[dict],
+    *,
+    fy_end_month: int | None = None,
+) -> float | None:
     """Trailing-twelve-month FCF — robust to three data shapes.
 
     `rows` are most-recent first, each with `freeCashFlow`, optional
@@ -603,7 +608,9 @@ def sum_ttm_fcf(rows: list[dict]) -> float | None:
             # genuinely quarterly stays within ~1.5×.
             if len(pos) >= 4 and (max(pos) / min(pos)) > 2.0:
                 # (C-precise) Try period_end-aware decomposition.
-                ttm = _decompose_cumulative_ytd_to_ttm(window)
+                ttm = _decompose_cumulative_ytd_to_ttm(
+                    window, fy_end_month=fy_end_month,
+                )
                 if ttm is not None:
                     return ttm
                 # (C-fallback) Last fiscal-year annual ≈ TTM.
@@ -688,7 +695,11 @@ def _annual_income_rows(rows: list[dict]) -> list[dict]:
     return out
 
 
-def _decompose_cumulative_ytd_to_ttm(rows: list[dict]) -> float | None:
+def _decompose_cumulative_ytd_to_ttm(
+    rows: list[dict],
+    *,
+    fy_end_month: int | None = None,
+) -> float | None:
     """Precise TTM from cumulative-YTD rows when period_end is present.
 
     The math:
@@ -710,12 +721,25 @@ def _decompose_cumulative_ytd_to_ttm(rows: list[dict]) -> float | None:
                          (matches independently-computed Apple TTM
                          for the trailing 12 months ending Mar 28 2026.)
 
+    When `fy_end_month` is provided (e.g. AAPL=9, COST=8, AMZN=12), the
+    anchor lookup uses month-match instead of a ±45-day day-delta:
+      - prior_ytd = row with same month as latest_pe, one year earlier
+      - last_fy_annual = row whose month == fy_end_month, between them
+
+    This rescues UNH / AMZN / COIN cases where the prior-year same-
+    quarter row is exactly ~365 days away but the day-delta window
+    misses by a few days (53-week fiscal years, restated filings),
+    silently falling back to max(window) = last full FY (up to 12 months
+    stale, Plan §5 line 734).
+
+    Falls back to the original day-delta heuristic when fy_end_month is
+    not provided or month-match returns no candidates.
+
     Returns None when any of:
-      - period_end missing on any candidate row,
-      - no row found ~365 days before the latest (±45-day tolerance),
+      - period_end missing on every candidate row,
+      - no row found 1 year before the latest (month-match or ±45 days),
       - no FY annual candidate found between prior YTD and current YTD,
-      - latest row's period_end is younger than ~12 months from any prior
-        (universe too sparse to do TTM decomposition).
+      - universe is too sparse to do TTM decomposition.
     """
     dated = []
     for r in rows:
@@ -733,35 +757,61 @@ def _decompose_cumulative_ytd_to_ttm(rows: list[dict]) -> float | None:
     if current_ytd is None:
         return None
 
-    # Find row ~365 days before the latest (320–410 day tolerance: handles
-    # 5-week month variance + occasional 53-week fiscal years).
+    # Find prior YTD anchor — month-match preferred (calendar-precise),
+    # day-delta fallback for unknown FY months.
     prior_ytd_row = None
     prior_pe = None
-    for pe, r in dated[1:]:
-        delta_days = (latest_pe - pe).days
-        if 320 <= delta_days <= 410:
-            prior_ytd_row = r
-            prior_pe = pe
-            break
+    if fy_end_month is not None:
+        for pe, r in dated[1:]:
+            if (
+                pe.month == latest_pe.month
+                and (latest_pe.year - pe.year) == 1
+            ):
+                prior_ytd_row = r
+                prior_pe = pe
+                break
     if prior_ytd_row is None:
+        # Fallback: ±45-day window around 365 days (handles 5-week
+        # month variance + occasional 53-week fiscal years).
+        for pe, r in dated[1:]:
+            delta_days = (latest_pe - pe).days
+            if 320 <= delta_days <= 410:
+                prior_ytd_row = r
+                prior_pe = pe
+                break
+    if prior_ytd_row is None or prior_pe is None:
         return None
     prior_ytd = _fcf_value(prior_ytd_row)
     if prior_ytd is None:
         return None
 
-    # The "last full FY" is the row strictly between prior_pe and latest_pe
-    # with the LARGEST freeCashFlow value (= the fiscal year end inside
-    # the window, the only row that's a full-12-month cumulative).
-    fy_candidates: list[float] = []
-    for pe, r in dated:
-        if pe <= prior_pe or pe >= latest_pe:
-            continue
-        v = _fcf_value(r)
-        if v is not None:
-            fy_candidates.append(v)
-    if not fy_candidates:
-        return None
-    last_fy_annual = max(fy_candidates)
+    # The "last full FY" annual lives strictly between prior_pe and
+    # latest_pe. Month-match (period_end.month == fy_end_month) is more
+    # precise than max-value when there are duplicate / restated rows,
+    # but the max-value heuristic remains the safe fallback because it
+    # only relies on the cumulative-YTD invariant (Q4 = FY annual = the
+    # largest cumulative value of any quarter).
+    last_fy_annual: float | None = None
+    if fy_end_month is not None:
+        for pe, r in dated:
+            if pe <= prior_pe or pe >= latest_pe:
+                continue
+            if pe.month == fy_end_month:
+                v = _fcf_value(r)
+                if v is not None:
+                    last_fy_annual = v
+                    break
+    if last_fy_annual is None:
+        fy_candidates: list[float] = []
+        for pe, r in dated:
+            if pe <= prior_pe or pe >= latest_pe:
+                continue
+            v = _fcf_value(r)
+            if v is not None:
+                fy_candidates.append(v)
+        if not fy_candidates:
+            return None
+        last_fy_annual = max(fy_candidates)
 
     return last_fy_annual + current_ytd - prior_ytd
 
@@ -1244,7 +1294,9 @@ def build(
             if not f or not c:
                 continue
             ts, close = c
-            ttm_fcf = sum_ttm_fcf(f["cash_rows"])
+            meta = META_BY_TICKER.get(ticker)
+            fy_end_month = meta.fy_end_month if meta is not None else None
+            ttm_fcf = sum_ttm_fcf(f["cash_rows"], fy_end_month=fy_end_month)
             mcap = estimate_market_cap(
                 close=close,
                 shares_basic=f.get("shares_basic"),

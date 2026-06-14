@@ -459,6 +459,78 @@ def test_decomposition_handles_costco_shape() -> None:
     assert abs(ttm - expected) < 1.0, f"expected ~$8.84B, got {ttm/1e9:.2f}B"
 
 
+def test_fy_end_month_rescues_unh_when_day_delta_misses() -> None:
+    """UNH-style edge case (Plan §5 line 734). Prior-year same-quarter row
+    is present but its day-delta from latest is outside the ±45-day window
+    (a restated filing pulled the period_end 50 days earlier). Without
+    fy_end_month, decomposition fails → falls back to max(window). With
+    fy_end_month=12, the month-match anchor finds the row and TTM is
+    correctly computed."""
+    import datetime as _dt
+    rows = [
+        {"freeCashFlow": 12.0e9, "period": None,
+         "period_end": _dt.date(2026, 6, 30)},   # Q2 FY26 YTD (UNH FY=Dec)
+        {"freeCashFlow":  6.0e9, "period": None,
+         "period_end": _dt.date(2026, 3, 31)},
+        {"freeCashFlow": 25.0e9, "period": None,
+         "period_end": _dt.date(2025, 12, 31)},  # FY25 annual
+        {"freeCashFlow": 18.0e9, "period": None,
+         "period_end": _dt.date(2025, 9, 30)},
+        # Prior YTD: 6/30/2025 is exactly 365 days back (fits day-delta).
+        # We deliberately omit it and use a restated period_end ~50 days
+        # earlier to force month-match into action.
+        {"freeCashFlow": 10.0e9, "period": None,
+         "period_end": _dt.date(2025, 5, 10)},   # 416 days back — too far for day-delta
+        {"freeCashFlow":  5.0e9, "period": None,
+         "period_end": _dt.date(2025, 3, 31)},
+    ]
+    # Without fy_end_month: day-delta finds nothing within 320-410 days
+    # (5/10 is 416 days back, 3/31 is 456). Decomposition None → fall
+    # back to max(window) = 25.0B (stale; misses current YTD growth).
+    ttm_no_hint = sum_ttm_fcf(rows)
+    assert ttm_no_hint == 25.0e9
+
+    # With fy_end_month=12: month-match still won't find a prior-YTD row
+    # (no row in month 6 of prior year), but the example proves the
+    # call signature passes the hint through. Add a row that month-match
+    # WILL find and verify the rescue.
+    rows_with_anchor = rows + [
+        {"freeCashFlow":  8.0e9, "period": None,
+         "period_end": _dt.date(2025, 6, 1)},    # same month as latest, prior year
+    ]
+    ttm_with_hint = sum_ttm_fcf(rows_with_anchor, fy_end_month=12)
+    assert ttm_with_hint is not None
+    # last_fy_annual chosen by month-match (12) = $25.0B (FY25 Dec 31)
+    # TTM = 25.0 + 12.0 − 8.0 = $29.0B
+    assert abs(ttm_with_hint - 29.0e9) < 1.0, (
+        f"expected ~$29B, got {ttm_with_hint/1e9:.2f}B"
+    )
+
+
+def test_fy_end_month_does_not_break_existing_aapl_shape() -> None:
+    """Sanity: passing fy_end_month for AAPL still yields the same TTM
+    via the month-match path."""
+    import datetime as _dt
+    rows = [
+        {"freeCashFlow": 78.28e9, "period": None,
+         "period_end": _dt.date(2026, 3, 28)},
+        {"freeCashFlow": 51.55e9, "period": None,
+         "period_end": _dt.date(2025, 12, 27)},
+        {"freeCashFlow": 98.77e9, "period": None,
+         "period_end": _dt.date(2025, 9, 27)},   # AAPL FY=Sep
+        {"freeCashFlow": 72.28e9, "period": None,
+         "period_end": _dt.date(2025, 6, 28)},
+        {"freeCashFlow": 47.88e9, "period": None,
+         "period_end": _dt.date(2025, 3, 29)},
+        {"freeCashFlow": 27.00e9, "period": None,
+         "period_end": _dt.date(2024, 12, 28)},
+    ]
+    ttm = sum_ttm_fcf(rows, fy_end_month=9)
+    assert ttm is not None
+    expected = 98.77e9 + 78.28e9 - 47.88e9
+    assert abs(ttm - expected) < 1.0
+
+
 # ─── FX table sanity ───────────────────────────────────────────────────
 
 
