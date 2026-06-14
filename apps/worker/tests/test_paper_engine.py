@@ -7,15 +7,19 @@ any rebalance. If these tests fail, the paper P&L track is fiction.
 
 from __future__ import annotations
 
+import datetime as _dt
+
 import pytest
 
 from tessera_worker.risk.paper_engine import (
     INITIAL_CAPITAL_USD,
+    REFUSE_WRITE_STALE_DAYS,
     book_to_targets,
     compute_rebalance,
     mark_to_market,
     max_drawdown,
     sharpe_30d,
+    validate_bars,
 )
 
 
@@ -135,3 +139,69 @@ def test_book_to_targets_ray_allocations():
         ],
     }
     assert book_to_targets(parsed) == {"VTI": 0.40, "GLD": 0.20}
+
+
+# ── validate_bars (data integrity gate) ─────────────────────────────────
+
+
+def test_validate_bars_passes_on_fresh_finite_prices():
+    today = _dt.date(2026, 6, 14)
+    bars = {
+        "AAPL": (today,                              210.0, 215.0),
+        "JPM":  (today - _dt.timedelta(days=3),      255.0, 258.0),
+    }
+    held = {"AAPL", "JPM"}
+    r = validate_bars(bars, held, today)
+    assert r.ok
+    assert r.reasons == []
+    assert r.stale_tickers == []
+    assert r.invalid_tickers == []
+
+
+def test_validate_bars_flags_missing_held_ticker():
+    today = _dt.date(2026, 6, 14)
+    bars = {"AAPL": (today, 210.0, 215.0)}
+    r = validate_bars(bars, {"AAPL", "JPM"}, today)
+    assert not r.ok
+    assert any("JPM" in s for s in r.reasons)
+
+
+def test_validate_bars_refuses_stale_held_position():
+    today = _dt.date(2026, 6, 14)
+    stale_date = today - _dt.timedelta(days=REFUSE_WRITE_STALE_DAYS + 1)
+    bars = {"AAPL": (stale_date, 210.0, 215.0)}
+    r = validate_bars(bars, {"AAPL"}, today)
+    assert not r.ok
+    assert "AAPL" in r.stale_tickers
+
+
+def test_validate_bars_flags_non_finite_close():
+    today = _dt.date(2026, 6, 14)
+    bars = {"AAPL": (today, 210.0, float("nan"))}
+    r = validate_bars(bars, {"AAPL"}, today)
+    assert not r.ok
+    assert "AAPL" in r.invalid_tickers
+
+
+def test_validate_bars_flags_zero_or_negative_price():
+    today = _dt.date(2026, 6, 14)
+    bars = {
+        "AAPL": (today, 210.0, 0.0),
+        "JPM":  (today, 250.0, -1.0),
+    }
+    r = validate_bars(bars, {"AAPL", "JPM"}, today)
+    assert not r.ok
+    assert set(r.invalid_tickers) == {"AAPL", "JPM"}
+
+
+def test_validate_bars_ignores_non_held_ticker_staleness():
+    """A stale bar for a ticker we don't currently hold is fine — it's
+    only a write-time problem when the bar is feeding NAV."""
+    today = _dt.date(2026, 6, 14)
+    stale_date = today - _dt.timedelta(days=REFUSE_WRITE_STALE_DAYS + 5)
+    bars = {
+        "AAPL": (today, 210.0, 215.0),
+        "OLD":  (stale_date, 1.0, 1.0),
+    }
+    r = validate_bars(bars, {"AAPL"}, today)
+    assert r.ok

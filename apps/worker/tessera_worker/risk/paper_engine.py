@@ -57,8 +57,27 @@ MIN_TRADE_USD = 1.0
 # valuation is stale (delisted ticker, ingest gap). Crypto trades weekends
 # so equities are the ones that age over holidays; 7 days is generous.
 STALE_PRICE_DAYS = 7
+# A held-position bar older than this REFUSES to write the persona's
+# perf row (data integrity gate, Plan §5 line 808). We'd rather skip a
+# day than ship a Sharpe/MDD computed from stale prices that misled
+# downstream backtest comparisons. The 14-day threshold is twice the
+# STALE_PRICE_DAYS warn limit — by then it's not a long weekend, it's a
+# real ingest outage.
+REFUSE_WRITE_STALE_DAYS = 14
 
 PERSONAS: tuple[str, ...] = ("warren", "cathie", "ray", "peter")
+
+# Adjusted-price policy (Plan §5 line 808): we use UNADJUSTED OHLCV from
+# Alpaca IEX (equities + ETFs) and Coinbase Exchange (crypto). Splits +
+# dividends are NOT applied on the data plane — the paper engine
+# mark-to-market simply uses the bar that's there. For pilot-scale,
+# corporate actions over the live track's window (since 2026-06-11) are
+# rare enough that the noise hasn't bitten us; for the 90-day backtest
+# baseline (PR earlier this session), the harness inherits the same raw
+# prices, so the relative comparison across personas stays apples-to-
+# apples even if individual NAVs jump on an unprocessed split. A proper
+# fix (corporate-actions feed + split-adjusted reads on backtest paths)
+# is its own Phase D-class workstream — out of scope here.
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -237,25 +256,99 @@ def _load_portfolio(session: Session, persona: str) -> tuple[dict[str, float], f
 
 
 def _load_latest_bars(
-    session: Session, tickers: set[str],
+    session: Session, tickers: set[str], as_of: date | None = None,
 ) -> dict[str, tuple[date, float, float]]:
     """ticker → (bar_date, open, close) from each ticker's most-recent
-    bar. Post-006 there is one row per calendar day, so DISTINCT ON
-    (ticker) is canonical."""
+    bar at or before `as_of`. Post-006 there is one row per calendar day,
+    so DISTINCT ON (ticker) is canonical.
+
+    The as_of upper-bound is the point-in-time guard (Plan §5 line 808):
+    when called from a backtest replay or a backfill of perf rows for a
+    past date, the bars used must not be from after that date. Default
+    None = no upper bound (live daily run)."""
     if not tickers:
         return {}
-    rows = session.execute(text("""
-        SELECT DISTINCT ON (ticker) ticker, ts::date AS d, open, close
-        FROM ohlcv_1d
-        WHERE ticker = ANY(:t)
-        ORDER BY ticker, ts DESC
-    """), {"t": sorted(tickers)}).all()
+    if as_of is None:
+        rows = session.execute(text("""
+            SELECT DISTINCT ON (ticker) ticker, ts::date AS d, open, close
+            FROM ohlcv_1d
+            WHERE ticker = ANY(:t)
+            ORDER BY ticker, ts DESC
+        """), {"t": sorted(tickers)}).all()
+    else:
+        rows = session.execute(text("""
+            SELECT DISTINCT ON (ticker) ticker, ts::date AS d, open, close
+            FROM ohlcv_1d
+            WHERE ticker = ANY(:t) AND ts::date <= :as_of
+            ORDER BY ticker, ts DESC
+        """), {"t": sorted(tickers), "as_of": as_of}).all()
     out: dict[str, tuple[date, float, float]] = {}
     for r in rows:
         if r.open is None or r.close is None:
             continue
         out[r.ticker] = (r.d, float(r.open), float(r.close))
     return out
+
+
+@dataclass(frozen=True, slots=True)
+class BarValidationResult:
+    """Outcome of `validate_bars`. `ok=False` means the perf write should
+    be skipped — the data plane is degraded enough that any Sharpe/MDD
+    we compute here would mislead. `reasons` is the human-readable list
+    for the operator log + Sentry message."""
+    ok: bool
+    reasons: list[str]
+    stale_tickers: list[str]
+    invalid_tickers: list[str]
+
+
+def validate_bars(
+    bars: dict[str, tuple[date, float, float]],
+    held_tickers: set[str],
+    as_of: date,
+    *,
+    refuse_stale_days: int = REFUSE_WRITE_STALE_DAYS,
+) -> BarValidationResult:
+    """Write-time integrity gate (Plan §5 line 808). Refuses to ship a
+    persona_performance row when:
+
+      - any held ticker is missing a bar at all (= NAV uncomputable);
+      - any held ticker's newest bar is older than refuse_stale_days
+        (long ingest outage — stale Sharpe/MDD is worse than no row);
+      - any close is not finite or not positive (corrupt data slipped
+        the ingest canary).
+
+    Pure function — no DB. Caller skips the perf write + pages Sentry
+    when ok=False."""
+    reasons: list[str] = []
+    stale: list[str] = []
+    invalid: list[str] = []
+
+    missing = sorted(held_tickers - set(bars))
+    if missing:
+        reasons.append(f"held positions unpriced: {missing}")
+
+    for ticker in sorted(held_tickers & set(bars)):
+        bar_date, open_, close = bars[ticker]
+        age_days = (as_of - bar_date).days
+        if age_days > refuse_stale_days:
+            stale.append(ticker)
+            reasons.append(
+                f"{ticker} bar is {age_days}d old (refuse_stale_days="
+                f"{refuse_stale_days})"
+            )
+        if not (math.isfinite(close) and close > 0):
+            invalid.append(ticker)
+            reasons.append(f"{ticker} close={close} not finite/positive")
+        if not (math.isfinite(open_) and open_ > 0):
+            invalid.append(ticker)
+            reasons.append(f"{ticker} open={open_} not finite/positive")
+
+    ok = not (missing or stale or invalid)
+    return BarValidationResult(
+        ok=ok, reasons=reasons,
+        stale_tickers=stale, invalid_tickers=invalid,
+    )
 
 
 def _run_persona(session: Session, persona: str, today: date) -> dict[str, Any]:
@@ -271,7 +364,9 @@ def _run_persona(session: Session, persona: str, today: date) -> dict[str, Any]:
         report_id, book_date, parsed = book
         if not _book_already_executed(session, persona, report_id):
             targets = book_to_targets(parsed)
-            bars = _load_latest_bars(session, set(positions) | set(targets))
+            bars = _load_latest_bars(
+                session, set(positions) | set(targets), as_of=today,
+            )
 
             # Targets without a price can't be filled — their weight stays
             # in cash until data arrives. A HELD ticker without a price is
@@ -320,19 +415,28 @@ def _run_persona(session: Session, persona: str, today: date) -> dict[str, Any]:
                          traded_usd=round(sum(f.value for f in fills), 2))
 
     # ── Mark-to-market + snapshot (runs daily even with no rebalance) ──
-    bars = _load_latest_bars(session, set(positions))
-    missing = sorted(set(positions) - set(bars))
-    if missing:
-        log.error("paper_engine.mtm_skipped_unpriced",
-                  persona=persona, tickers=missing)
-        # A held position we can't price means the persona's NAV is
-        # frozen/unknown — page-worthy even though we degrade gracefully.
+    bars = _load_latest_bars(session, set(positions), as_of=today)
+
+    # Write-time integrity gate. If held positions are unpriced or too
+    # stale or the bar values are corrupt, skip the perf write and page
+    # — a stale Sharpe/MDD on the leaderboard is worse than a missing
+    # day (operator can re-run after ingest catches up).
+    gate = validate_bars(bars, set(positions), today)
+    if not gate.ok:
+        log.error("paper_engine.integrity_gate_failed",
+                  persona=persona, reasons=gate.reasons,
+                  stale=gate.stale_tickers, invalid=gate.invalid_tickers)
         import sentry_sdk
         sentry_sdk.capture_message(
-            f"paper_engine: {persona} MTM skipped — held positions "
-            f"unpriced: {missing}", level="error",
+            f"paper_engine: {persona} perf write skipped — "
+            + "; ".join(gate.reasons),
+            level="error",
         )
-        return {"persona": persona, "fills": len(fills), "mtm": "skipped"}
+        return {
+            "persona": persona, "fills": len(fills),
+            "mtm": "skipped", "integrity_gate": "failed",
+            "reasons": gate.reasons,
+        }
     closes = {t: b[2] for t, b in bars.items()}
     total_value = mark_to_market(positions, cash, closes)
 
