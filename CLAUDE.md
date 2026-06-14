@@ -188,6 +188,25 @@ JSONB; `rejected` flag), `persona_trades/portfolios/performance`
   reads them as cp1252 mojibake. **Use the Read tool for Edit match
   strings; never bulk-rewrite files via PowerShell `-replace`** (it
   corrupted paper_engine.py once; had to restore from git).
+- **`curl` in PowerShell is an alias for `Invoke-WebRequest`, NOT real
+  curl.** `-H "Authorization: Bearer X"` fails with `Cannot bind
+  parameter 'Headers'. Cannot convert ... String to ... IDictionary`.
+  Either: (a) call real curl as `curl.exe -H "..."`, or (b) use the
+  native form `Invoke-WebRequest -Uri ... -Headers @{ "Authorization"
+  = "Bearer $TOKEN" }`. Same trap appears for any `-H` / `--header` /
+  `-d` flag you copy-pasted from a Linux/Mac snippet.
+- **Cloud Run worker is `--no-allow-unauthenticated`** — only
+  `serviceAccount:tessera-vercel@...` is bound to `roles/run.invoker`.
+  Direct `curl https://tessera-worker-...` from a dev box returns
+  `Error: Forbidden / Your client does not have permission` at
+  Google's edge (the request never reaches the app). For ad-hoc
+  testing add your own user once with
+  `gcloud run services add-iam-policy-binding tessera-worker --region
+  us-east1 --member="user:<email>" --role="roles/run.invoker"`, then
+  pass an ID token via `gcloud auth print-identity-token`. Health
+  checks are rarely needed anyway — a `gcloud run services describe`
+  showing the latest revision as `Ready` is a stronger signal than
+  `/health` 200 (readiness probe already gated it).
 - The operator (정우) runs gcloud/Neon/Vercel console steps — hand exact
   commands. Verify their reports with read-only queries when cheap.
 - After any ohlcv-touching migration: rebuild features
