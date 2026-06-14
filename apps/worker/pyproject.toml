@@ -90,6 +90,13 @@ strict = true
 python_version = "3.11"
 plugins = ["pydantic.mypy"]
 
+# pandas-stubs introduces a heavy dev dep + frequent version-skew with
+# the runtime pandas pin. We use pandas in a narrow Phase-A feature
+# builder; treat untyped-import as acceptable rather than chase stubs.
+[[tool.mypy.overrides]]
+module = ["pandas", "pandas.*"]
+ignore_missing_imports = true
+
 # ── Strict-debt ledger (2026-06-12) ─────────────────────────────────────
 # Modules written before mypy gating existed. Listed explicitly so the
 # debt is visible and CI can run mypy as a BLOCKING check for everything
@@ -104,17 +111,19 @@ plugins = ["pydantic.mypy"]
 #     remove it from this list (then mypy enforces it forever).
 # Backlog when this ledger was created (2026-06-12): ~220 errors across
 # these modules, mostly no-untyped-def on `session` params and bare
-# `dict`/`list` generics. Burned down so far: tessera_worker.main
-# (2026-06-13, #118 — 37 errors, all `_f/_i` annotations + bare dict).
-# 15 modules remain.
+# `dict`/`list` generics. Burned down so far:
+#   - tessera_worker.main (2026-06-13, #118 — 37 errors, all `_f/_i`
+#     annotations + bare dict).
+#   - tessera_worker.features.compute + agents.anthropic_runner +
+#     agents.prompt_assembler (2026-06-14 — 64 errors, all `dict[str, Any]`
+#     widening + `session: Any` annotations + a pd.DataFrame narrowing
+#     assert + the pandas-stubs ignore_missing_imports above).
+# 12 modules remain.
 [[tool.mypy.overrides]]
 module = [
-    "tessera_worker.features.compute",
     "tessera_worker.features.demo_data_explorer",
     "tessera_worker.features.demo_fcf_yield",
     "tessera_worker.features.demo_macro_sensitivity",
-    "tessera_worker.agents.anthropic_runner",
-    "tessera_worker.agents.prompt_assembler",
     "tessera_worker.agents.portfolio_construction",
     "tessera_worker.agents.ticker_resolver",
     "tessera_worker.agents.chat",

@@ -14,7 +14,7 @@ from uuid import UUID
 # Force UTF-8 stdout so thesis output (with Unicode arrows/box chars
 # from sparklines, Korean text, etc.) doesn't crash Windows cp1252 consoles.
 with contextlib.suppress(AttributeError):
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
 
 import structlog
 from anthropic import Anthropic
@@ -206,7 +206,7 @@ def build_analyst_report(
     )
 
 
-def check_daily_budget(session) -> float:
+def check_daily_budget(session: Any) -> float:
     settings = get_settings()
     row = session.execute(
         text("""
@@ -224,7 +224,7 @@ def check_daily_budget(session) -> float:
 
 
 def log_llm_call(
-    session,
+    session: Any,
     *,
     persona_id: PersonaId | None,
     stage: str,
@@ -260,7 +260,7 @@ def log_llm_call(
 
 
 def persist_analyst_report(
-    session,
+    session: Any,
     report: AnalystReport,
     *,
     raw_response: str,
@@ -306,7 +306,7 @@ def persist_analyst_report(
     return report_id
 
 
-def _persist_persona_memory(session, report: AnalystReport, *, report_id: UUID) -> int:
+def _persist_persona_memory(session: Any, report: AnalystReport, *, report_id: UUID) -> int:
     """One row per proposal into persona_memory with a Voyage embedding.
 
     Embedding write is best-effort:
@@ -425,7 +425,9 @@ def call_anthropic_thesis(
         messages=[{"role": "user", "content": user_content}],
     )
     latency_ms = int((time.perf_counter() - t0) * 1000)
-    raw = resp.content[0].text if resp.content else ""
+    # Anthropic SDK content blocks are a wide union (text, thinking, tool
+    # results, etc.) — we only request text, so block 0 always has `.text`.
+    raw = getattr(resp.content[0], "text", "") if resp.content else ""
     usage = resp.usage
     tokens_in = usage.input_tokens
     tokens_out = usage.output_tokens
@@ -591,7 +593,7 @@ def build_regime_report(
 
 
 def persist_regime_report(
-    session,
+    session: Any,
     report: RegimeReport,
     *,
     raw_response: str,
@@ -623,7 +625,7 @@ def persist_regime_report(
             "reasons": reject_reasons or [],
         },
     ).first()
-    return row[0]
+    return UUID(str(row[0]))
 
 
 def run_regime_thesis(
@@ -770,15 +772,15 @@ def main() -> int:
         return 1
     persona = sys.argv[1]
     if persona == "ray":
-        report = run_regime_thesis()
-        print(report.model_dump_json(indent=2))
+        regime_report = run_regime_thesis()
+        print(regime_report.model_dump_json(indent=2))
         return 0
     if len(sys.argv) < 3:
         print(f"Persona '{persona}' requires a ticker arg.")
         return 1
     ticker = sys.argv[2].upper()
-    report = run_thesis(persona, ticker)  # type: ignore[arg-type]
-    print(report.model_dump_json(indent=2))
+    analyst_report = run_thesis(persona, ticker)  # type: ignore[arg-type]
+    print(analyst_report.model_dump_json(indent=2))
     return 0
 
 

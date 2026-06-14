@@ -31,9 +31,11 @@ when fundamentals + news ingestors land):
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -164,8 +166,12 @@ def pct_change(close: pd.Series, n: int) -> pd.Series:
 
 def realized_vol(close: pd.Series, window: int = VOL_WINDOW) -> pd.Series:
     """Annualized realized vol from log returns over `window` days."""
-    log_ret = np.log(close / close.shift(1))
-    return log_ret.rolling(window).std(ddof=1) * np.sqrt(TRADING_DAYS_PER_YEAR)
+    # numpy → pd.Series chain; cast keeps the public signature.
+    log_ret = pd.Series(np.log(close / close.shift(1)))
+    out: pd.Series = log_ret.rolling(window).std(ddof=1) * np.sqrt(
+        TRADING_DAYS_PER_YEAR,
+    )
+    return out
 
 
 def rsi(close: pd.Series, window: int = RSI_WINDOW) -> pd.Series:
@@ -406,7 +412,7 @@ def compute_fcf_yield(
     return yld
 
 
-def compute_eps_cagr_3y(rows: list[dict]) -> float | None:
+def compute_eps_cagr_3y(rows: list[dict[str, Any]]) -> float | None:
     """3-year diluted EPS CAGR from annual income rows.
 
     `rows` should be newest first and carry `period_end` plus `epsDiluted`
@@ -447,7 +453,7 @@ def compute_eps_cagr_3y(rows: list[dict]) -> float | None:
     if years < 2.5:
         return None
 
-    cagr = (latest_eps / anchor_eps) ** (1.0 / years) - 1.0
+    cagr = float((latest_eps / anchor_eps) ** (1.0 / years) - 1.0)
     if abs(cagr) > EPS_CAGR_SANITY_BOUND:
         return None
     return cagr
@@ -509,7 +515,7 @@ def compute_gross_margin(revenue: float | None, gross_profit: float | None) -> f
     return margin
 
 
-def compute_gross_margin_trend(rows: list[dict]) -> float | None:
+def compute_gross_margin_trend(rows: list[dict[str, Any]]) -> float | None:
     """Latest gross margin minus gross margin roughly three years prior."""
     annual = _annual_income_rows(rows)
     if len(annual) < 4:
@@ -546,7 +552,7 @@ def compute_gross_margin_trend(rows: list[dict]) -> float | None:
 
 
 def sum_ttm_fcf(
-    rows: list[dict],
+    rows: list[dict[str, Any]],
     *,
     fy_end_month: int | None = None,
 ) -> float | None:
@@ -601,7 +607,11 @@ def sum_ttm_fcf(
     )
     if all_periods_unlabelled:
         window = [r for r in rows if _fcf_value(r) is not None][:8]
-        vals = [_fcf_value(r) for r in window]
+        # _fcf_value is not-None for every row in window (filter above);
+        # tighten the list type so mypy doesn't see float|None here.
+        vals: list[float] = [
+            v for v in (_fcf_value(r) for r in window) if v is not None
+        ]
         if len(window) >= 4:
             pos = [v for v in vals if v > 0]
             # Threshold 2.0: cumulative shape has max ≈ 4×Q1 ≈ 4×min;
@@ -648,7 +658,7 @@ def sum_ttm_fcf(
     return sum(qs)
 
 
-def _fcf_value(r: dict) -> float | None:
+def _fcf_value(r: dict[str, Any]) -> float | None:
     v = r.get("freeCashFlow")
     if v is None:
         return None
@@ -658,14 +668,17 @@ def _fcf_value(r: dict) -> float | None:
         return None
 
 
-def _eps_value(r: dict) -> float | None:
+def _eps_value(r: dict[str, Any]) -> float | None:
     diluted = _to_float(r.get("epsDiluted"))
     if diluted is not None:
         return diluted
     return _to_float(r.get("epsBasic"))
 
 
-def _pick_latest(rows: list[dict], extract):
+def _pick_latest(
+    rows: list[dict[str, Any]],
+    extract: Callable[[dict[str, Any]], Any],
+) -> Any:
     """Return the first non-None value yielded by `extract(row)` walking
     `rows` newest-first. Used so a partial latest filing can fall back
     to an older row that actually carries the field we need."""
@@ -676,7 +689,7 @@ def _pick_latest(rows: list[dict], extract):
     return None
 
 
-def _annual_income_rows(rows: list[dict]) -> list[dict]:
+def _annual_income_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Return newest-first income rows that look annual/FY.
 
     FMP annual rows carry `period=FY`; SEC companyfacts rows carry
@@ -696,7 +709,7 @@ def _annual_income_rows(rows: list[dict]) -> list[dict]:
 
 
 def _decompose_cumulative_ytd_to_ttm(
-    rows: list[dict],
+    rows: list[dict[str, Any]],
     *,
     fy_end_month: int | None = None,
 ) -> float | None:
@@ -880,7 +893,7 @@ def _compute_for_ticker(df_t: pd.DataFrame) -> pd.DataFrame:
 
 def _upsert_features(frames: dict[str, pd.DataFrame]) -> int:
     """Upsert one row per (ticker, ts). Idempotent via ON CONFLICT."""
-    rows: list[dict] = []
+    rows: list[dict[str, Any]] = []
     for ticker, df in frames.items():
         # Drop rows where every feature is NaN (early-history padding)
         df = df.dropna(how="all")
@@ -933,7 +946,7 @@ def _upsert_features(frames: dict[str, pd.DataFrame]) -> int:
     return written
 
 
-def _f(v) -> float | None:
+def _f(v: Any) -> float | None:
     """NaN-aware Decimal-friendly coerce to plain float for psycopg binding."""
     if v is None:
         return None
@@ -946,7 +959,7 @@ def _f(v) -> float | None:
     return float(v)
 
 
-def _int_or_none(v) -> int | None:
+def _int_or_none(v: Any) -> int | None:
     f = _f(v)
     return int(f) if f is not None else None
 
@@ -955,7 +968,7 @@ def _int_or_none(v) -> int | None:
 # Fundamentals loader + latest-row upsert
 # ─────────────────────────────────────────────────────────────────────────
 
-def _load_fundamentals_latest(tickers: list[str]) -> dict[str, dict]:
+def _load_fundamentals_latest(tickers: list[str]) -> dict[str, dict[str, Any]]:
     """Recent cash-flow/income rows + latest balance row per ticker.
 
     Cash flow: pulls up to 4 most-recent rows so the caller can compute
@@ -1035,7 +1048,7 @@ def _load_fundamentals_latest(tickers: list[str]) -> dict[str, dict]:
     # filings where the restatement row carries no FCF value. Counting
     # those toward the cap pushes the 12-month anchor row off the end of
     # the window and degrades TTM decomposition to the max() fallback.
-    cash_by_ticker: dict[str, list[dict]] = {}
+    cash_by_ticker: dict[str, list[dict[str, Any]]] = {}
     ccy_by_ticker: dict[str, str | None] = {}
     mcap_payload: dict[str, float | None] = {}
     for r in cash_rows:
@@ -1062,8 +1075,8 @@ def _load_fundamentals_latest(tickers: list[str]) -> dict[str, dict]:
         if r.ticker not in mcap_payload and r.market_cap is not None:
             mcap_payload[r.ticker] = _to_float(r.market_cap)
 
-    income_by_ticker: dict[str, list[dict]] = {}
-    shares_by_ticker: dict[str, dict] = {}
+    income_by_ticker: dict[str, list[dict[str, Any]]] = {}
+    shares_by_ticker: dict[str, dict[str, Any]] = {}
     # Income cap raised from 8 → 24 so we always carry at least 4 annual
     # rows for filers that mix quarterly + annual in the same table.
     # V is the canonical case: 8-row window holds 6 quarters + 2 FY rows,
@@ -1117,7 +1130,7 @@ def _load_fundamentals_latest(tickers: list[str]) -> dict[str, dict]:
 
     # Same fall-through pattern for balance: pick the freshest non-null
     # value per field across all available balance filings.
-    balance_by_ticker: dict[str, dict] = {}
+    balance_by_ticker: dict[str, dict[str, Any]] = {}
     for r in bal_rows:
         b = balance_by_ticker.setdefault(r.ticker, {
             "total_debt":      None,
@@ -1134,7 +1147,7 @@ def _load_fundamentals_latest(tickers: list[str]) -> dict[str, dict]:
         if b["equity"] is None:
             b["equity"] = _to_float(r.equity)
 
-    out: dict[str, dict] = {}
+    out: dict[str, dict[str, Any]] = {}
     tickers_seen = set(cash_by_ticker) | set(income_by_ticker) | set(balance_by_ticker)
     for ticker in tickers_seen:
         shares = shares_by_ticker.get(ticker, {})
@@ -1168,7 +1181,7 @@ def _load_latest_closes(tickers: list[str]) -> dict[str, tuple[date, float]]:
     return {r.ticker: (r.ts, float(r.close)) for r in rows}
 
 
-def _to_float(v) -> float | None:
+def _to_float(v: Any) -> float | None:
     if v is None:
         return None
     try:
@@ -1180,7 +1193,7 @@ def _to_float(v) -> float | None:
     return f
 
 
-def _upsert_fundamental_features(per_ticker: dict[str, dict]) -> int:
+def _upsert_fundamental_features(per_ticker: dict[str, dict[str, Any]]) -> int:
     """Write fundamental features onto the latest existing ticker_features row.
 
     Why "latest existing": price features write a row per trading day. We
@@ -1277,7 +1290,11 @@ def build(
     for ticker in tickers:
         if ticker not in df.index.get_level_values(0):
             continue
+        # MultiIndex .loc[ticker] returns DataFrame for our (ticker, ts)
+        # layout — single-row tickers would surface as Series and we'd
+        # already have skipped them via the index check above.
         df_t = df.loc[ticker].sort_index()
+        assert isinstance(df_t, pd.DataFrame)
         frames[ticker] = _compute_for_ticker(df_t)
 
     written = _upsert_features(frames)
@@ -1287,7 +1304,7 @@ def build(
     if with_fundamentals:
         fund_per_ticker = _load_fundamentals_latest(tickers)
         closes = _load_latest_closes(tickers)
-        fund_rows: dict[str, dict] = {}
+        fund_rows: dict[str, dict[str, Any]] = {}
         for ticker in tickers:
             f = fund_per_ticker.get(ticker)
             c = closes.get(ticker)

@@ -188,7 +188,7 @@ def fetch_inputs(
     ).all()
     out["prices_full"] = [(p.d, float(p.close)) for p in all_prices]
 
-    funds: dict[str, list[dict]] = {}
+    funds: dict[str, list[dict[str, Any]]] = {}
     for ft in ("income", "balance", "cash_flow"):
         annual_rows = session.execute(
             text("""
@@ -203,7 +203,7 @@ def fetch_inputs(
         funds[ft] = [dict(r) for r in annual_rows]
     out["fundamentals_annual"] = funds
 
-    funds_latest: dict[str, dict | None] = {}
+    funds_latest: dict[str, dict[str, Any] | None] = {}
     for ft in ("income", "balance", "cash_flow"):
         row = session.execute(
             text("""
@@ -356,7 +356,7 @@ def fetch_memory_recall(
 def _fetch_by_similarity(
     session: Session, persona: PersonaId, ticker: str, limit: int,
     query_text: str | None, as_of: date | None,
-) -> list:
+) -> list[Any]:
     """Try Voyage embedding + pgvector cosine search. Empty list on any miss.
 
     `as_of` upper-bounds ts — backtest replay must not see theses from
@@ -407,7 +407,7 @@ def _fetch_by_similarity(
 def _fetch_by_recency(
     session: Session, persona: PersonaId, ticker: str, limit: int,
     as_of: date | None,
-) -> list:
+) -> list[Any]:
     cutoff_clause = "AND ts::date <= :cutoff" if as_of else ""
     params: dict[str, Any] = {"p": persona, "t": ticker, "n": limit}
     if as_of:
@@ -454,7 +454,7 @@ def _fmt_num(v: Any, digits: int = 2, *, signed: bool = False) -> str:
         return "n/a"
 
 
-def render_features(f: dict | None) -> str:
+def render_features(f: dict[str, Any] | None) -> str:
     if not f:
         return "<features>(no data)</features>"
     return (
@@ -499,7 +499,7 @@ def _sparkline(values: list[float], width: int = 40) -> str:
     )
 
 
-def render_price_history(prices_full: list[tuple]) -> str:
+def render_price_history(prices_full: list[tuple[Any, ...]]) -> str:
     if not prices_full:
         return "<price_history>(no data)</price_history>"
     closes = [p[1] for p in prices_full]
@@ -527,7 +527,7 @@ def render_price_history(prices_full: list[tuple]) -> str:
     )
 
 
-def render_fundamentals(funds: dict) -> str:
+def render_fundamentals(funds: dict[str, Any]) -> str:
     if not funds or not any(funds.values()):
         return "<financials>(no data)</financials>"
     inc = (funds.get("income") or {}).get("payload") or {}
@@ -548,7 +548,7 @@ def render_fundamentals(funds: dict) -> str:
     )
 
 
-def render_fundamentals_trend(funds_annual: dict) -> str:
+def render_fundamentals_trend(funds_annual: dict[str, Any]) -> str:
     if not funds_annual:
         return "<financials_trend>(no annual data)</financials_trend>"
     inc_rows = funds_annual.get("income", [])
@@ -557,7 +557,7 @@ def render_fundamentals_trend(funds_annual: dict) -> str:
     if not inc_rows and not cf_rows:
         return "<financials_trend>(no annual data)</financials_trend>"
 
-    by_period: dict = {}
+    by_period: dict[Any, dict[str, Any]] = {}
     for row in inc_rows:
         p = row["period_end"]
         by_period.setdefault(p, {})["inc"] = row["payload"]
@@ -569,7 +569,7 @@ def render_fundamentals_trend(funds_annual: dict) -> str:
         by_period.setdefault(p, {})["bs"] = row["payload"]
     periods = sorted(by_period.keys(), reverse=True)[:5]
 
-    def fmt(payload_block: dict | None, key: str) -> str:
+    def fmt(payload_block: dict[str, Any] | None, key: str) -> str:
         if not payload_block:
             return "n/a"
         v = payload_block.get(key)
@@ -608,7 +608,7 @@ def render_fundamentals_trend(funds_annual: dict) -> str:
     return "\n".join(lines)
 
 
-def render_macros(m: dict) -> str:
+def render_macros(m: dict[str, Any]) -> str:
     if not m:
         return "<context>(no macro data)</context>"
     lines = []
@@ -622,7 +622,7 @@ def render_macros(m: dict) -> str:
     return f"<context count={len(lines)}>\n  " + "\n  ".join(lines) + "\n</context>"
 
 
-def render_news(items: list[dict]) -> str:
+def render_news(items: list[dict[str, Any]]) -> str:
     if not items:
         return "<news count=0>(none in window)</news>"
     lines = [f"<news count={len(items)}>"]
@@ -634,11 +634,11 @@ def render_news(items: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def news_ids_from_items(items: list[dict]) -> frozenset[str]:
+def news_ids_from_items(items: list[dict[str, Any]]) -> frozenset[str]:
     return frozenset(n["id"] for n in items)
 
 
-def render_filing(f: dict | None) -> str:
+def render_filing(f: dict[str, Any] | None) -> str:
     if not f:
         return "<filing>(no 10-K available)</filing>"
     excerpt = shorten(f["text_summary"] or "", width=800, placeholder="...")
