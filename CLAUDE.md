@@ -208,9 +208,12 @@ JSONB; `rejected` flag), `persona_trades/portfolios/performance`
 
 1. **90-day point-in-time backtest baseline** — credibility anchor;
    harness exists (`jobs/backtest_harness.py`), ~$10–20 LLM. Plan §5 Week 5.
-2. **mypy ledger burn-down** — 15 legacy modules left (main.py burned
-   2026-06-13 #118). Biggest remaining: `features/compute.py` (~36),
-   `agents/anthropic_runner.py` (~19), `agents/prompt_assembler.py` (~14).
+2. **mypy ledger burn-down** — 12 modules left after the 2026-06-14
+   burn of `features/compute.py` (~26), `agents/anthropic_runner.py` (~19),
+   `agents/prompt_assembler.py` (~14). Remaining: 4 demo modules,
+   `agents.portfolio_construction`, `agents.ticker_resolver`,
+   `agents.chat`, the ingestors.* glob, and the 4 jobs (hallucination_canary,
+   persona_batch, backtest_harness, backfill_history).
 3. **hit_rate** (needs closed-lot tracking) · quarterly margin series
    ingest (low) · §10 weight-authority decision once a few weeks of
    `canary.weight_telemetry` accumulate · Phase D (auth, follow, chat
