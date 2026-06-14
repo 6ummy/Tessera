@@ -14,7 +14,9 @@ import pytest
 from tessera_worker.risk.paper_engine import (
     INITIAL_CAPITAL_USD,
     REFUSE_WRITE_STALE_DAYS,
+    TradeRecord,
     book_to_targets,
+    closed_lots_hit_rate,
     compute_rebalance,
     mark_to_market,
     max_drawdown,
@@ -205,3 +207,107 @@ def test_validate_bars_ignores_non_held_ticker_staleness():
     }
     r = validate_bars(bars, {"AAPL"}, today)
     assert r.ok
+
+
+# ── closed_lots_hit_rate (FIFO closed-lot tracking) ─────────────────────
+
+
+def _t(ticker: str, side: str, qty: float, price: float) -> TradeRecord:
+    return TradeRecord(ticker=ticker, side=side, qty=qty, price=price)
+
+
+def test_hit_rate_none_when_no_sells():
+    """Bootstrap-only book has no closed lots → ratio is None
+    (UI renders '—', not 0%)."""
+    trades = [_t("AAPL", "buy", 50.0, 200.0), _t("JPM", "buy", 30.0, 250.0)]
+    wins, total, ratio = closed_lots_hit_rate(trades)
+    assert (wins, total) == (0, 0)
+    assert ratio is None
+
+
+def test_hit_rate_single_winning_close():
+    trades = [
+        _t("AAPL", "buy",  50.0, 200.0),
+        _t("AAPL", "sell", 50.0, 220.0),  # +10% on the single lot
+    ]
+    wins, total, ratio = closed_lots_hit_rate(trades)
+    assert (wins, total) == (1, 1)
+    assert ratio == 1.0
+
+
+def test_hit_rate_single_losing_close():
+    trades = [
+        _t("AAPL", "buy",  50.0, 200.0),
+        _t("AAPL", "sell", 50.0, 180.0),  # -10%
+    ]
+    wins, total, ratio = closed_lots_hit_rate(trades)
+    assert (wins, total) == (0, 1)
+    assert ratio == 0.0
+
+
+def test_hit_rate_fifo_partial_sell_consumes_oldest_lot_first():
+    """Two buys at different prices, one sell that only consumes the
+    first lot — the closed-lot result depends on the OLDEST buy
+    price."""
+    trades = [
+        _t("AAPL", "buy",  50.0, 200.0),  # oldest lot
+        _t("AAPL", "buy",  30.0, 250.0),  # newer lot, untouched by sell
+        _t("AAPL", "sell", 30.0, 220.0),  # vs oldest @200 → win
+    ]
+    wins, total, ratio = closed_lots_hit_rate(trades)
+    assert (wins, total) == (1, 1)
+    assert ratio == 1.0
+
+
+def test_hit_rate_sell_spans_multiple_lots():
+    """One sell larger than the first lot creates two closed lots — one
+    per consumed lot, judged independently."""
+    trades = [
+        _t("AAPL", "buy",  10.0, 100.0),  # cheap lot
+        _t("AAPL", "buy",  10.0, 300.0),  # expensive lot
+        _t("AAPL", "sell", 15.0, 200.0),  # vs 100 win, vs 300 loss
+    ]
+    wins, total, ratio = closed_lots_hit_rate(trades)
+    assert (wins, total) == (1, 2)
+    assert ratio == 0.5
+
+
+def test_hit_rate_independent_per_ticker():
+    trades = [
+        _t("AAPL", "buy",  10.0, 100.0),
+        _t("AAPL", "sell", 10.0, 150.0),   # win
+        _t("JPM",  "buy",   5.0, 250.0),
+        _t("JPM",  "sell",  5.0, 200.0),   # loss
+    ]
+    wins, total, ratio = closed_lots_hit_rate(trades)
+    assert (wins, total) == (1, 2)
+    assert ratio == 0.5
+
+
+def test_hit_rate_sell_clipped_when_exceeds_open_lots():
+    """A sell larger than total open qty is a paper-engine bug, but the
+    function clips silently rather than raising — surfaces as no
+    further closed lots until more buys land."""
+    trades = [
+        _t("AAPL", "buy",  10.0, 100.0),
+        _t("AAPL", "sell", 50.0, 150.0),  # only 10 share-units close
+        _t("AAPL", "buy",  20.0, 200.0),
+        _t("AAPL", "sell", 20.0, 250.0),
+    ]
+    wins, total, ratio = closed_lots_hit_rate(trades)
+    # 10 closed at +50% (win) + 20 closed at +25% (win) = 2 winning lots
+    assert (wins, total) == (2, 2)
+    assert ratio == 1.0
+
+
+def test_hit_rate_ignores_unknown_side_strings():
+    """Defensive: an unexpected side string is logged-only elsewhere
+    and ignored here, not crashing the perf write."""
+    trades = [
+        _t("AAPL", "buy",  10.0, 100.0),
+        _t("AAPL", "dividend", 1.0, 1.0),  # noise
+        _t("AAPL", "sell", 10.0, 110.0),
+    ]
+    wins, total, ratio = closed_lots_hit_rate(trades)
+    assert (wins, total) == (1, 1)
+    assert ratio == 1.0
