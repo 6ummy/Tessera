@@ -31,25 +31,34 @@ class TickerMeta:
     name: str
     sector: Sector
     asset_class: Literal["equity", "etf", "crypto"]
+    # Calendar month (1-12) the issuer's fiscal year ends in. Default 12
+    # covers the December-FY majority; non-December overrides are listed
+    # individually below. Used by `features.compute._decompose_cumulative
+    # _ytd_to_ttm` to snap prior-year anchors by month-match instead of
+    # ±45-day day-deltas — the day-delta approach silently dropped to
+    # max(window) on UNH / AMZN / COIN whenever the prior-year same-
+    # quarter row wasn't exactly ~365 days away. Plan §5 line 734.
+    fy_end_month: int = 12
 
 
 _RAW: list[TickerMeta] = [
     # ─── Tech (mega + selected mid) ───
-    TickerMeta("AAPL",  "Apple",                          "Technology",            "equity"),
-    TickerMeta("MSFT",  "Microsoft",                      "Technology",            "equity"),
-    TickerMeta("GOOGL", "Alphabet (A)",                   "Communication Services","equity"),
-    TickerMeta("META",  "Meta Platforms",                 "Communication Services","equity"),
-    TickerMeta("NVDA",  "NVIDIA",                         "Technology",            "equity"),
-    TickerMeta("AVGO",  "Broadcom",                       "Technology",            "equity"),
-    TickerMeta("AMD",   "Advanced Micro Devices",         "Technology",            "equity"),
-    TickerMeta("ASML",  "ASML",                           "Technology",            "equity"),
-    TickerMeta("TSM",   "Taiwan Semi",                    "Technology",            "equity"),
-    TickerMeta("ANET",  "Arista Networks",                "Technology",            "equity"),
-    TickerMeta("LRCX",  "Lam Research",                   "Technology",            "equity"),
-    TickerMeta("CRWD",  "CrowdStrike",                    "Technology",            "equity"),
-    TickerMeta("PLTR",  "Palantir",                       "Technology",            "equity"),
-    TickerMeta("NOW",   "ServiceNow",                     "Technology",            "equity"),
-    TickerMeta("SHOP",  "Shopify",                        "Technology",            "equity"),
+    # fy_end_month overrides verified against latest 10-K period_end.
+    TickerMeta("AAPL",  "Apple",                  "Technology",      "equity", fy_end_month=9),
+    TickerMeta("MSFT",  "Microsoft",              "Technology",      "equity", fy_end_month=6),
+    TickerMeta("GOOGL", "Alphabet (A)",           "Communication Services", "equity"),
+    TickerMeta("META",  "Meta Platforms",         "Communication Services", "equity"),
+    TickerMeta("NVDA",  "NVIDIA",                 "Technology",      "equity", fy_end_month=1),
+    TickerMeta("AVGO",  "Broadcom",               "Technology",      "equity", fy_end_month=10),
+    TickerMeta("AMD",   "Advanced Micro Devices", "Technology",      "equity"),
+    TickerMeta("ASML",  "ASML",                   "Technology",      "equity"),
+    TickerMeta("TSM",   "Taiwan Semi",            "Technology",      "equity"),
+    TickerMeta("ANET",  "Arista Networks",        "Technology",      "equity"),
+    TickerMeta("LRCX",  "Lam Research",           "Technology",      "equity", fy_end_month=6),
+    TickerMeta("CRWD",  "CrowdStrike",            "Technology",      "equity", fy_end_month=1),
+    TickerMeta("PLTR",  "Palantir",               "Technology",      "equity"),
+    TickerMeta("NOW",   "ServiceNow",             "Technology",      "equity"),
+    TickerMeta("SHOP",  "Shopify",                "Technology",      "equity"),
     # ─── Financials ───
     TickerMeta("BRK.B", "Berkshire Hathaway (B)",         "Financials",            "equity"),
     TickerMeta("JPM",   "JPMorgan Chase",                 "Financials",            "equity"),
@@ -69,15 +78,17 @@ _RAW: list[TickerMeta] = [
     TickerMeta("ISRG",  "Intuitive Surgical",             "Healthcare",            "equity"),
     TickerMeta("TEM",   "Tempus AI",                      "Healthcare",            "equity"),
     # ─── Consumer ───
-    TickerMeta("AMZN",  "Amazon",                         "Consumer Discretionary","equity"),
-    TickerMeta("TSLA",  "Tesla",                          "Consumer Discretionary","equity"),
-    TickerMeta("HD",    "Home Depot",                     "Consumer Discretionary","equity"),
-    TickerMeta("BKNG",  "Booking Holdings",               "Consumer Discretionary","equity"),
-    TickerMeta("DECK",  "Deckers Outdoor",                "Consumer Discretionary","equity"),
-    TickerMeta("RBLX",  "Roblox",                         "Communication Services","equity"),
-    TickerMeta("COST",  "Costco",                         "Consumer Staples",      "equity"),
-    TickerMeta("WMT",   "Walmart",                        "Consumer Staples",      "equity"),
-    TickerMeta("PG",    "Procter & Gamble",               "Consumer Staples",      "equity"),
+    TickerMeta("AMZN",  "Amazon",                 "Consumer Discretionary", "equity"),
+    TickerMeta("TSLA",  "Tesla",                  "Consumer Discretionary", "equity"),
+    TickerMeta("HD",    "Home Depot",             "Consumer Discretionary", "equity",
+               fy_end_month=1),
+    TickerMeta("BKNG",  "Booking Holdings",       "Consumer Discretionary", "equity"),
+    TickerMeta("DECK",  "Deckers Outdoor",        "Consumer Discretionary", "equity",
+               fy_end_month=3),
+    TickerMeta("RBLX",  "Roblox",                 "Communication Services", "equity"),
+    TickerMeta("COST",  "Costco",                 "Consumer Staples", "equity", fy_end_month=8),
+    TickerMeta("WMT",   "Walmart",                "Consumer Staples", "equity", fy_end_month=1),
+    TickerMeta("PG",    "Procter & Gamble",       "Consumer Staples", "equity", fy_end_month=6),
     # ─── Industrials / Energy / Materials ───
     TickerMeta("URI",   "United Rentals",                 "Industrials",           "equity"),
     TickerMeta("CAT",   "Caterpillar",                    "Industrials",           "equity"),
