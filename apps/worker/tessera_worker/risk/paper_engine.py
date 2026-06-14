@@ -165,6 +165,66 @@ def sharpe_30d(daily_returns: list[float]) -> float | None:
     return (mean / std) * math.sqrt(252)
 
 
+@dataclass(frozen=True, slots=True)
+class TradeRecord:
+    """Minimal trade shape the FIFO hit-rate walker needs. Decoupled from
+    PaperFill so it can be reconstructed cheaply from a persona_trades
+    SELECT."""
+    ticker: str
+    side: str         # 'buy' | 'sell'
+    qty: float
+    price: float
+
+
+def closed_lots_hit_rate(
+    trades: list[TradeRecord],
+) -> tuple[int, int, float | None]:
+    """FIFO closed-lot hit rate (Plan §8 backlog).
+
+    Walks `trades` per ticker in the order given (caller passes oldest-
+    first). Buys queue up FIFO lots; sells consume lots oldest-first.
+    Each sold portion of a lot is one closed lot — winning if the sell
+    price > the lot's original buy price.
+
+    Why FIFO over LIFO or average-cost: deterministic, audit-friendly,
+    matches what a human PM reading the trade ledger would do by hand.
+    Average-cost smears every winner across every later sell, which
+    conceptually answers a different question.
+
+    Returns (wins, total_closed, ratio). ratio = wins / total_closed
+    when total_closed > 0 else None (a track with no sells yet has no
+    hit rate to report — UI should render '—').
+
+    A sell that exceeds the open lot stack is clipped silently — a
+    paper engine bug would show up as positions going negative
+    elsewhere first.
+    """
+    open_lots: dict[str, list[tuple[float, float]]] = {}
+    wins = 0
+    total = 0
+    for t in trades:
+        if t.side == "buy":
+            open_lots.setdefault(t.ticker, []).append((t.qty, t.price))
+            continue
+        if t.side != "sell":
+            continue
+        remaining = t.qty
+        lots = open_lots.get(t.ticker, [])
+        while remaining > 0 and lots:
+            open_qty, buy_price = lots[0]
+            consumed = min(open_qty, remaining)
+            total += 1
+            if t.price > buy_price:
+                wins += 1
+            remaining -= consumed
+            if consumed >= open_qty:
+                lots.pop(0)
+            else:
+                lots[0] = (open_qty - consumed, buy_price)
+    ratio = wins / total if total > 0 else None
+    return wins, total, ratio
+
+
 def max_drawdown(values: list[float]) -> float | None:
     """Max peak-to-trough drawdown (as a positive fraction) over the
     series. None with fewer than 2 points."""
@@ -484,11 +544,28 @@ def _run_persona(session: Session, persona: str, today: date) -> dict[str, Any]:
     """), {"p": persona, "d": today.isoformat()}).all()
     values = [float(r.total_value) for r in reversed(val_rows)]
 
+    # ── hit_rate via FIFO closed-lot tracking (Plan §8 backlog) ──
+    # Pulls every real-track paper trade so far (≥06-11), oldest first.
+    # The 4 × $100K paper bootstrap means at-most a few hundred fills
+    # per persona over the whole pilot — cheap to scan in Python every
+    # day, and the FIFO walker is O(n) per ticker.
+    trade_rows = session.execute(text("""
+        SELECT ticker, side, qty, price FROM persona_trades
+        WHERE persona_id = :p AND mode = 'paper'
+        ORDER BY ts ASC
+    """), {"p": persona}).all()
+    trades = [
+        TradeRecord(ticker=r.ticker, side=r.side,
+                    qty=float(r.qty), price=float(r.price))
+        for r in trade_rows
+    ]
+    hr_wins, hr_total, hr_ratio = closed_lots_hit_rate(trades)
+
     session.execute(text("""
         INSERT INTO persona_performance
             (persona_id, date, pnl_day, pnl_cum, return_day, return_cum,
-             sharpe_30d, mdd_30d, trades_count)
-        VALUES (:p, :d, :pd, :pc, :rd, :rc, :sharpe, :mdd, :n)
+             sharpe_30d, mdd_30d, hit_rate, trades_count)
+        VALUES (:p, :d, :pd, :pc, :rd, :rc, :sharpe, :mdd, :hr, :n)
         ON CONFLICT (persona_id, date) DO UPDATE SET
             pnl_day = EXCLUDED.pnl_day,
             pnl_cum = EXCLUDED.pnl_cum,
@@ -496,14 +573,19 @@ def _run_persona(session: Session, persona: str, today: date) -> dict[str, Any]:
             return_cum = EXCLUDED.return_cum,
             sharpe_30d = EXCLUDED.sharpe_30d,
             mdd_30d = EXCLUDED.mdd_30d,
+            hit_rate = EXCLUDED.hit_rate,
             trades_count = EXCLUDED.trades_count
     """), {
         "p": persona, "d": today,
         "pd": round(pnl_day, 2), "pc": round(pnl_cum, 2),
         "rd": round(return_day, 4), "rc": round(return_cum, 4),
         "sharpe": sharpe_30d(returns), "mdd": max_drawdown(values),
+        "hr": round(hr_ratio, 3) if hr_ratio is not None else None,
         "n": len(fills),
     })
+    log.info("paper_engine.hit_rate",
+             persona=persona, wins=hr_wins, total=hr_total,
+             ratio=round(hr_ratio, 3) if hr_ratio is not None else None)
 
     return {
         "persona": persona,
