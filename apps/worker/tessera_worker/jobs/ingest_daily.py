@@ -44,7 +44,7 @@ from tessera_worker.ingestors import (
     yf_shares,
 )
 from tessera_worker.logging import configure_logging, get_logger
-from tessera_worker.universe import TICKERS, by_asset_class
+from tessera_worker.universe import by_asset_class
 
 configure_logging()
 log = get_logger(__name__)
@@ -64,11 +64,23 @@ StepFn = Callable[[], dict[str, object]]
 
 
 def _step_ohlcv_equity() -> dict[str, object]:
-    """Pull last ~30 days for the equity universe. Idempotent, so even on
-    weekends/holidays the call is safe — it just upserts the same rows."""
+    """Pull last ~30 days for the equity + ETF universe. Idempotent, so
+    even on weekends/holidays the call is safe — it just upserts the same
+    rows.
+
+    Equities + ETFs ONLY — crypto pairs go through _step_ohlcv_crypto
+    (Coinbase). Alpaca's stock feed rejects a crypto symbol (e.g.
+    AVAX/USD) and fails the ENTIRE batch request, not just that symbol.
+    Before the crypto universe expansion (2026-06-09) `TICKERS` was
+    all-equity and this passed it directly; after, one crypto pair broke
+    the whole equity pull. The Service path swallowed the non-zero exit,
+    so equity OHLCV silently froze for ~9 days until the Cloud Run Job
+    surfaced exit code 1 (CS-12)."""
     end = date.today()
     start = end - timedelta(days=30)
-    r = alpaca_eod.ingest(TICKERS, start=start, end=end)
+    tickers = [t.ticker for t in by_asset_class("equity")]
+    tickers += [t.ticker for t in by_asset_class("etf")]
+    r = alpaca_eod.ingest(tickers, start=start, end=end)
     return {"rows": r.rows_upserted, "tickers": len(r.tickers), "ms": r.duration_ms}
 
 

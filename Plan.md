@@ -868,6 +868,13 @@ project talk). The distilled rules:
 5. **Ops docs must speak the operator's shell.** A bash `echo -n` run
    in PowerShell corrupted the Voyage secret (CS-9). This team's shell
    is PowerShell; write runbooks for it.
+6. **Fixing observability surfaces hidden bugs.** The Cloud Run Jobs
+   migration (#116) didn't just stop batches from dying — by honoring
+   exit codes (the Service ignored them), its first test-run exposed a
+   9-day equity-OHLCV freeze: `_step_ohlcv_equity` sent the full
+   universe (crypto included) to Alpaca, which rejected the crypto
+   symbol and failed the whole batch (CS-12, #119). Source-specific
+   ingest must be fed source-specific tickers (`by_asset_class`).
 
 ---
 
