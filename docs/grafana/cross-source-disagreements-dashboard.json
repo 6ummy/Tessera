@@ -1,0 +1,131 @@
+{
+  "__inputs": [
+    {
+      "name": "DS_NEON",
+      "label": "Neon Postgres (read-only)",
+      "description": "PostgreSQL datasource pointed at the Tessera Neon DB with the read-only grafana role",
+      "type": "datasource",
+      "pluginId": "grafana-postgresql-datasource",
+      "pluginName": "PostgreSQL"
+    }
+  ],
+  "title": "Tessera — Cross-source disagreements",
+  "uid": "tessera-cross-source-disagreements",
+  "tags": ["tessera", "features", "data-quality"],
+  "timezone": "utc",
+  "schemaVersion": 39,
+  "refresh": "15m",
+  "time": { "from": "now-30d", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Disagreements last 24h",
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 0 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_NEON}" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT COUNT(*) AS n FROM cross_source_disagreements WHERE ts >= NOW() - INTERVAL '24 hours';"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 10 },
+              { "color": "red", "value": 30 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Distinct tickers (24h)",
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 0 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_NEON}" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT COUNT(DISTINCT ticker) AS n FROM cross_source_disagreements WHERE ts >= NOW() - INTERVAL '24 hours';"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Max spread today",
+      "gridPos": { "h": 6, "w": 6, "x": 12, "y": 0 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_NEON}" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT COALESCE(MAX(spread), 0) AS max_spread FROM cross_source_disagreements WHERE ts >= CURRENT_DATE;"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 3 },
+              { "color": "red", "value": 5 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 4,
+      "type": "table",
+      "title": "Most disagreement-prone tickers (30d)",
+      "gridPos": { "h": 10, "w": 12, "x": 0, "y": 6 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_NEON}" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT ticker, feature, COUNT(*) AS events, ROUND(AVG(spread)::numeric, 2) AS avg_spread, MAX(spread) AS max_spread, MAX(ts) AS last_seen FROM cross_source_disagreements WHERE ts >= NOW() - INTERVAL '30 days' AND ticker IS NOT NULL GROUP BY ticker, feature ORDER BY events DESC, max_spread DESC LIMIT 25;"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Disagreement events per day",
+      "gridPos": { "h": 10, "w": 12, "x": 12, "y": 6 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_NEON}" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "SELECT date_trunc('day', ts) AS time, feature AS metric, COUNT(*) AS value FROM cross_source_disagreements WHERE ts >= NOW() - INTERVAL '30 days' GROUP BY 1, 2 ORDER BY 1;"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "table",
+      "title": "Last 50 disagreement events",
+      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 16 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_NEON}" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT ts, feature, ticker, spread, decision, candidates::text AS candidates FROM cross_source_disagreements ORDER BY ts DESC LIMIT 50;"
+        }
+      ]
+    }
+  ]
+}

@@ -260,6 +260,18 @@ def _market_cap_from_shares(
 McapCandidate = tuple[str, float]  # (label, value)
 
 
+@dataclass(frozen=True, slots=True)
+class DisagreementEvent:
+    """One cross-source disagreement audit event. Persisted to
+    `cross_source_disagreements` so a Grafana panel can surface systemic
+    cases (see PR6). Pure data — no DB."""
+    feature: str                          # log_label, e.g. 'market_cap'
+    ticker: str | None
+    spread: float                         # max/min of candidate values
+    decision: str                         # 'max' | 'min' | 'first'
+    candidates: list[McapCandidate]
+
+
 def cross_validated(
     candidates: list[McapCandidate],
     *,
@@ -267,9 +279,14 @@ def cross_validated(
     pick_on_disagreement: str = "max",
     log_label: str = "cross_validated",
     ticker: str | None = None,
+    event_sink: list[DisagreementEvent] | None = None,
 ) -> float | None:
     """Reusable cross-validation. Used here for mcap; applies cleanly to
-    any quant ratio where multiple data sources should agree."""
+    any quant ratio where multiple data sources should agree.
+
+    When `event_sink` is provided, disagreements are appended as
+    DisagreementEvent records for the caller to persist (Grafana audit
+    panel). The log line is emitted either way."""
     valid = [(lbl, v) for lbl, v in candidates if v is not None and v > 0]
     if not valid:
         return None
@@ -283,6 +300,12 @@ def cross_validated(
             ticker=ticker, candidates=valid, spread=round(spread, 2),
             decision=pick_on_disagreement,
         )
+        if event_sink is not None:
+            event_sink.append(DisagreementEvent(
+                feature=log_label, ticker=ticker,
+                spread=round(spread, 3), decision=pick_on_disagreement,
+                candidates=list(valid),
+            ))
         return max(vals) if pick_on_disagreement == "max" else min(vals)
     # In agreement — return the first (caller orders by trust)
     return valid[0][1]
@@ -296,6 +319,7 @@ def estimate_market_cap(
     payload_mcap_cash: float | None = None,
     payload_mcap_income: float | None = None,
     ticker: str | None = None,
+    event_sink: list[DisagreementEvent] | None = None,
 ) -> float | None:
     """Best-effort USD market cap from 4 candidates with cross-validation.
 
@@ -338,7 +362,7 @@ def estimate_market_cap(
 
     return cross_validated(
         candidates, max_spread=2.0, pick_on_disagreement="max",
-        log_label="market_cap", ticker=ticker,
+        log_label="market_cap", ticker=ticker, event_sink=event_sink,
     )
 
 
@@ -1193,6 +1217,37 @@ def _to_float(v: Any) -> float | None:
     return f
 
 
+def _persist_disagreements(events: list[DisagreementEvent]) -> None:
+    """Insert one row per disagreement into `cross_source_disagreements`.
+
+    Audit log feeding the Grafana panel; the warning log already fired
+    inside `cross_validated` so this is purely for slow-pace aggregation
+    (which tickers are systemic, how the spread evolves over time)."""
+    if not events:
+        return
+    import json as _json
+    rows = [
+        {
+            "feature":    e.feature,
+            "ticker":     e.ticker,
+            "spread":     e.spread,
+            "decision":   e.decision,
+            "candidates": _json.dumps(
+                [{"label": lbl, "value": v} for lbl, v in e.candidates],
+            ),
+        }
+        for e in events
+    ]
+    sql = text("""
+        INSERT INTO cross_source_disagreements
+            (feature, ticker, spread, decision, candidates)
+        VALUES (:feature, :ticker, :spread, :decision,
+                CAST(:candidates AS jsonb))
+    """)
+    with session_scope() as session:
+        session.execute(sql, rows)
+
+
 def _upsert_fundamental_features(per_ticker: dict[str, dict[str, Any]]) -> int:
     """Write fundamental features onto the latest existing ticker_features row.
 
@@ -1305,6 +1360,10 @@ def build(
         fund_per_ticker = _load_fundamentals_latest(tickers)
         closes = _load_latest_closes(tickers)
         fund_rows: dict[str, dict[str, Any]] = {}
+        # Collect cross-source disagreement events per build run; persisted
+        # at the end into `cross_source_disagreements` (Grafana audit panel
+        # source).
+        disagreement_events: list[DisagreementEvent] = []
         for ticker in tickers:
             f = fund_per_ticker.get(ticker)
             c = closes.get(ticker)
@@ -1321,6 +1380,7 @@ def build(
                 payload_mcap_cash=f.get("payload_mcap_cash"),
                 payload_mcap_income=f.get("payload_mcap_income"),
                 ticker=ticker,
+                event_sink=disagreement_events,
             )
             yld = compute_fcf_yield(
                 close=close,
@@ -1416,6 +1476,10 @@ def build(
         fund_written = _upsert_fundamental_features(fund_rows)
         log.info("features.fundamentals.done", tickers_with_fund_features=len(fund_rows),
                  rows_written=fund_written)
+        if disagreement_events:
+            _persist_disagreements(disagreement_events)
+            log.info("features.disagreements.persisted",
+                     n=len(disagreement_events))
 
     all_ts = []
     for df_t in frames.values():

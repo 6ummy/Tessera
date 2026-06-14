@@ -581,6 +581,37 @@ def test_cross_validated_disagreement_pick_min_when_configured() -> None:
     assert result == 100.0
 
 
+def test_cross_validated_event_sink_collects_on_disagreement() -> None:
+    """PR6: when caller provides event_sink, disagreement appends a
+    DisagreementEvent with feature/ticker/spread/decision/candidates."""
+    from tessera_worker.features.compute import DisagreementEvent
+    sink: list[DisagreementEvent] = []
+    result = cross_validated(
+        [("under", 100.0), ("over", 500.0)],
+        log_label="market_cap", ticker="GOOGL", event_sink=sink,
+    )
+    assert result == 500.0
+    assert len(sink) == 1
+    ev = sink[0]
+    assert ev.feature == "market_cap"
+    assert ev.ticker == "GOOGL"
+    assert ev.spread == 5.0
+    assert ev.decision == "max"
+    assert ev.candidates == [("under", 100.0), ("over", 500.0)]
+
+
+def test_cross_validated_event_sink_silent_on_agreement() -> None:
+    """No disagreement → no event appended even when sink is provided."""
+    from tessera_worker.features.compute import DisagreementEvent
+    sink: list[DisagreementEvent] = []
+    result = cross_validated(
+        [("a", 100.0), ("b", 110.0)],
+        log_label="market_cap", ticker="AAPL", event_sink=sink,
+    )
+    assert result == 100.0
+    assert sink == []
+
+
 # ─── Market cap estimation — the systemic fix ──────────────────────────
 
 
