@@ -531,6 +531,62 @@ def test_fy_end_month_does_not_break_existing_aapl_shape() -> None:
     assert abs(ttm - expected) < 1.0
 
 
+def test_fcf_staleness_guard_returns_none_for_coin_shape() -> None:
+    """COIN edge case (PR7): EDGAR's standard freeCashFlow concept stops
+    resolving for an issuer, leaving the latest non-null FCF row 2-3yr
+    old. Without the guard, the loader falls back to that ancient
+    max() and ships a misleading yield. With as_of set, return None
+    so the LLM prompt sees N/A instead of a stale number."""
+    import datetime as _dt
+    rows = [
+        # Recent rows all None (loader filtered them out → not in `rows`)
+        # Newest non-null FCF is from 2023-09 — 2.7yr stale vs as_of.
+        {"freeCashFlow": 0.93e9, "period": None,
+         "period_end": _dt.date(2023, 9, 30)},
+        {"freeCashFlow": 0.61e9, "period": None,
+         "period_end": _dt.date(2023, 6, 30)},
+        {"freeCashFlow": 4.16e9, "period": None,    # 2021 bull-run spike
+         "period_end": _dt.date(2021, 12, 31)},
+        {"freeCashFlow": 3.50e9, "period": None,
+         "period_end": _dt.date(2021, 9, 30)},
+        {"freeCashFlow": 2.00e9, "period": None,
+         "period_end": _dt.date(2021, 6, 30)},
+    ]
+    # Without as_of: legacy behavior — falls back to max() = $4.16B
+    legacy = sum_ttm_fcf(rows, fy_end_month=12)
+    assert legacy is not None and legacy >= 3.5e9
+
+    # With as_of: staleness guard kicks in.
+    guarded = sum_ttm_fcf(rows, fy_end_month=12, as_of=_dt.date(2026, 6, 14))
+    assert guarded is None
+
+
+def test_fcf_staleness_guard_within_window_passes() -> None:
+    """A normal ticker with fresh data (newest FCF row ≤ ~13 months old)
+    is unaffected by the guard — same answer with or without as_of."""
+    import datetime as _dt
+    rows = [
+        {"freeCashFlow": 78.28e9, "period": None,
+         "period_end": _dt.date(2026, 3, 28)},
+        {"freeCashFlow": 51.55e9, "period": None,
+         "period_end": _dt.date(2025, 12, 27)},
+        {"freeCashFlow": 98.77e9, "period": None,
+         "period_end": _dt.date(2025, 9, 27)},
+        {"freeCashFlow": 72.28e9, "period": None,
+         "period_end": _dt.date(2025, 6, 28)},
+        {"freeCashFlow": 47.88e9, "period": None,
+         "period_end": _dt.date(2025, 3, 29)},
+        {"freeCashFlow": 27.00e9, "period": None,
+         "period_end": _dt.date(2024, 12, 28)},
+    ]
+    expected = 98.77e9 + 78.28e9 - 47.88e9
+    without_as_of = sum_ttm_fcf(rows, fy_end_month=9)
+    with_as_of = sum_ttm_fcf(rows, fy_end_month=9, as_of=_dt.date(2026, 6, 14))
+    assert without_as_of is not None and with_as_of is not None
+    assert abs(without_as_of - expected) < 1.0
+    assert abs(with_as_of - expected) < 1.0
+
+
 # ─── FX table sanity ───────────────────────────────────────────────────
 
 
