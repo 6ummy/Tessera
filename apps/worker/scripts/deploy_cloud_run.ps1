@@ -72,8 +72,13 @@ if ($LASTEXITCODE -ne 0) { Write-Error "Cloud Run deploy failed"; exit 1 }
 $URL = & gcloud run services describe $SERVICE --region $REGION --format="value(status.url)"
 Write-Output ""
 Write-Output "==> Deployed."
-Write-Output "    Service URL: $URL"
-Write-Output "    Health:      $URL/health  (will 403 - auth required, that's expected)"
+Write-Output "    Service URL:  $URL"
+Write-Output "    Health:       $URL/health  (will 403 - auth required, that's expected)"
+Write-Output "    Image tag:    $TAG"
+Write-Output "    Full image:   $IMAGE_TAGGED"
+Write-Output ""
+Write-Output "To deploy the SAME image to Cloud Run JOBS (reuses the build above):"
+Write-Output "    .\apps\worker\scripts\deploy_cloud_run_jobs.ps1 -ImageTag `"$TAG`""
 Write-Output ""
 # WORKER_WEBHOOK_URL must be the BASE service URL (no /jobs/... path):
 # gcp-auth.ts strips any path anyway, each Vercel route appends its own,

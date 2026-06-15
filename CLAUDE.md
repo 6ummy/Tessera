@@ -191,8 +191,14 @@ cd apps\web
 npm run typecheck    # tsc --noEmit
 npm run lint
 
-# Deploy worker (rebuild + ship; operator runs it, or hand them the cmd)
+# Deploy worker (rebuild + ship; operator runs it, or hand them the cmd).
+# After Service deploys, the script prints the exact tag + a copy-paste
+# command for deploying the SAME image to Jobs (Service + Jobs MUST run
+# the same code or the new column writes / chat path diverge).
 .\apps\worker\scripts\deploy_cloud_run.ps1
+.\apps\worker\scripts\deploy_cloud_run_jobs.ps1 -ImageTag "<tag printed above>"
+# -ImageTag accepts either a bare tag ("20260615-002125") or a full
+# reference. Omit it and the Jobs script builds a fresh image (5-7min).
 # Flag-only change without rebuild:
 #   gcloud run services update tessera-worker --region us-east1 --update-env-vars K=V
 ```
