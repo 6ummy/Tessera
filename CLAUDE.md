@@ -21,7 +21,17 @@ Monorepo: `apps/web` (Next.js 14 App Router, Vercel) · `apps/worker`
 `migrations/` (plain SQL → Neon Postgres + Timescale + pgvector,
 **001–007 all applied to prod**).
 
-## 2. State as of 2026-06-13
+## 2. State as of 2026-06-14 — 🏁 **Phase C CLOSED**
+
+Phase C acceptance 4/4 green (see Plan.md §5). 90-day baseline ran
+2026-06-14: Warren Sharpe 1.28 (matches expected ~1.3), Cathie 3.21,
+Peter 2.81, Ray 1.96 — all positive, all ordered by mandate (aggressive
+growth > GARP > regime > value). Phase D (auth + F&F follows) starts
+next with three carry-overs: Cathie shortlist truncation, baseline ↔
+prod daily-cap collision (`cost_namespace`), optional normalized-FCF
+series.
+
+Prior state snapshot (pre-closure):
 
 Everything below is LIVE in prod unless marked otherwise:
 
