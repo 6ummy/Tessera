@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from collections.abc import Iterator
 from contextlib import contextmanager
 
@@ -84,14 +85,12 @@ def try_advisory_lock(name: str) -> Iterator[bool]:
     finally:
         try:
             if acquired:
-                try:
+                with contextlib.suppress(Exception):
+                    # Neon kills connections idle-in-transaction > 5m.
+                    # The lock is released by the server on disconnect anyway.
                     conn.execute(
                         text("SELECT pg_advisory_unlock(hashtext(:name))"),
                         {"name": name},
                     )
-                except Exception as e:
-                    # Neon kills connections idle-in-transaction > 5m.
-                    # The lock is released by the server on disconnect anyway.
-                    pass
         finally:
             conn.close()
