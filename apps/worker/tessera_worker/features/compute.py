@@ -1173,6 +1173,8 @@ def _load_fundamentals_latest(tickers: list[str]) -> dict[str, dict[str, Any]]:
         SELECT ticker, period_end,
                payload ->> 'freeCashFlow'     AS fcf,
                payload ->> 'period'           AS period,
+               payload ->> 'form'             AS form,
+               payload ->> 'fp'               AS fp,
                payload ->> 'reportedCurrency' AS ccy,
                payload ->> 'marketCap'        AS market_cap
         FROM fundamentals
@@ -1250,10 +1252,20 @@ def _load_fundamentals_latest(tickers: list[str]) -> dict[str, dict[str, Any]]:
                 mcap_payload[r.ticker] = _to_float(r.market_cap)
             continue
         bucket = cash_by_ticker.setdefault(r.ticker, [])
-        if len(bucket) < 8:
+        # Cap 24 (was 8): sum_ttm_fcf self-limits to the newest 8 rows, but
+        # compute_fcf_yield_normalized needs ~5 ANNUAL FY rows — for a
+        # quarterly filer that's up to 20 quarterly rows back. 24 covers
+        # 5+ fiscal years of mixed cadence. Carry form/fp so the annual
+        # filter (`_annual_income_rows`) can recognize EDGAR cash_flow rows
+        # (period is often NULL on EDGAR-sourced rows; form='10-K'/fp='FY'
+        # is how they mark annual). Without these the normalized median
+        # silently returned None for all EDGAR-only tickers (#134 follow-up).
+        if len(bucket) < 24:
             bucket.append({
                 "freeCashFlow": fcf,
                 "period":       r.period,
+                "form":         r.form,
+                "fp":           r.fp,
                 "period_end":   r.period_end,
             })
         # Lock in currency from the newest available row
