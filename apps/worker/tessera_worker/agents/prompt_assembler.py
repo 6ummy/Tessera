@@ -164,9 +164,9 @@ def fetch_inputs(
         text("""
             SELECT ts, ret_1d, ret_5d, ret_30d, ret_90d, ret_1y,
                    vol_30d, rsi_14, sma_20, sma_50, volume_z,
-                   fcf_yield, peg, market_cap_usd, operating_margin,
-                   eps_cagr_3y, debt_to_equity, gross_margin, gross_margin_trend,
-                   gross_margin_qtr_yoy_chg
+                   fcf_yield, fcf_yield_normalized, peg, market_cap_usd,
+                   operating_margin, eps_cagr_3y, debt_to_equity, gross_margin,
+                   gross_margin_trend, gross_margin_qtr_yoy_chg
             FROM ticker_features WHERE ticker = :t AND ts <= :cutoff
             ORDER BY ts DESC LIMIT 1
         """),
@@ -469,7 +469,13 @@ def render_features(f: dict[str, Any] | None) -> str:
         f"  vol_30d={_fmt_pct(f.get('vol_30d'))}  RSI14={_fmt_num(f.get('rsi_14'), 0)}  "
         f"SMA20=${_fmt_num(f.get('sma_20'))}  SMA50=${_fmt_num(f.get('sma_50'))}\n"
         f"  volume_z={_fmt_num(f.get('volume_z'), signed=True)}\n"
-        f"  valuation: fcf_yield={_fmt_pct(f.get('fcf_yield'))}  PEG={_fmt_num(f.get('peg'))}  "
+        f"  valuation: fcf_yield={_fmt_pct(f.get('fcf_yield'))}"
+        + (
+            f" (normalized={_fmt_pct(f.get('fcf_yield_normalized'))})"
+            if f.get("fcf_yield_normalized") is not None
+            else ""
+        )
+        + f"  PEG={_fmt_num(f.get('peg'))}  "
         f"mcap={_fmt_money(f.get('market_cap_usd'))}\n"
         f"  quality: eps_cagr_3y={_fmt_pct(f.get('eps_cagr_3y'))}  "
         f"debt_to_equity={_fmt_num(f.get('debt_to_equity'))}  "
