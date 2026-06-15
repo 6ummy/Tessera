@@ -109,13 +109,18 @@ system prompts when wiring real LLM calls.
 
 ## 6. Current state (what is actually built)
 
-As of 2026-06-12 this is a **working LLM research desk on real data**:
-Phases A + B shipped, Phase C (paper execution) nearly done. Real Sonnet
-4.6 theses land weekly behind a full risk gateway, chat streams live, and
-the paper engine fills each persona's book against a $100K paper account
-nightly — the landing/detail/dashboard charts read that real track. The
-only remaining mocks are the Phase-D account demos (dashboard "My
-portfolio" positions + Social feed) and auth (see "Still mocked" below).
+As of 2026-06-15 this is a **working LLM research desk on real data with
+a credibility-anchored 90-day backtest**: Phases A + B + C all shipped.
+Real Sonnet 4.6 theses land weekly behind a full risk gateway, chat
+streams live, the paper engine fills each persona's book against a $100K
+paper account nightly, and the 2026-06-14 backtest baseline produced
+per-archetype Sharpe/MDD on look-ahead-free replays (Warren 1.28 / Cathie
+3.21 / Peter 2.81 / Ray 1.96 over 9/13 weeks, the remaining 4 weeks
+limited by a one-time prod cap collision since fixed via the
+`cost_namespace` isolation in #132). The only remaining mocks are the
+Phase-D account demos (dashboard "My portfolio" positions + Social feed)
+and auth (see "Still mocked" below). **Phase D (Firebase Auth + F&F
+follows) is the next milestone.**
 
 ### Frontend (4 routes on Vercel)
 - **Marketplace** (`/`) — landing page = persona grid; click any card opens a slide-over detail sheet. Header logo is an inline SVG mosaic mark (coral / ink / sage tiles).
@@ -706,12 +711,12 @@ build-deck.js                       # generates the Tessera deck (.pptx files
 
 | Phase | Scope | Status |
 |---|---|---|
-| **A. Live data wiring** | 5 ingestors + feature builder + universe + Vercel Cron + daily orchestrator | **✅ Done** — see Phase A retro below |
+| **A. Live data wiring** | 5 ingestors + feature builder + universe + Vercel Cron + daily orchestrator | **✅ Done 2026-05-18** — see Phase A retro below |
 | **B. Real LLM theses** (wk 2–3) | Wire `respond()` and report generation to Claude | **✅ Done 2026-06-05** — weekly v2 batch, live chat, reports/proposals UI |
-| **C. Paper execution** (wk 4–5) | Persona positions executed in paper; daily P&L attribution | **🚧 Nearly done (2026-06-12 PM)** — gateway full (incl. VaR99/DD/Ray), paper engine live, performance/portfolio UI real, attribution endpoint, weight telemetry, Sentry paging. Remaining: 90d backtest baseline, attribution UI table, quant edge cases |
-| **D. User auth + own portfolio** (wk 6) | Real user accounts following a persona on paper | ⏳ Planned |
-| **E. Compliance review** (wk 6, parallel) | Securities-lawyer consult before any non-self user runs live | ⏳ Planned |
-| **F. Live trading (optional)** (wk 7+) | Feature-flag flip; OAuth to user's Alpaca | ⏳ Optional |
+| **C. Paper execution** (wk 4–5) | Persona positions executed in paper; daily P&L attribution | **✅ Done 2026-06-14** — gateway full (VaR99/DD/Ray), paper engine live (NAV-conserving + hit_rate FIFO closed-lot), integrity gates (point-in-time + stale-data + adjusted-price policy), performance/portfolio UI real, attribution endpoint + UI table, weight telemetry, Sentry paging, **90d backtest baseline (#132)** with `cost_namespace` isolation. Edge-case quant work shipped: fy_end_month FCF anchor (#121), FCF staleness guard (#128), gross_margin_qtr_yoy (#133), fcf_yield_normalized (#134). |
+| **D. User auth + own portfolio** (wk 6) | Real user accounts following a persona on paper | 🟡 **Ready to start 2026-06-15** — Phase C carry-overs all closed (#132/#133/#134/#136). Scope: Firebase Auth + Google SSO, `users` table, follow CTA, `user_portfolios` + mirror engine, real dashboard positions, FCM push, onboard 3 F&F users. |
+| **E. Compliance review** (wk 6, parallel) | Securities-lawyer consult before any non-self user runs live | ⏳ Blocked on Phase D scope — needs a concrete cohort + product description for the brief |
+| **F. Live trading (optional)** (wk 7+) | Feature-flag flip; OAuth to user's Alpaca | ⏳ Blocked on E |
 
 ### Phase A retro (what shipped)
 
@@ -788,3 +793,4 @@ One-time: securities-lawyer consult (~$300) before Phase E.
 | 0.5 | 2026-06-12 | **Phase C core live.** Risk gateway (#94: universe/sum/single-name/sector caps inside construction retry loop) + PaperEngine v1 (#95/#96: fills at next bar open, EOD MTM, persona_performance, $100K bootstrap, `FEATURE_PAPER_EXECUTION=true`). §6 rewritten from "frontend-only demo" to current working-desk reality; roadmap B done / C in-progress; "Still mocked" trimmed to performance chart + auth. |
 | 0.6 | 2026-06-12 | Step-4 doc close-out: file map refreshed (14 test files / 223 tests, migration 007, risk/paper_engine), LLM-pipeline section header no longer "in progress", performance mock removed from "Still mocked" (frontend swap #103 — only Phase-D account demos + auth remain), decks noted local-only. |
 | 0.7 | 2026-06-12 | Risk/analytics layer (#105–#108): gateway gains VaR99 (risk/var.py, calibrated caps) + drawdown floor + Ray's gate_regime; risk/attribution.py + `/api/attribution`; canary weight telemetry; paper-engine Sentry paging. Roadmap C → "nearly done"; file map updated. |
+| 0.8 | 2026-06-15 | **🏁 Phase C closed.** §5 acceptance 4/4 green: leaderboard real Sharpe/MDD per persona, cumulative chart = paper P&L sum, 90-day baseline (#132 `jobs/backtest_baseline.py`) per-archetype Sharpe (Warren 1.28 / Cathie 3.21 / Peter 2.81 / Ray 1.96), 0 risk-gate violations. Quant pass: fy_end_month FCF anchor (#121), `mcap_gap_yf_also_failed` coverage signal (#120), paper-engine integrity gates + adjusted-price policy (#122), hit_rate FIFO closed-lot tracking (#124), cross-source disagreements table + Grafana panel (#125), FCF staleness guard / CS-13 (#128), `cost_namespace` baseline ↔ prod cap isolation (#132), quarterly `gross_margin_qtr_yoy_chg` (#133), `fcf_yield_normalized` (#134), Cathie shortlist hotfix (#136). Migration 008–011 applied to prod. Roadmap C ✅ / D 🟡 ready. |
