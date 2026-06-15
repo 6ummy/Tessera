@@ -19,17 +19,39 @@ Monorepo: `apps/web` (Next.js 14 App Router, Vercel) · `apps/worker`
 (Python 3.11 FastAPI on Cloud Run `tessera-worker`, us-east1, project
 `tessera-498200`) · `packages/shared` (Pydantic schemas) ·
 `migrations/` (plain SQL → Neon Postgres + Timescale + pgvector,
-**001–007 all applied to prod**).
+**001–011 all applied to prod**).
 
-## 2. State as of 2026-06-14 — 🏁 **Phase C CLOSED**
+## 2. State as of 2026-06-15 — 🏁 **Phase C CLOSED, Phase D ready to start**
 
 Phase C acceptance 4/4 green (see Plan.md §5). 90-day baseline ran
 2026-06-14: Warren Sharpe 1.28 (matches expected ~1.3), Cathie 3.21,
 Peter 2.81, Ray 1.96 — all positive, all ordered by mandate (aggressive
-growth > GARP > regime > value). Phase D (auth + F&F follows) starts
-next with three carry-overs: Cathie shortlist truncation, baseline ↔
-prod daily-cap collision (`cost_namespace`), optional normalized-FCF
-series.
+growth > GARP > regime > value). The three Phase C carry-overs were
+all closed before Phase D opens:
+
+  - **`cost_namespace` isolation** (#132) — baseline runs write
+    `cost_namespace='backtest_baseline'` into `llm_call_log`;
+    `check_daily_budget()` filters those out so a one-off evaluation
+    never starves the live system again.
+  - **Quarterly margin YoY** (#133) — new `gross_margin_qtr_yoy_chg`
+    column on `ticker_features`, populated Friday-only via the
+    `fmp_quarterly` ingest step (last 8 quarters). Surfaces in the
+    persona `<features>` block as `gross_margin_qtr_yoy=+200bps`.
+  - **Normalized FCF yield** (#134) — new `fcf_yield_normalized`
+    column = median of last 5 FY annual FCFs / mcap. Renders alongside
+    trailing TTM in the prompt when both are non-NULL. Resolved the
+    UNH-style "trailing 5.30% vs normalized 3%" mismatch as a metric-
+    definition question, not a bug.
+  - **Cathie shortlist hotfix** (#136) — `_tickers_for("cathie", n)`
+    returns the full 14-name shortlist regardless of n so the crypto
+    sleeve is always in the construction call's candidate set. The
+    2026-06-14 baseline's 6-of-9-cells Tech-cap failures were the
+    proximate trigger.
+
+**Phase D (§6) starts next**: Firebase Auth + Google SSO; `users`
+table; "Follow this persona" CTA; `user_portfolios` + mirror engine;
+real dashboard positions; FCM push on rebalance; onboard 3 F&F users.
+Runs alongside Phase E (lawyer consult).
 
 Prior state snapshot (pre-closure):
 
@@ -59,9 +81,15 @@ Everything below is LIVE in prod unless marked otherwise:
   dashboard "My portfolio" positions + Social tab (Phase-D demos,
   labelled) and auth (assumes "jshin").
 - **Observability**: Grafana Cloud dashboard over `llm_call_log`
-  (`docs/grafana/llm-cost-dashboard.json`); Sentry errors-only; Voyage
-  embeddings on prod (similarity recall fires in the WEEKLY BATCH logs
-  as `sim=0.xx` — chat has no memory recall, that's Phase D).
+  (`docs/grafana/llm-cost-dashboard.json`); cross-source disagreement
+  audit panel over `cross_source_disagreements` (#125,
+  `docs/grafana/cross-source-disagreements-dashboard.json`);
+  `coverage_gap` + `mcap_gap_yf_also_failed` daily warning streams from
+  the post-build audit step; Sentry errors-only; Voyage embeddings on
+  prod (similarity recall fires in the WEEKLY BATCH logs as `sim=0.xx`
+  — chat has no memory recall, that's Phase D). Slack alert webhook at
+  $5/$10/$20 spend thresholds is the last optional observability piece
+  (operator console wiring, no code).
 - **CI** (`.github/workflows/ci.yml`): ruff + pytest + mypy ALL
   blocking (mypy via a legacy `ignore_errors` ledger in
   `apps/worker/pyproject.toml` — NEW modules must be strict-clean and
@@ -81,8 +109,14 @@ Everything below is LIVE in prod unless marked otherwise:
   #105 VaR/DD/Ray gate → #106 weight telemetry → #107 attribution →
   #108 Sentry paging → #110 parse-leading-prose → #111 recall sim= fix
   → #112 case-studies → #114 cathie sector cap 0.70 → #116 Cloud Run
-  Jobs → #117 attribution UI → #118 main.py mypy burn. (Doc syncs
-  along the way: #97/#101/#102/#104/#109/#113/#115.)
+  Jobs → #117 attribution UI → #118 main.py mypy burn → #120 coverage
+  yf-also-failed → #121 fy_end_month FCF anchor → #122 paper-engine
+  integrity gates → #123 mypy ledger -3 modules → #124 hit_rate FIFO →
+  #125 cross-source disagreement Grafana → #128 FCF staleness guard
+  (COIN) → #129 CS-13 + freshness invariant → #130 UNH not-a-bug
+  reframe → #131 Phase C closure → #132 cost_namespace isolation →
+  #133 quarterly gross_margin YoY → #134 fcf_yield_normalized → #135
+  Plan checkbox cleanup → #136 Cathie shortlist hotfix.
 
 ## 3. Hard invariants (each from a real incident — don't relearn them)
 
@@ -187,10 +221,14 @@ batch day only), `/api/performance/{p}` (curve + hypothetical flags),
 (?period=mtd|7d|30d), `/api/features/{t}`, `/api/prices/{t}`,
 `/api/chat/{p}` (SSE), `/jobs/ingest-daily`, `/jobs/persona-batch`.
 
-Key tables: `ohlcv_1d`, `ticker_features` (the only numbers LLMs see),
-`fundamentals` (JSONB, 3-tier merged), `analyst_reports` (parsed book
-JSONB; `rejected` flag), `persona_trades/portfolios/performance`
-(+ `hypothetical` flag), `llm_call_log`, `persona_memory` (pgvector).
+Key tables: `ohlcv_1d`, `ticker_features` (the only numbers LLMs see;
+`fcf_yield` / `fcf_yield_normalized` / `gross_margin_qtr_yoy_chg` /
+`market_cap_usd` / `peg` / etc.), `fundamentals` (JSONB, 3-tier merged
+across FMP / EDGAR XBRL / yfinance / fmp_key_metrics), `analyst_reports`
+(parsed book JSONB; `rejected` flag), `persona_trades/portfolios/
+performance` (+ `hypothetical` flag), `llm_call_log` (+ `cost_namespace`
+for baseline isolation), `persona_memory` (pgvector),
+`cross_source_disagreements` (mcap candidate spread audit).
 
 ## 6. Process rules (violations have burned us)
 

@@ -9,7 +9,19 @@
 
 ## 0. Where we are today (baseline)
 
-**Phase A + B complete; Phase C Week 4 core LIVE.** ✅ Updated 2026-06-12.
+**Phase A + B + C complete; Phase D ready to start.** ✅ Updated 2026-06-15.
+
+**Phase C closed 2026-06-14, 4/4 acceptance green** (§5 Acceptance):
+Warren Sharpe 1.28 / Cathie 3.21 / Peter 2.81 / Ray 1.96 from the
+90-day backtest baseline. All three Phase C carry-overs landed before
+Phase D opens — `cost_namespace` baseline isolation (#132), quarterly
+margin YoY (#133), normalized FCF yield (#134) — plus the Cathie
+shortlist hotfix (#136) so the next baseline run lands 13/13. Phase D
+(auth + F&F follows, §6) is the next milestone; optional Slack alert
+webhook (operator console only, no code) is the last cross-cutting
+nice-to-have.
+
+**Prior baseline (Phase C Week 4 core LIVE, kept as historical record):**
 
 **Phase C Week 4 — shipped 2026-06-11/12** (see "2026-06-11 codebase
 audit" subsection in §5 + `docs/improvement-plan-2026-06-11.md`):
@@ -109,14 +121,14 @@ This plan takes the project from **demo → Phase A done → Phase B done → Ph
 
 ## 2. Phase map
 
-| Phase | Week(s) | Goal | Deployable artifact |
-|---|---|---|---|
-| **A** | 1 | Data backbone | Cron-driven ingestion writing to Neon |
-| **B** | 2–3 | Real LLM theses | Each persona writes daily Sonnet 4.6 thesis |
-| **C** | 4–5 | Paper execution + attribution | Real Sharpe/MDD on leaderboard from paper P&L |
-| **D** | 6 | User auth + portfolios | 3 friends-and-family users following personas |
-| **E** | 6 (parallel) | Compliance review | Written lawyer advice on file |
-| **F** | 7+ | Live trading (optional) | Self running live; F&F only if E clears it |
+| Phase | Week(s) | Goal | Deployable artifact | Status |
+|---|---|---|---|---|
+| **A** | 1 | Data backbone | Cron-driven ingestion writing to Neon | ✅ 2026-05-18 |
+| **B** | 2–3 | Real LLM theses | Each persona writes daily Sonnet 4.6 thesis | ✅ 2026-06-05 |
+| **C** | 4–5 | Paper execution + attribution | Real Sharpe/MDD on leaderboard from paper P&L | ✅ 2026-06-14 |
+| **D** | 6 | User auth + portfolios | 3 friends-and-family users following personas | 🟡 ready 2026-06-15 |
+| **E** | 6 (parallel) | Compliance review | Written lawyer advice on file | ⏳ blocked on Phase D scope |
+| **F** | 7+ | Live trading (optional) | Self running live; F&F only if E clears it | ⏳ blocked on E |
 
 Hard dependencies: A → B → C → D. E runs in parallel with D. F requires E.
 Phases A–D are 6 weeks total. Compression vs. the earlier 12-week plan
