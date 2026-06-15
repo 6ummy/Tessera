@@ -110,8 +110,10 @@ export function Header({ variant = "transparent" }: { variant?: "transparent" | 
             </button>
 
             {accountOpen && (
-              <div id={accountMenuId} role="menu" className="absolute right-0 z-40 mt-2 w-64 origin-top-right overflow-hidden rounded-2xl border border-ink-900/10 bg-cream-50 shadow-[0_24px_60px_-20px_rgba(31,30,27,0.25)] animate-fade-up">
-                <div className="border-b border-ink-900/[0.06] p-4">
+              <>
+                <button type="button" tabIndex={-1} className="fixed inset-0 z-30 cursor-default" onClick={() => setAccountOpen(false)} aria-label="Close account menu" />
+                <div id={accountMenuId} role="menu" className="absolute right-0 z-40 mt-2 w-64 origin-top-right overflow-hidden rounded-2xl border border-ink-900/10 bg-cream-50 shadow-[0_24px_60px_-20px_rgba(31,30,27,0.25)] animate-fade-up">
+                  <div className="border-b border-ink-900/[0.06] p-4">
                   <div className="text-sm font-medium text-ink-900">jshin</div>
                   <div className="text-xs text-ink-500">Pilot account</div>
                 </div>
@@ -126,6 +128,7 @@ export function Header({ variant = "transparent" }: { variant?: "transparent" | 
                   </button>
                 </div>
               </div>
+              </>
             )}
           </div>
         </div>
