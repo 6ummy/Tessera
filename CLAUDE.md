@@ -112,9 +112,17 @@ Everything below is LIVE in prod unless marked otherwise:
   history sanitized ≤20 turns, Edge 10/min/IP rate limit.
 - **yfinance**: core dependency, but strictly tier-3 fallback,
   sanity-enveloped; its steps fail loudly if missing.
+- **Sanity bound ≠ freshness check.** ±100% / margin envelopes / P/E
+  caps catch unit + currency errors, NOT "upstream provider's mapping
+  silently dropped → loader walked back to a 2.7-yr stale row that
+  happens to be in-band" (CS-13, COIN). Every value that comes out of
+  a loader walk-back must carry its newest-period_end meta forward;
+  downstream guards drop values whose freshness exceeds a clear bound
+  (FCF: `FCF_STALENESS_MAX_DAYS=400` ≈ 13 months).
 - **No silent failures — this codebase's #1 bug class** (see CS-3,
-  CS-4, CS-5, CS-6, CS-12 in `docs/case-studies.md` for the canonical
-  cases). Every caught exception logs loudly with context or re-raises;
+  CS-4, CS-5, CS-6, CS-12, CS-13 in `docs/case-studies.md` for the
+  canonical cases). Every caught exception logs loudly with context
+  or re-raises;
   `suppress` / `except: pass` / `setdefault` on LLM-overlapping fields
   need written justification. A step where every item "skipped" is a
   FAILURE, not a success. **Don't pass the full universe to a
