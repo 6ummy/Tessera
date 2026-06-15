@@ -165,7 +165,8 @@ def fetch_inputs(
             SELECT ts, ret_1d, ret_5d, ret_30d, ret_90d, ret_1y,
                    vol_30d, rsi_14, sma_20, sma_50, volume_z,
                    fcf_yield, peg, market_cap_usd, operating_margin,
-                   eps_cagr_3y, debt_to_equity, gross_margin, gross_margin_trend
+                   eps_cagr_3y, debt_to_equity, gross_margin, gross_margin_trend,
+                   gross_margin_qtr_yoy_chg
             FROM ticker_features WHERE ticker = :t AND ts <= :cutoff
             ORDER BY ts DESC LIMIT 1
         """),
@@ -474,6 +475,7 @@ def render_features(f: dict[str, Any] | None) -> str:
         f"debt_to_equity={_fmt_num(f.get('debt_to_equity'))}  "
         f"gross_margin={_fmt_pct(f.get('gross_margin'))}  "
         f"gross_margin_trend={_fmt_pct(f.get('gross_margin_trend'), signed=True)}  "
+        f"gross_margin_qtr_yoy={_fmt_pct(f.get('gross_margin_qtr_yoy_chg'), signed=True)}  "
         f"operating_margin={_fmt_pct(f.get('operating_margin'))}\n"
         "</features>"
     )
