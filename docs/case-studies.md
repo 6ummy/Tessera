@@ -213,17 +213,43 @@
 
 ---
 
+## 5. 데이터 품질 (재방문)
+
+### CS-13. 사라진 XBRL 콘셉트 — COIN의 2.7년 묵은 TTM이 sanity bound을 통과한 사연 (#128)
+
+- **증상**: 06-14 baseline 직전 점검. AAPL/AMZN/NVDA는 PR2(fy_end_month) + #70(EDGAR concept priority)로 in-band 복귀. **COIN만 여전히 fcf_yield 11.71%** (~5% 이상이 비현실적).
+- **추적**: 진단 스크립트로 COIN의 raw cash_flow 행을 newest-first로 펼침:
+  ```
+  2026-03-31  None      ← 모든 최근 행 FCF=null
+  2025-12-31  None
+  ... (2024–2026 전부 None) ...
+  2023-09-30  $0.93B    ← 가장 최근 non-null
+  2023-06-30  $0.61B
+  ```
+- **원인**: EDGAR의 표준 `freeCashFlow` 콘셉트가 COIN의 2024 이후 filings에서 안 나옴 (issuer side의 XBRL 태그 변경 가능성). `_load_fundamentals_latest`의 null-skip 로직은 옛 row까지 walk back → `sum_ttm_fcf`가 period_end 데이터 없는 fall-back에서 `max(window)` = 2021 크립토 불런 시기의 $4.16B를 픽업. **±100% sanity bound는 unit/currency 에러용으로 설계됐기에 "값은 합리적이지만 2.7년 묵음" 케이스는 통과**.
+- **수정**: `sum_ttm_fcf(rows, *, as_of: date)` 에 freshness guard 추가 — 가장 최근 non-null FCF row가 `FCF_STALENESS_MAX_DAYS=400` (≈13개월, 가장 긴 10-K 지연도 통과) 보다 묵으면 **None 반환** + `features.fcf_yield.stale_fundamentals` 워닝. 효과 (prod Neon 실측):
+  ```
+  COIN    legacy=  4.16B  guarded= None    ← 거짓 신호 제거
+  UNH     legacy= 19.67B  guarded=19.67B   ← 변화 없음
+  AAPL    legacy=129.17B  guarded=129.17B  ← 변화 없음
+  ```
+- **교훈**: **데이터 freshness는 별개 차원의 sanity check이다.** 우리의 sanity 박스(±100%, P/E ≤ 500 등)는 단위·통화 에러를 잡지만, "최근 N년이 통째로 비어 있어도 옛 값이 합리적 범위에 있으면 통과"하는 케이스를 못 잡는다. **upstream provider의 mapping은 조용히 깨질 수 있다** — XBRL 콘셉트가 바뀌면 인제스터는 에러를 안 내고 그냥 null을 채운다. Loader walk-back은 빈 구멍을 메우려고 만든 기능인데, 너무 멀리 walk back하면 같은 침묵 실패 가족이 된다. **각 잡힌 값에 "언제 측정됐는지" 메타가 따라다녀야 하고, 소비자는 그걸 무시할 수 있는 권리가 없다.**
+- **이어진 결정 (UNH는 손대지 않음)**: 같은 진단에서 UNH 5.30%는 GAAP TTM 수학이 정확함이 확인됨 ($19.67B FCF / $371B mcap). 분석가 "~3%"는 forward/normalized (2024 사이버 공격 회복기 제외) — **다른 메트릭**. precision 차이를 좁히려면 별도 normalized FCF 정의가 필요하지만 그건 Phase D class 작업. trailing GAAP yield를 sanity 박스 안에서 honestly reporting하는 게 현재 계약.
+
+---
+
 ## 메타 교훈 (발표 마무리 슬라이드용)
 
 | # | 패턴 | 해당 케이스 |
 |---|---|---|
-| 1 | **침묵 실패가 1등 버그 클래스** — `suppress`/`except: pass`/`setdefault`/ok=True/무시된 exit code가 전부 실사고로 | CS-3,4,5,6,12 |
+| 1 | **침묵 실패가 1등 버그 클래스** — `suppress`/`except: pass`/`setdefault`/ok=True/무시된 exit code/통과해버리는 sanity bound가 전부 실사고로 | CS-3,4,5,6,12,13 |
 | 2 | **검증 장치는 자동이어야 의미가 있다** — 수동 캐너리는 없는 것과 같다 | CS-1, CS-6 |
 | 3 | **LLM은 신뢰 경계 밖** — 날짜를 써주고, 산문을 덧붙이고, 형식을 어긴다. 파서·필드 권위·게이트가 방어선 | CS-4, CS-5 |
 | 4 | **스키마/계약이 바뀌면 reader 전수조사** | CS-2 |
 | 5 | **테스트 작성은 발견 행위** — 커버리지 숫자가 아니라 docstring의 거짓말을 찾는 일 | CS-7 |
 | 6 | **운영 환경(셸·플랫폼)을 문서에 명시하고 그 환경에서 검증** | CS-8, CS-9, CS-10 |
 | 7 | **LLM의 역할(Role) 몰입은 명시적 규칙(Rule)을 이길 수 있다** — 시스템 단의 통제가 필수적 | CS-11 |
+| 8 | **데이터에는 시간 차원이 있다** — 값의 합리성과 신선도는 별개 검증, 둘 다 필요 | CS-13 |
 
 > 부록: 모든 케이스의 1차 자료는 PR 본문과 커밋 메시지에 있다 —
-> #90, #93, #98, #99, #105–#108, #110, #111.
+> #90, #93, #98, #99, #105–#108, #110, #111, #128.
