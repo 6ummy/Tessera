@@ -73,6 +73,25 @@ def try_advisory_lock(name: str) -> Iterator[bool]:
     the with-block; it is released explicitly on exit and implicitly if the
     connection dies (Postgres frees session-level advisory locks on
     disconnect), so a crashed run can never wedge the next one.
+
+    **Why the commit() after acquiring (CS-14, 2026-06-15):** SQLAlchemy
+    2.0 future-mode opens an implicit transaction on the first
+    `execute()`. Without committing, the lock connection sits
+    *idle-in-transaction* for the whole run. Neon's
+    `idle_in_transaction_session_timeout` (~5 min) then kills it mid-run;
+    an 8-11 min ingest_daily reliably tripped this. The kill silently
+    dropped the lock AND made the end-of-run `pg_advisory_unlock` throw,
+    which propagated out of the context manager and exited the JOB with
+    code 1 — even though all 14 steps had already succeeded. Cloud Run
+    marked the whole run "Failed" on a benign teardown error.
+
+    Committing right after the acquire ends the transaction, so the
+    connection is plain *idle* (which Neon does NOT reap) — and a
+    SESSION-level advisory lock survives a commit (only `pg_advisory_
+    unlock` or disconnect releases it). The `suppress` on the unlock
+    stays as belt-and-suspenders: if the connection dies for any other
+    reason, the server frees the lock on disconnect and we must not
+    crash teardown over it.
     """
     conn = get_engine().connect()
     acquired = False
@@ -81,16 +100,24 @@ def try_advisory_lock(name: str) -> Iterator[bool]:
             text("SELECT pg_try_advisory_lock(hashtext(:name))"),
             {"name": name},
         ).scalar())
+        # End the implicit transaction so the connection goes plain-idle
+        # for the run's duration (the session-level lock persists across
+        # commit). Prevents Neon's idle-in-transaction reaper from killing
+        # the lock connection on long (8-11 min) ingest runs.
+        conn.commit()
         yield acquired
     finally:
         try:
             if acquired:
                 with contextlib.suppress(Exception):
-                    # Neon kills connections idle-in-transaction > 5m.
-                    # The lock is released by the server on disconnect anyway.
+                    # Defensive: if the connection died anyway, the lock is
+                    # released by the server on disconnect — never crash
+                    # teardown over a failed unlock (the run already
+                    # succeeded by the time we reach here).
                     conn.execute(
                         text("SELECT pg_advisory_unlock(hashtext(:name))"),
                         {"name": name},
                     )
+                    conn.commit()
         finally:
             conn.close()

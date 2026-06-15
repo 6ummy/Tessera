@@ -238,6 +238,20 @@
 
 ---
 
+## 6. 인프라 (재방문)
+
+### CS-14. 14스텝 다 성공한 Job이 "실패"로 마킹된 사연 — idle-in-transaction이 죽인 advisory lock (#137 뒤, fix-advisory-lock-timeout)
+
+- **증상**: Phase D 직전 컬럼(#132~#134) 배포 후 `gcloud run jobs execute tessera-ingest-daily --wait`가 **exit code 1**. 그런데 데이터는 멀쩡히 들어옴. 같은 코드가 어떤 날은 성공(hzmzk 07:04), 어떤 날은 실패(8mfkt 07:38, s5d4j 08:01).
+- **추적**: 실패한 run의 로그를 `jsonPayload.event="ingest_daily.summary"`로 직접 조회하니 **세 run 전부 `passed=15, failed=0`**. summary는 08:01:18에 찍히고 execution은 08:01:23에 실패 종료 — **summary 이후 5초 안에 뭔가가 exit 1**. severity≥WARNING 로그를 당기자 `db.py:87`의 traceback: `try_advisory_lock`의 `__exit__`에서 `pg_advisory_unlock`을 실행하는 `conn.execute()`가 던짐. 성공한 run(hzmzk)은 4분, 실패한 run들은 8분+ 걸렸다는 게 결정타.
+- **원인**: SQLAlchemy 2.0 future-mode는 첫 `execute()`에 암묵적 트랜잭션을 연다. advisory lock 전용 커넥션이 lock SELECT 후 commit 없이 run 내내 **idle-in-transaction**으로 앉아 있었다. Neon의 `idle_in_transaction_session_timeout`(~5분)이 8분짜리 run의 lock 커넥션을 중간에 강제로 끊음. run 종료 시 unlock을 시도하면 이미 죽은 커넥션에 말을 걸어 예외 → context manager 밖으로 전파 → `sys.exit(main())`이 비정상 종료 → **14스텝이 전부 성공했는데도 Cloud Run이 run 전체를 "Failed"로 마킹**. (이전에 case-studies에서 'benign side effect'로 분류했던 그 현상 — 무해하지만 모니터링을 빨갛게 물들이는 범인.)
+- **수정**: 두 겹.
+  1. **근본 원인 제거** — lock 획득 직후 `conn.commit()`. 트랜잭션을 닫으면 커넥션이 plain *idle*(Neon이 안 죽임)이 되고, **session-level advisory lock은 commit 너머로 유지**된다 (`pg_advisory_unlock` 또는 disconnect만 푼다). 이제 lock이 run 전체를 실제로 보호하고 unlock도 살아있는 커넥션에서 동작.
+  2. **belt-and-suspenders** — unlock을 `contextlib.suppress(Exception)`로 감쌈. 어떤 이유로든 커넥션이 죽으면 서버가 disconnect 시 lock을 풀어주므로, teardown 단계에서 실패한 unlock 때문에 크래시하면 안 된다.
+- **교훈**: **"teardown에서 던지는 예외"는 작업 성공/실패를 거꾸로 뒤집는다.** 14스텝이 다 성공한 run을, 마지막 정리 한 줄의 예외가 exit 1로 만들었다. 두 가지 원칙: (1) **cleanup/finally 경로의 예외는 결과를 오염시키지 않게 격리**하라 (suppress 또는 로그-후-삼킴). (2) **장기 실행 작업이 잡은 DB 리소스는 트랜잭션 상태를 의식적으로 관리**하라 — "잡고 그냥 두면" 매니지드 Postgres(Neon/RDS)의 idle 리퍼가 조용히 끊는다. CS-12와 한 가족(종료 코드 정직성)이지만 방향이 반대다: CS-12는 진짜 실패를 삼켰고, CS-14는 진짜 성공을 실패로 뒤집었다.
+
+---
+
 ## 메타 교훈 (발표 마무리 슬라이드용)
 
 | # | 패턴 | 해당 케이스 |
@@ -251,6 +265,7 @@
 | 7 | **LLM의 역할(Role) 몰입은 명시적 규칙(Rule)을 이길 수 있다** — 시스템 단의 통제가 필수적 | CS-11 |
 | 8 | **데이터에는 시간 차원이 있다** — 값의 합리성과 신선도는 별개 검증, 둘 다 필요 | CS-13 |
 | 9 | **외부 reference로 자기 계산을 의심하기 전에 reference의 정의부터 확인** — "real ~X%"라는 노트가 메트릭 정의 없이 남으면 한 분기 동안 가짜 backlog가 된다 | CS-13 (UNH 부수 발견) |
+| 10 | **종료 코드 정직성은 양방향이다** — cleanup/finally의 예외가 성공한 작업을 실패로 뒤집을 수 있다. 장기 실행이 잡은 DB 리소스는 트랜잭션 상태를 의식적으로 관리 | CS-12(성공으로 위장한 실패) ↔ CS-14(실패로 위장한 성공) |
 
 > 부록: 모든 케이스의 1차 자료는 PR 본문과 커밋 메시지에 있다 —
-> #90, #93, #98, #99, #105–#108, #110, #111, #128.
+> #90, #93, #98, #99, #105–#108, #110, #111, #128, #137-후속.
