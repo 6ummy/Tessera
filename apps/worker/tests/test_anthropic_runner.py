@@ -329,3 +329,70 @@ def test_run_result_schema_fail_rate():
     assert abs(r.schema_fail_rate() - 0.03) < 1e-9
     r2 = RunResult(run_id=uuid4(), attempted=0)
     assert r2.schema_fail_rate() == 0.0
+
+
+# ─── cost_namespace isolation (PR8) ───────────────────────────────────
+
+
+class _RecordingSession:
+    """Captures every execute(sql, params) so the test can assert what
+    SQL the helper emitted + what params it bound. Stubs the
+    .mappings().first() chain check_daily_budget uses."""
+
+    def __init__(self, spent: float = 0.0) -> None:
+        self.calls: list[tuple[str, dict]] = []
+        self._spent = spent
+
+    def execute(self, sql, params=None):
+        self.calls.append((str(sql), dict(params or {})))
+        return _RecordingResult(self._spent)
+
+
+class _RecordingResult:
+    def __init__(self, spent: float) -> None:
+        self._spent = spent
+
+    def mappings(self):
+        return self
+
+    def first(self):
+        return {"spent": self._spent}
+
+
+def test_check_daily_budget_excludes_namespaced_rows():
+    from tessera_worker.agents.anthropic_runner import check_daily_budget
+    session = _RecordingSession(spent=2.5)
+    check_daily_budget(session)
+    assert len(session.calls) == 1
+    sql, _params = session.calls[0]
+    assert "cost_namespace IS NULL" in sql
+
+
+def test_log_llm_call_default_namespace_is_null():
+    from tessera_worker.agents.anthropic_runner import log_llm_call
+    session = _RecordingSession()
+    log_llm_call(
+        session,
+        persona_id="warren", stage="thesis", model="claude-sonnet-4-6",
+        tokens_in=100, tokens_out=50, cost_usd=0.01,
+        latency_ms=1234, success=True,
+    )
+    assert len(session.calls) == 1
+    sql, params = session.calls[0]
+    assert "cost_namespace" in sql
+    assert params["ns"] is None  # default global cap counts this row
+
+
+def test_log_llm_call_records_explicit_namespace():
+    from tessera_worker.agents.anthropic_runner import log_llm_call
+    session = _RecordingSession()
+    log_llm_call(
+        session,
+        persona_id="warren", stage="thesis", model="claude-sonnet-4-6",
+        tokens_in=100, tokens_out=50, cost_usd=0.01,
+        latency_ms=1234, success=True,
+        cost_namespace="backtest_baseline",
+    )
+    sql, params = session.calls[0]
+    assert "cost_namespace" in sql
+    assert params["ns"] == "backtest_baseline"

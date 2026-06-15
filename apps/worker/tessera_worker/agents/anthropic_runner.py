@@ -207,12 +207,18 @@ def build_analyst_report(
 
 
 def check_daily_budget(session: Any) -> float:
+    """Sum today's LLM spend in the GLOBAL namespace and trip the cap if
+    we're over. Namespaced calls (e.g. cost_namespace='backtest_baseline')
+    are excluded — they have their own accounting via the caller's
+    --max-cost flag, so a one-off evaluation run doesn't starve the
+    live system."""
     settings = get_settings()
     row = session.execute(
         text("""
             SELECT COALESCE(SUM(cost_usd), 0) AS spent
             FROM llm_call_log
             WHERE ts >= CURRENT_DATE
+              AND cost_namespace IS NULL
         """),
     ).mappings().first()
     spent = float(row["spent"] if row else 0)
@@ -236,13 +242,19 @@ def log_llm_call(
     success: bool,
     error: str | None = None,
     cached_tokens: int = 0,
+    cost_namespace: str | None = None,
 ) -> None:
+    """Append one call to the audit log. `cost_namespace=None` (default)
+    means the call counts against the global daily cap; non-None isolates
+    it (e.g. 'backtest_baseline' for one-off evaluation runs)."""
     session.execute(
         text("""
             INSERT INTO llm_call_log
                 (persona_id, stage, model, tokens_in, tokens_out,
-                 cached_tokens, cost_usd, latency_ms, success, error)
-            VALUES (:p, :stage, :model, :ti, :to, :cached, :cost, :lat, :ok, :err)
+                 cached_tokens, cost_usd, latency_ms, success, error,
+                 cost_namespace)
+            VALUES (:p, :stage, :model, :ti, :to, :cached, :cost, :lat,
+                    :ok, :err, :ns)
         """),
         {
             "p": persona_id,
@@ -255,6 +267,7 @@ def log_llm_call(
             "lat": latency_ms,
             "ok": success,
             "err": error,
+            "ns": cost_namespace,
         },
     )
 
@@ -449,6 +462,7 @@ def run_thesis(
     *,
     as_of: date | None = None,
     persist: bool = True,
+    cost_namespace: str | None = None,
 ) -> AnalystReport:
     """Assemble prompt, call Claude, validate, optionally save to analyst_reports."""
     settings = get_settings()
@@ -503,6 +517,7 @@ def run_thesis(
                         success=False,
                         error=last_error,
                         cached_tokens=cached,
+                        cost_namespace=cost_namespace,
                     )
                     if persist:
                         persist_analyst_report(
@@ -525,6 +540,7 @@ def run_thesis(
                     latency_ms=latency_ms,
                     success=True,
                     cached_tokens=cached,
+                    cost_namespace=cost_namespace,
                 )
                 if persist:
                     persist_analyst_report(session, report, raw_response=raw)
@@ -546,6 +562,7 @@ def run_thesis(
                     success=False,
                     error=last_error,
                     cached_tokens=cached,
+                    cost_namespace=cost_namespace,
                 )
                 if attempt == 1:
                     session.commit()
@@ -632,6 +649,7 @@ def run_regime_thesis(
     *,
     as_of: date | None = None,
     persist: bool = True,
+    cost_namespace: str | None = None,
 ) -> RegimeReport:
     """Ray-specific path. No ticker — Ray writes a portfolio-level regime read."""
     settings = get_settings()
@@ -688,6 +706,7 @@ def run_regime_thesis(
                     session, persona_id="ray", stage="regime", model=model,
                     tokens_in=tokens_in, tokens_out=tokens_out, cost_usd=cost,
                     latency_ms=latency_ms, success=True, cached_tokens=cached,
+                    cost_namespace=cost_namespace,
                 )
                 if persist:
                     persist_regime_report(session, report, raw_response=raw)
@@ -702,6 +721,7 @@ def run_regime_thesis(
                     tokens_in=tokens_in, tokens_out=tokens_out, cost_usd=cost,
                     latency_ms=latency_ms, success=False, error=last_error,
                     cached_tokens=cached,
+                    cost_namespace=cost_namespace,
                 )
                 if attempt == 1:
                     session.commit()
@@ -715,6 +735,7 @@ def run_research(
     ticker: str,
     *,
     as_of: date | None = None,
+    cost_namespace: str | None = None,
 ) -> dict[str, Any] | None:
     """Pass-1 research call for the 2-pass architecture.
 
@@ -730,7 +751,10 @@ def run_research(
     Returns None on failure (don't take down the rest of the batch).
     """
     try:
-        report = run_thesis(persona, ticker, as_of=as_of, persist=False)
+        report = run_thesis(
+            persona, ticker, as_of=as_of, persist=False,
+            cost_namespace=cost_namespace,
+        )
     except Exception as e:
         log.warning("run_research.failed", persona=persona, ticker=ticker, err=str(e))
         return None

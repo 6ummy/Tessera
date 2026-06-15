@@ -337,6 +337,7 @@ def construct_portfolio(
     *,
     as_of: date | None = None,
     persist: bool = True,
+    cost_namespace: str | None = None,
 ) -> AnalystReport:
     """Pass-2 construction call. Takes a list of research note dicts
     (each ~TickerResearch-shaped: ticker, conviction, thesis_md,
@@ -477,6 +478,7 @@ def construct_portfolio(
                     success=True,
                     error=None,
                     cached_tokens=cached,
+                    cost_namespace=cost_namespace,
                 )
                 if persist:
                     persist_analyst_report(session, report, raw_response=raw)
