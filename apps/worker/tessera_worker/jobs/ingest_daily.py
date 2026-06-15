@@ -201,6 +201,25 @@ def _step_yf_history() -> dict[str, object]:
     }
 
 
+def _step_fmp_quarterly() -> dict[str, object]:
+    """Weekly (Friday only): pull the last 8 quarterly income statements
+    per equity ticker so `compute_gross_margin_qtr_yoy_chg` has at
+    minimum (latest Q + same Q yr ago) to work from.
+
+    Cadence guard: like yf_history, this is Friday-only. Quarterly
+    fundamentals refresh ~90 days; daily would be wasteful and bloat
+    the FMP free-tier quota. Annual income (`fundamentals` step) stays
+    daily-with-30d-cache as before."""
+    if date.today().weekday() != 4:
+        return {"rows_upserted": 0, "n_tickers": 0, "skipped_reason": "non_friday"}
+    tickers = [t.ticker for t in by_asset_class("equity")]
+    r = fmp_fundamentals.ingest(
+        tickers=tickers, period="quarter", limit=8,
+        filing_types=("income",),  # margin needs only revenue + grossProfit
+    )
+    return {"rows_upserted": r.rows_upserted, "n_tickers": len(r.tickers)}
+
+
 def _step_edgar_facts() -> dict[str, object]:
     """Pull SEC XBRL companyfacts (structured GAAP fundamentals).
 
@@ -355,6 +374,7 @@ STEPS: dict[str, StepFn] = {
     "fmp_key_metrics": _step_fmp_key_metrics, # FMP TTM mcap/ratios — daily 5th mcap candidate
     "yf_shares":     _step_yf_shares,       # yfinance — last-resort shares + mcap
     "yf_history":    _step_yf_history,      # yfinance — weekly annual income history
+    "fmp_quarterly": _step_fmp_quarterly,   # FMP — Friday-only last 8 Q income (margin YoY)
     "news":          _step_news,
     "filings":       _step_filings,         # SEC 10-K/10-Q text → GCS
     "features":      _step_features,

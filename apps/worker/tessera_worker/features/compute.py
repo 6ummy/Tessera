@@ -575,6 +575,71 @@ def compute_gross_margin_trend(rows: list[dict[str, Any]]) -> float | None:
     return latest_margin - anchor_margin
 
 
+def _quarterly_income_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Newest-first income rows that look quarterly (not FY/Q4 annual).
+
+    Quarterly cadence rows from FMP carry `period` in ('Q1','Q2','Q3').
+    Q4 is treated as FY (already covered by annual). Rows without an
+    explicit period label are excluded — annual math is safer as None
+    than as quarterly accidentally annualized."""
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        period = (row.get("period") or "").upper()
+        if period in ("Q1", "Q2", "Q3"):
+            out.append(row)
+    out.sort(key=lambda r: r.get("period_end") or date.min, reverse=True)
+    return out
+
+
+def compute_gross_margin_qtr_yoy_chg(rows: list[dict[str, Any]]) -> float | None:
+    """Latest quarterly gross margin minus the same quarter of the prior
+    fiscal year (Plan §5 Phase D carry-over, PR9).
+
+    Returns None when:
+      - fewer than 5 quarterly rows are present (need Q_latest + Q_yoy),
+      - latest quarter is missing revenue / grossProfit,
+      - no row found ~365 days before latest_pe (±45-day tolerance — same
+        bound `_decompose_cumulative_ytd_to_ttm` uses for prior-YTD),
+      - either margin computation falls outside the standard sanity bound.
+
+    Sign convention: positive = margin expanded YoY, negative = compressed.
+    """
+    quarterly = _quarterly_income_rows(rows)
+    if len(quarterly) < 5:
+        return None
+
+    latest = quarterly[0]
+    latest_pe = latest.get("period_end")
+    if latest_pe is None:
+        return None
+    latest_margin = compute_gross_margin(
+        _to_float(latest.get("revenue")),
+        _to_float(latest.get("grossProfit")),
+    )
+    if latest_margin is None:
+        return None
+
+    anchor = None
+    for row in quarterly[1:]:
+        pe = row.get("period_end")
+        if pe is None:
+            continue
+        delta_days = (latest_pe - pe).days
+        if 320 <= delta_days <= 410:
+            anchor = row
+            break
+    if anchor is None:
+        return None
+
+    anchor_margin = compute_gross_margin(
+        _to_float(anchor.get("revenue")),
+        _to_float(anchor.get("grossProfit")),
+    )
+    if anchor_margin is None:
+        return None
+    return latest_margin - anchor_margin
+
+
 FCF_STALENESS_MAX_DAYS = 400  # ~13 months — generous past the longest
 # fiscal-year reporting lag (10-K usually lands within 75 days of FY-end,
 # 10-Q within 40; missing every form for >13 months means the source
@@ -1301,12 +1366,14 @@ def _upsert_fundamental_features(per_ticker: dict[str, dict[str, Any]]) -> int:
             ticker, ts,
             fcf_yield, peg, market_cap_usd, operating_margin, eps_cagr_3y,
             debt_to_equity, gross_margin, gross_margin_trend,
+            gross_margin_qtr_yoy_chg,
             pe_trailing, pe_forward
         )
         VALUES (
             :ticker, :ts,
             :fcf_yield, :peg, :market_cap_usd, :operating_margin, :eps_cagr_3y,
             :debt_to_equity, :gross_margin, :gross_margin_trend,
+            :gross_margin_qtr_yoy_chg,
             :pe_trailing, :pe_forward
         )
         ON CONFLICT (ticker, ts) DO UPDATE SET
@@ -1321,6 +1388,10 @@ def _upsert_fundamental_features(per_ticker: dict[str, dict[str, Any]]) -> int:
             gross_margin       = COALESCE(EXCLUDED.gross_margin, ticker_features.gross_margin),
             gross_margin_trend = COALESCE(
                 EXCLUDED.gross_margin_trend, ticker_features.gross_margin_trend
+            ),
+            gross_margin_qtr_yoy_chg = COALESCE(
+                EXCLUDED.gross_margin_qtr_yoy_chg,
+                ticker_features.gross_margin_qtr_yoy_chg
             ),
             pe_trailing        = COALESCE(EXCLUDED.pe_trailing, ticker_features.pe_trailing),
             pe_forward         = COALESCE(EXCLUDED.pe_forward, ticker_features.pe_forward)
@@ -1342,6 +1413,7 @@ def _upsert_fundamental_features(per_ticker: dict[str, dict[str, Any]]) -> int:
                 "debt_to_equity":     _f(fields.get("debt_to_equity")),
                 "gross_margin":       _f(fields.get("gross_margin")),
                 "gross_margin_trend": _f(fields.get("gross_margin_trend")),
+                "gross_margin_qtr_yoy_chg": _f(fields.get("gross_margin_qtr_yoy_chg")),
                 "pe_trailing":        _f(fields.get("pe_trailing")),
                 "pe_forward":         _f(fields.get("pe_forward")),
             })
@@ -1491,6 +1563,9 @@ def build(
             if yf_pe_fwd is not None and 0 < yf_pe_fwd < 500:
                 pe_forward = yf_pe_fwd
             gross_margin_trend = compute_gross_margin_trend(income_rows)
+            gross_margin_qtr_yoy_chg = compute_gross_margin_qtr_yoy_chg(
+                income_rows,
+            )
             balance = f.get("balance", {})
             debt_to_equity = compute_debt_to_equity(
                 total_debt=balance.get("total_debt"),
@@ -1507,6 +1582,7 @@ def build(
                 "debt_to_equity": debt_to_equity,
                 "gross_margin": gross_margin,
                 "gross_margin_trend": gross_margin_trend,
+                "gross_margin_qtr_yoy_chg": gross_margin_qtr_yoy_chg,
                 "operating_margin": operating_margin,
                 "pe_trailing": pe_trailing,
                 "pe_forward": pe_forward,
