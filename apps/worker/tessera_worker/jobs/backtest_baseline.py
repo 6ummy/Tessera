@@ -188,8 +188,24 @@ def baseline_metrics(curve: list[tuple[date, float]]) -> BaselineMetrics:
 # Shell
 # ─────────────────────────────────────────────────────────────────────────
 
+# Personas whose shortlist must be passed in full regardless of the
+# `--tickers-per-persona` flag, because the construction call's hard
+# constraints can't be satisfied from a truncated slice. Cathie is the
+# canonical case: her 14-name shortlist is 10 equities (7+ of them
+# Technology) plus 4 crypto pairs that exist specifically to give the
+# sector cap headroom. Truncating to the first 10 drops the crypto
+# sleeve, making the 70% Tech cap mathematically violable by
+# `normalize_book` alone — the 2026-06-14 baseline hit this and Cathie
+# failed 6/9 cells (sector 'Technology' weight 0.79 > sector cap 0.70).
+# See Plan §5 carry-over.
+_FULL_SHORTLIST_PERSONAS: frozenset[str] = frozenset({"cathie"})
+
+
 def _tickers_for(persona: str, n: int) -> list[str]:
-    return PERSONA_SHORTLISTS.get(persona, [])[:n]
+    shortlist = PERSONA_SHORTLISTS.get(persona, [])
+    if persona in _FULL_SHORTLIST_PERSONAS:
+        return list(shortlist)
+    return shortlist[:n]
 
 
 @dataclass
