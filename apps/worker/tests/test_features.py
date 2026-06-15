@@ -1071,3 +1071,33 @@ def test_fcf_yield_normalized_even_count_median() -> None:
     )
     assert yld is not None
     assert abs(yld - (25e9 / 500e9)) < 1e-9
+
+
+def test_fcf_yield_normalized_recognizes_edgar_annual_via_form_fp() -> None:
+    """EDGAR cash_flow rows carry form='10-K'/fp='FY' (period is often
+    NULL), not period='FY'. The normalized median must recognize them as
+    annual via form/fp — otherwise it silently returns None for every
+    EDGAR-only ticker (the bug behind prod norm_filled=1 on 2026-06-15).
+    """
+    import datetime as _dt
+
+    from tessera_worker.features.compute import compute_fcf_yield_normalized
+    # period is NULL (EDGAR style); annual-ness comes from form/fp.
+    cash_rows = [
+        {"period_end": _dt.date(2025, 12, 31), "period": None,
+         "form": "10-K", "fp": "FY", "freeCashFlow": 16e9},
+        {"period_end": _dt.date(2024, 12, 31), "period": None,
+         "form": "10-K", "fp": "FY", "freeCashFlow": 25e9},
+        {"period_end": _dt.date(2023, 12, 31), "period": None,
+         "form": "10-K", "fp": "FY", "freeCashFlow": 13e9},
+        # A quarterly row in the same window must NOT count toward the
+        # annual median.
+        {"period_end": _dt.date(2025, 9, 30), "period": None,
+         "form": "10-Q", "fp": "Q3", "freeCashFlow": 4e9},
+    ]
+    yld = compute_fcf_yield_normalized(
+        cash_rows, mcap=371e9, reported_currency="USD",
+    )
+    assert yld is not None
+    # median of the 3 annual FY values [13, 16, 25] = 16
+    assert abs(yld - (16e9 / 371e9)) < 1e-9
