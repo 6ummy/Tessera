@@ -950,7 +950,33 @@ distilled rules:
     as designed (rejected the violation), but the harness handed it
     an impossible problem. Per-persona shortlist truncation logic
     needs to respect the persona's sector profile (Phase D
-    carry-over).
+    carry-over). **Resolved 2026-06-15 (#136)**: `_tickers_for("cathie")`
+    returns the full 14-name shortlist regardless of n.
+11. **A Job's exit code must reflect the work, not teardown** (CS-14,
+    #143). A 15-step ingest that fully succeeded exited code 1 because
+    the advisory-lock connection sat idle-in-transaction (SQLAlchemy
+    2.0 opens an implicit txn on first `execute()`), Neon's
+    `idle_in_transaction_session_timeout` reaped it mid-run, and the
+    end-of-run `pg_advisory_unlock` then threw out of the context
+    manager. Fix: `conn.commit()` right after acquiring (session-level
+    locks survive a commit; a plain-idle connection isn't reaped) +
+    `suppress` on the unlock as belt-and-suspenders. Rule: isolate
+    cleanup/finally exceptions from the result; don't let long-running
+    jobs hold an open transaction they aren't using.
+12. **"Code is right but the column is empty" → look at the input
+    shape, not the deploy** (CS-15, #144). `fcf_yield_normalized`
+    populated only 1/59 tickers after a clean deploy. The reused
+    `_annual_income_rows` helper marks annual rows by `form`/`fp`, but
+    the loader's `cash_rows` only SELECT-ed `period` (NULL for EDGAR),
+    so the fn silently returned None for every EDGAR-covered ticker —
+    no error, just empties. Fix: add `form`/`fp` to `cash_sql` + the
+    bucket, raise the cash cap 8→24 (5 FY need >2y of rows); norm 1→38.
+    Debug discipline: confirm the code actually ran (image-tag time vs
+    merge time + Job exit code) BEFORE suspecting the deploy, then
+    inspect what the function is being fed. Also: deploying a Job only
+    updates its image — `gcloud run jobs execute … --wait` is what
+    recomputes features (#139 also fixed the `-ImageTag` bare-tag
+    footgun in the deploy script).
 
 ---
 
@@ -1184,3 +1210,4 @@ Each of these could be a future phase. Keeping them out of pilot scope is the di
 | 0.6 | 2026-06-12 | **Phase C Week 4 core live.** Audit Steps 1–2 landed (#93: CI ruff-0 + pytest gate, gitleaks pre-commit, ingest advisory lock, chat abuse guards + chat budget pool, nightly SPY canary step, `--no-cpu-throttling`). Risk gateway (#94) inside construction retry loop. PaperEngine v1 (#95) + `FEATURE_PAPER_EXECUTION=true` (#96) — Week-4 ledger tasks (engine / order ledger / MTM / performance writer) marked done, LISTEN/NOTIFY dropped for the simpler daily-step design. §0 baseline rewritten. `CLAUDE.md` added. |
 | 0.8 | 2026-06-12 | **Phase C risk/analytics layer complete (#105–#108, deployed same day).** Gateway gains parametric VaR99 (calibrated per persona) + drawdown floor (live track only) + Ray's regime gate; weight-distribution telemetry as canary check 6 (§11 mode-collapse tripwire); ticker-level attribution (`/api/attribution`, contributions sum to period return); paper-engine failures now page via explicit Sentry capture + operator alert rule. Live smoke caught warren/cathie's pre-#94 books over SECTOR caps — Friday's batch re-shapes them via retry feedback. Remaining in Phase C: 90d backtest baseline, attribution UI table, quant edge cases; tech debt: Cloud Run Jobs, mypy ledger. |
 | 0.7 | 2026-06-12 | **Audit Step 4 — docs closed out.** Frozen-book 1y backfill run on prod (#100, 251 days × 4 personas, seam exact); frontend performance/portfolio swap shipped (#103, `lib/mock/performance.ts` deleted, hypothetical segments dashed + captioned); Week-5 leaderboard/chart tasks marked done. Retro policy decided: per-phase "Lessons" subsections live INSIDE this file (§4 gains Phase B's 7 lessons; no separate retro files). `CLAUDE.md` rewritten as a zero-context AI operator handbook. Decks moved to local-only `decks/` (gitignored). mypy CI-blocking via pyproject debt ledger (#99). |
+| 0.9 | 2026-06-15 | **Phase C CLOSED, Phase D ready.** 90-day baseline ran 2026-06-14 (Warren 1.28 / Cathie 3.21 / Peter 2.81 / Ray 1.96, all positive + mandate-ordered). Phase C closure (#131) + the four carry-overs landed: `cost_namespace` baseline↔prod cap isolation (#132), quarterly `gross_margin_qtr_yoy_chg` (#133), `fcf_yield_normalized` (#134), Cathie full-shortlist hotfix (#136). Migrations 008–011 applied to prod. Docs synced to Phase-D-ready (#137). §5 Lessons gain #11–#12 from the 06-15 deploy chaos: **CS-14** advisory-lock idle-in-transaction → Job exit 1 on a green run, fixed by `conn.commit()` after acquire + suppressed unlock (#140/#143); **CS-15** `fcf_yield_normalized` populated 1/59 because the loader's `cash_rows` lacked `form`/`fp` (EDGAR annual marker) + an 8-row cap, fixed via `cash_sql` form/fp + cap 8→24, norm 1→38 (#144); deploy `-ImageTag` bare-tag footgun normalized (#139). 283 worker tests. |

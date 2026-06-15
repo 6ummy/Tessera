@@ -116,7 +116,11 @@ Everything below is LIVE in prod unless marked otherwise:
   (COIN) → #129 CS-13 + freshness invariant → #130 UNH not-a-bug
   reframe → #131 Phase C closure → #132 cost_namespace isolation →
   #133 quarterly gross_margin YoY → #134 fcf_yield_normalized → #135
-  Plan checkbox cleanup → #136 Cathie shortlist hotfix.
+  Plan checkbox cleanup → #136 Cathie shortlist hotfix → #137 Phase D
+  docs sync → #139 deploy `-ImageTag` normalize (bare/full) + Jobs
+  cmd echo → #143 advisory-lock `conn.commit()` root-cause (CS-14) →
+  #144 fcf_yield_normalized loader form/fp + cap 8→24 (CS-15, norm
+  1→38).
 
 ## 3. Hard invariants (each from a real incident — don't relearn them)
 
@@ -163,9 +167,31 @@ Everything below is LIVE in prod unless marked otherwise:
   a loader walk-back must carry its newest-period_end meta forward;
   downstream guards drop values whose freshness exceeds a clear bound
   (FCF: `FCF_STALENESS_MAX_DAYS=400` ≈ 13 months).
+- **Long-running jobs must not hold an idle-in-transaction connection,
+  and teardown must never flip a successful run to failed** (CS-14).
+  `try_advisory_lock` commits right after acquiring (SQLAlchemy 2.0
+  future-mode opens an implicit txn on first `execute()`; Neon's
+  `idle_in_transaction_session_timeout` ~5 min reaps it mid-run, which
+  also made the end-of-run `pg_advisory_unlock` throw → Job exit 1 on
+  an otherwise-green 15-step run). SESSION-level advisory locks survive
+  a commit, so the lock still protects the whole run; the unlock is
+  also `suppress`-wrapped as belt-and-suspenders. General rule:
+  cleanup/finally exceptions are isolated from the result, and a Job's
+  exit code must reflect the WORK, not a benign teardown error.
+- **A compute fn only works if the loader supplies the shape it
+  assumes** (CS-15). `_annual_income_rows` decides annual-ness by
+  `period IN ('FY','Q4') OR form='10-K' OR fp='FY'`; EDGAR cash-flow
+  rows have `period=NULL` and mark annual via `form`/`fp`. When
+  `fcf_yield_normalized` reused that helper on `cash_rows` but the
+  loader didn't SELECT `form`/`fp`, the fn silently returned None for
+  ~39 EDGAR tickers (norm 1/59, no error). When wiring a reused helper
+  onto a new source, confirm the source carries every field the helper
+  reads. Debug order for "code is right but the column is empty":
+  image-tag-time vs merge-time + Job exit code FIRST (confirms code
+  ran), then look at the function's INPUT shape — not the deploy.
 - **No silent failures — this codebase's #1 bug class** (see CS-3,
-  CS-4, CS-5, CS-6, CS-12, CS-13 in `docs/case-studies.md` for the
-  canonical cases). Every caught exception logs loudly with context
+  CS-4, CS-5, CS-6, CS-12, CS-13, CS-15 in `docs/case-studies.md` for
+  the canonical cases). Every caught exception logs loudly with context
   or re-raises;
   `suppress` / `except: pass` / `setdefault` on LLM-overlapping fields
   need written justification. A step where every item "skipped" is a
@@ -181,7 +207,7 @@ Everything below is LIVE in prod unless marked otherwise:
 ```powershell
 # Worker — venv EXISTS at apps/worker/.venv, never recreate it
 cd apps\worker
-.\.venv\Scripts\python.exe -m pytest tests -q                          # 242 tests, no DB needed
+.\.venv\Scripts\python.exe -m pytest tests -q                          # 283 tests, no DB needed
 .\.venv\Scripts\python.exe -m ruff check tessera_worker tests scripts  # MUST stay 0
 .\.venv\Scripts\python.exe -m mypy tessera_worker                      # MUST stay 0
 .\.venv\Scripts\python.exe -m tessera_worker.jobs.ingest_daily --only features coverage
@@ -269,6 +295,19 @@ for baseline isolation), `persona_memory` (pgvector),
   checks are rarely needed anyway — a `gcloud run services describe`
   showing the latest revision as `Ready` is a stronger signal than
   `/health` 200 (readiness probe already gated it).
+- **Deploy = build, then EXECUTE.** `deploy_cloud_run.ps1` builds +
+  ships the Service and prints the image tag + the exact
+  `deploy_cloud_run_jobs.ps1 -ImageTag "<tag>"` line to reuse that
+  build for the Jobs. `deploy_cloud_run_jobs.ps1 -ImageTag` accepts a
+  bare tag (`20260615-002125`) OR a full ref — a bare tag used to be
+  passed verbatim to `--image` and gcloud read it as a Docker Hub
+  library image (`Image 'mirror.gcr.io/library/<tag>' not found`); #139
+  normalizes both. **Deploying a Job only updates its image — features
+  are NOT recomputed until you `gcloud run jobs execute
+  tessera-ingest-daily --region us-east1 --wait`.** "I redeployed but
+  the column is still empty" almost always means the job wasn't
+  executed (or you're reading before it finished). Confirm with the
+  execution list timestamp, not assumptions (CS-15).
 - The operator (정우) runs gcloud/Neon/Vercel console steps — hand exact
   commands. Verify their reports with read-only queries when cheap.
 - After any ohlcv-touching migration: rebuild features

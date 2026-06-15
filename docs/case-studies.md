@@ -240,7 +240,7 @@
 
 ## 6. 인프라 (재방문)
 
-### CS-14. 14스텝 다 성공한 Job이 "실패"로 마킹된 사연 — idle-in-transaction이 죽인 advisory lock (#140 + commit-후속)
+### CS-14. 14스텝 다 성공한 Job이 "실패"로 마킹된 사연 — idle-in-transaction이 죽인 advisory lock (#140 suppress + #143 commit)
 
 - **증상**: Phase D 직전 컬럼(#132~#134) 배포 후 `gcloud run jobs execute tessera-ingest-daily --wait`가 **exit code 1**. 그런데 데이터는 멀쩡히 들어옴. 같은 코드가 어떤 run은 성공(hzmzk 07:04), 어떤 run은 실패(8mfkt 07:38, s5d4j 08:01).
 - **추적**: 실패한 run의 로그를 `jsonPayload.event="ingest_daily.summary"`로 직접 조회하니 **세 run 전부 `passed=15, failed=0`**. summary는 08:01:18에 찍히고 execution은 08:01:23에 실패 종료 — **summary 이후 5초 안에 뭔가가 exit 1**. severity≥WARNING 로그를 당기자 `db.py`의 traceback: `try_advisory_lock`의 `__exit__`에서 `pg_advisory_unlock`을 실행하는 `conn.execute()`가 던짐. 성공한 run(hzmzk)은 4분, 실패한 run들은 8분+ 걸렸다는 게 결정타.
@@ -250,13 +250,24 @@
   2. **근본 원인 제거 (후속)** — lock 획득 직후 `conn.commit()`. 트랜잭션을 닫으면 커넥션이 plain *idle*(Neon이 안 죽임)이 되고, **session-level advisory lock은 commit 너머로 유지**된다 (`pg_advisory_unlock` 또는 disconnect만 푼다). 이제 lock이 run 전체를 실제로 보호하고 unlock도 살아있는 커넥션에서 동작.
 - **교훈**: **"teardown에서 던지는 예외"는 작업 성공/실패를 거꾸로 뒤집는다.** 14스텝이 다 성공한 run을, 마지막 정리 한 줄의 예외가 exit 1로 만들었다. 두 가지 원칙: (1) **cleanup/finally 경로의 예외는 결과를 오염시키지 않게 격리**하라 (suppress 또는 로그-후-삼킴). (2) **장기 실행 작업이 잡은 DB 리소스는 트랜잭션 상태를 의식적으로 관리**하라 — "잡고 그냥 두면" 매니지드 Postgres(Neon/RDS)의 idle 리퍼가 조용히 끊는다. CS-12와 한 가족(종료 코드 정직성)이지만 방향이 반대다: CS-12는 진짜 실패를 삼켰고, CS-14는 진짜 성공을 실패로 뒤집었다.
 
+### CS-15. 새 컬럼이 38개 중 1개만 채워진 사연 — loader가 annual 마커를 안 실어줌 (#144)
+
+- **증상**: `fcf_yield_normalized`(#134) 배포 + Job 성공(exit 0) 후에도 prod `ticker_features`의 해당 컬럼이 **59개 중 단 1개**만 non-NULL. 코드는 돌았는데(features 스텝 ok) 값이 거의 다 NULL.
+- **추적**: "재배포가 안 됐나? Job이 옛 이미지인가?"부터 의심했지만 — 이미지 태그(`094657`)는 #134 머지 *뒤* 빌드 확인, Job도 exit 0 확인. 즉 **새 코드가 돌았는데 함수가 거의 모두 None을 반환**. `compute_fcf_yield_normalized`를 따라가니 `_annual_income_rows(cash_rows)`로 연간 FY 행을 고르는데, 이 필터는 `period in ('FY','Q4') OR form=='10-K' OR fp=='FY'`. 그런데 `_load_fundamentals_latest`의 cash_rows는 `period`만 싣고 **`form`/`fp`는 안 실었다.** EDGAR-소스 cash_flow 행은 `period`가 NULL이고 form/fp로 연간을 표시 → ~39개 EDGAR 커버 티커 전부 연간 매칭 0 → `< 3` → None. 유일하게 통과한 1개는 FMP가 `period='FY'`를 명시해준 티커.
+- **부수 원인**: cash bucket cap이 8행이라, form/fp를 실어줘도 분기 filer는 8행=2년치 → 5년 normalized엔 부족.
+- **수정**: (1) `cash_sql`에 `form`/`fp` SELECT 추가 + bucket dict에 실어줌. (2) cap 8 → 24 (5+ 회계연도). 기존 trailing `sum_ttm_fcf`는 내부에서 `[:8]` 슬라이스라 무영향(안전). 재배포+execute 후 **norm 1 → 38** 확인.
+- **교훈**: **"코드는 맞는데 값이 비어 있다"의 1순위 용의자는 배포가 아니라 그 함수에 들어가는 입력의 모양이다.** compute 함수(`_annual_income_rows`)가 가정한 필드(form/fp)를 loader가 안 실어주면, 함수는 에러 없이 조용히 빈 결과를 낸다 — CS-3/CS-13과 같은 침묵 실패 가족. 재사용 헬퍼(`_annual_income_rows`)를 새 데이터 소스(cash_rows)에 적용할 때는 **그 소스가 헬퍼의 전제 필드를 다 갖췄는지** 먼저 확인할 것. 그리고 디버깅 순서: "재배포 의심" 전에 **이미지 태그 시각 vs 머지 시각 + Job exit code**부터 확인하면 1분 만에 "코드는 돌았다"를 확정하고 입력 쪽으로 직행할 수 있다.
+
+> **운영 메모 (CS-14/15 공통, deploy 워크플로 footgun)**: 같은 사건에서 `deploy_cloud_run_jobs.ps1 -ImageTag "20260615-002125"`가
+> `Image 'mirror.gcr.io/library/...' not found`로 실패했다. 스크립트가 베어 태그를 full 레퍼런스로 그대로 gcloud에 넘겨 Docker Hub library 이미지로 오인된 것 (#139에서 베어태그/full 둘 다 받도록 수정 + `deploy_cloud_run.ps1`이 끝에 다음 Jobs 명령을 그대로 출력하도록 보강). 또 하나: `deploy_cloud_run_jobs.ps1`은 Job 정의(이미지)만 갱신한다 — features 재계산은 `gcloud run jobs execute ... --wait`를 따로 돌려야 일어난다. "배포했는데 데이터가 안 바뀐다"의 흔한 원인.
+
 ---
 
 ## 메타 교훈 (발표 마무리 슬라이드용)
 
 | # | 패턴 | 해당 케이스 |
 |---|---|---|
-| 1 | **침묵 실패가 1등 버그 클래스** — `suppress`/`except: pass`/`setdefault`/ok=True/무시된 exit code/통과해버리는 sanity bound가 전부 실사고로 | CS-3,4,5,6,12,13 |
+| 1 | **침묵 실패가 1등 버그 클래스** — `suppress`/`except: pass`/`setdefault`/ok=True/무시된 exit code/통과해버리는 sanity bound/loader가 안 실어준 입력 필드로 빈 결과가 전부 실사고로 | CS-3,4,5,6,12,13,15 |
 | 2 | **검증 장치는 자동이어야 의미가 있다** — 수동 캐너리는 없는 것과 같다 | CS-1, CS-6 |
 | 3 | **LLM은 신뢰 경계 밖** — 날짜를 써주고, 산문을 덧붙이고, 형식을 어긴다. 파서·필드 권위·게이트가 방어선 | CS-4, CS-5 |
 | 4 | **스키마/계약이 바뀌면 reader 전수조사** | CS-2 |
@@ -268,4 +279,4 @@
 | 10 | **종료 코드 정직성은 양방향이다** — cleanup/finally의 예외가 성공한 작업을 실패로 뒤집을 수 있다. 장기 실행이 잡은 DB 리소스는 트랜잭션 상태를 의식적으로 관리 | CS-12(성공으로 위장한 실패) ↔ CS-14(실패로 위장한 성공) |
 
 > 부록: 모든 케이스의 1차 자료는 PR 본문과 커밋 메시지에 있다 —
-> #90, #93, #98, #99, #105–#108, #110, #111, #128.
+> #90, #93, #98, #99, #105–#108, #110, #111, #128, #139, #143, #144.
