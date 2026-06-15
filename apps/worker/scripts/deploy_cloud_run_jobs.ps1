@@ -16,8 +16,19 @@
 # until Scheduler is enabled), so this script is safe to run anytime.
 
 param(
-    # Reuse an already-built image (e.g. the tag deploy_cloud_run.ps1 just
-    # pushed). Default: build a fresh one.
+    # Reuse an already-built image. Accepts either form:
+    #   - bare tag suffix:  "20260615-002125"  (what deploy_cloud_run.ps1
+    #                       prints; the most common case)
+    #   - full reference:   "us-east1-docker.pkg.dev/.../worker:20260615-002125"
+    # The script normalizes both into the correct `gcloud run jobs deploy
+    # --image` argument. Default empty: build a fresh image via Cloud
+    # Build, push, and deploy with that.
+    #
+    # Pre-2026-06-15 footgun (since fixed here): the script passed
+    # $ImageTag through to --image verbatim. A bare tag like
+    # "20260615-002125" got interpreted by gcloud as a Docker Hub library
+    # image, producing the cryptic "Image 'mirror.gcr.io/library/<tag>'
+    # not found" error. Both forms now Just Work.
     [string]$ImageTag = ""
 )
 
@@ -36,13 +47,27 @@ $SECRETS = "DATABASE_URL=DATABASE_URL:latest,ANTHROPIC_API_KEY=ANTHROPIC_API_KEY
 # Note: no WORKER_WEBHOOK_SECRET / RELY_ON_IAM — Jobs have no HTTP surface,
 # so the inter-service auth knobs are irrelevant here.
 
+# Resolve $ImageTag into a full image reference $imageRef.
 if (-not $ImageTag) {
+    # No arg → build a fresh image. Tag is today's UTC timestamp; the
+    # Cloud Build substitution variable receives the FULL reference so
+    # both the build push and the deploy below point at the same digest.
     $TAG = (Get-Date -Format "yyyyMMdd-HHmmss")
-    $ImageTag = "${IMAGE}:${TAG}"
-    Write-Output "==> Building image $ImageTag via Cloud Build"
+    $imageRef = "${IMAGE}:${TAG}"
+    Write-Output "==> Building image $imageRef via Cloud Build"
     Set-Location $REPO_ROOT
-    & gcloud builds submit --config=cloudbuild.yaml --substitutions="_IMAGE_TAG=${ImageTag}" --project $PROJECT .
+    & gcloud builds submit --config=cloudbuild.yaml --substitutions="_IMAGE_TAG=${imageRef}" --project $PROJECT .
     if ($LASTEXITCODE -ne 0) { Write-Error "Cloud Build failed"; exit 1 }
+} elseif ($ImageTag -match "/") {
+    # Full reference passed (contains a path separator) → use as-is.
+    $imageRef = $ImageTag
+    Write-Output "==> Reusing already-built image $imageRef (full reference)"
+} else {
+    # Bare tag passed (e.g. "20260615-002125") → prepend the Artifact
+    # Registry path. This is the friendly path and matches the form
+    # deploy_cloud_run.ps1 prints when it finishes.
+    $imageRef = "${IMAGE}:${ImageTag}"
+    Write-Output "==> Reusing already-built image $imageRef (tag: $ImageTag)"
 }
 
 # Each Job overrides the container command to run a module CLI to
@@ -56,7 +81,7 @@ foreach ($job in @(
     Write-Output ""
     Write-Output "==> Deploying Job $($job.Name)  →  python -m $($job.Module)"
     & gcloud run jobs deploy $job.Name `
-        --image $ImageTag `
+        --image $imageRef `
         --region $REGION `
         --service-account $SA `
         --cpu 1 `
