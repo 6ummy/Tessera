@@ -436,6 +436,70 @@ def compute_fcf_yield(
     return yld
 
 
+def compute_fcf_yield_normalized(
+    cash_rows: list[dict[str, Any]],
+    *,
+    mcap: float | None,
+    reported_currency: str | None = "USD",
+    ticker: str | None = None,
+    max_years: int = 5,
+) -> float | None:
+    """Normalized FCF yield: median of last `max_years` fiscal-year annual
+    FCFs (USD-converted) divided by current market cap.
+
+    Parallel to `compute_fcf_yield` (trailing TTM) — addresses cases where
+    a single-year event distorts the trailing yield. UNH was the canonical
+    trigger (CS-13 closing paragraph in docs/case-studies.md): 2024
+    cyber-attack recovery payments shifted FCF timing, inflating trailing
+    GAAP TTM vs the steady-state. Median over 5y is the simplest smoother
+    that's robust to one outlier per direction without throwing away
+    information.
+
+    Returns None when:
+      - fewer than 3 annual rows available (median of <3 ≈ latest value,
+        no improvement over fcf_yield),
+      - mcap is missing / non-positive,
+      - currency is unknown,
+      - result outside ±FCF_YIELD_SANITY_BOUND (same envelope as
+        trailing).
+
+    Sign convention: same as fcf_yield. Persona prompt should disclose
+    BOTH (trailing GAAP + normalized) when they diverge meaningfully;
+    `prompt_assembler.render_features` does that automatically when both
+    columns are present.
+    """
+    if mcap is None or mcap <= 0:
+        return None
+    ccy = (reported_currency or "USD").upper()
+    fx = FX_TO_USD.get(ccy)
+    if fx is None:
+        return None
+
+    annuals = _annual_income_rows(cash_rows)[:max_years]
+    fcf_values = [_fcf_value(r) for r in annuals]
+    fcfs_usd = [float(v) * fx for v in fcf_values if v is not None]
+    if len(fcfs_usd) < 3:
+        return None
+
+    fcfs_sorted = sorted(fcfs_usd)
+    n = len(fcfs_sorted)
+    median = (
+        fcfs_sorted[n // 2]
+        if n % 2 == 1
+        else (fcfs_sorted[n // 2 - 1] + fcfs_sorted[n // 2]) / 2.0
+    )
+
+    yld = median / mcap
+    if abs(yld) > FCF_YIELD_SANITY_BOUND:
+        log.warning(
+            "features.fcf_yield_normalized.sanity_drop",
+            ticker=ticker, median_fcf=median, market_cap=mcap, computed=yld,
+            n_years=len(fcfs_usd),
+        )
+        return None
+    return yld
+
+
 def compute_eps_cagr_3y(rows: list[dict[str, Any]]) -> float | None:
     """3-year diluted EPS CAGR from annual income rows.
 
@@ -1364,20 +1428,23 @@ def _upsert_fundamental_features(per_ticker: dict[str, dict[str, Any]]) -> int:
     sql = text("""
         INSERT INTO ticker_features (
             ticker, ts,
-            fcf_yield, peg, market_cap_usd, operating_margin, eps_cagr_3y,
-            debt_to_equity, gross_margin, gross_margin_trend,
-            gross_margin_qtr_yoy_chg,
+            fcf_yield, fcf_yield_normalized, peg, market_cap_usd,
+            operating_margin, eps_cagr_3y, debt_to_equity, gross_margin,
+            gross_margin_trend, gross_margin_qtr_yoy_chg,
             pe_trailing, pe_forward
         )
         VALUES (
             :ticker, :ts,
-            :fcf_yield, :peg, :market_cap_usd, :operating_margin, :eps_cagr_3y,
-            :debt_to_equity, :gross_margin, :gross_margin_trend,
-            :gross_margin_qtr_yoy_chg,
+            :fcf_yield, :fcf_yield_normalized, :peg, :market_cap_usd,
+            :operating_margin, :eps_cagr_3y, :debt_to_equity, :gross_margin,
+            :gross_margin_trend, :gross_margin_qtr_yoy_chg,
             :pe_trailing, :pe_forward
         )
         ON CONFLICT (ticker, ts) DO UPDATE SET
             fcf_yield          = COALESCE(EXCLUDED.fcf_yield, ticker_features.fcf_yield),
+            fcf_yield_normalized = COALESCE(
+                EXCLUDED.fcf_yield_normalized, ticker_features.fcf_yield_normalized
+            ),
             peg                = COALESCE(EXCLUDED.peg, ticker_features.peg),
             market_cap_usd     = COALESCE(EXCLUDED.market_cap_usd, ticker_features.market_cap_usd),
             operating_margin   = COALESCE(
@@ -1403,19 +1470,20 @@ def _upsert_fundamental_features(per_ticker: dict[str, dict[str, Any]]) -> int:
             if ts is None:
                 continue
             session.execute(sql, {
-                "ticker":             ticker,
-                "ts":                 ts,
-                "fcf_yield":          _f(fields.get("fcf_yield")),
-                "peg":                _f(fields.get("peg")),
-                "market_cap_usd":     _int_or_none(fields.get("market_cap_usd")),
-                "operating_margin":   _f(fields.get("operating_margin")),
-                "eps_cagr_3y":        _f(fields.get("eps_cagr_3y")),
-                "debt_to_equity":     _f(fields.get("debt_to_equity")),
-                "gross_margin":       _f(fields.get("gross_margin")),
-                "gross_margin_trend": _f(fields.get("gross_margin_trend")),
+                "ticker":               ticker,
+                "ts":                   ts,
+                "fcf_yield":            _f(fields.get("fcf_yield")),
+                "fcf_yield_normalized": _f(fields.get("fcf_yield_normalized")),
+                "peg":                  _f(fields.get("peg")),
+                "market_cap_usd":       _int_or_none(fields.get("market_cap_usd")),
+                "operating_margin":     _f(fields.get("operating_margin")),
+                "eps_cagr_3y":          _f(fields.get("eps_cagr_3y")),
+                "debt_to_equity":       _f(fields.get("debt_to_equity")),
+                "gross_margin":         _f(fields.get("gross_margin")),
+                "gross_margin_trend":   _f(fields.get("gross_margin_trend")),
                 "gross_margin_qtr_yoy_chg": _f(fields.get("gross_margin_qtr_yoy_chg")),
-                "pe_trailing":        _f(fields.get("pe_trailing")),
-                "pe_forward":         _f(fields.get("pe_forward")),
+                "pe_trailing":          _f(fields.get("pe_trailing")),
+                "pe_forward":           _f(fields.get("pe_forward")),
             })
             written += 1
     return written
@@ -1505,6 +1573,11 @@ def build(
                 payload_mcap_income=f.get("payload_mcap_income"),
                 ticker=ticker,
             )
+            yld_normalized = compute_fcf_yield_normalized(
+                f["cash_rows"], mcap=mcap,
+                reported_currency=f.get("reported_currency"),
+                ticker=ticker,
+            )
             income_rows = f.get("income_rows", [])
             annual_income = _annual_income_rows(income_rows)
             # Pull each margin / EPS input from the newest annual row
@@ -1576,6 +1649,7 @@ def build(
             fields = {
                 "ts": ts,
                 "fcf_yield": yld,
+                "fcf_yield_normalized": yld_normalized,
                 "market_cap_usd": mcap,
                 "eps_cagr_3y": eps_cagr,
                 "peg": peg,

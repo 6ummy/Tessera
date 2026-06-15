@@ -969,3 +969,105 @@ def test_gross_margin_qtr_yoy_chg_no_yoy_anchor() -> None:
     # when an in-window row exists.
     result = compute_gross_margin_qtr_yoy_chg(rows)
     assert result is not None  # day-delta walker finds 2025-06-01
+# ─── compute_fcf_yield_normalized (PR10) ───────────────────────────────
+
+
+def test_fcf_yield_normalized_median_smooths_outlier() -> None:
+    """A single-year FCF outlier should NOT dominate the normalized
+    series — that was the whole point of switching to median over
+    average. UNH-style: 2024 spike from cyber-attack recovery
+    payments inflated trailing TTM; the prior + subsequent years
+    were steady ~$13B."""
+    import datetime as _dt
+
+    from tessera_worker.features.compute import compute_fcf_yield_normalized
+    cash_rows = [
+        {"period_end": _dt.date(2025, 12, 31), "period": "FY",
+         "freeCashFlow": 16e9},
+        {"period_end": _dt.date(2024, 12, 31), "period": "FY",
+         "freeCashFlow": 25e9},                                # outlier
+        {"period_end": _dt.date(2023, 12, 31), "period": "FY",
+         "freeCashFlow": 13e9},
+        {"period_end": _dt.date(2022, 12, 31), "period": "FY",
+         "freeCashFlow": 12e9},
+        {"period_end": _dt.date(2021, 12, 31), "period": "FY",
+         "freeCashFlow": 14e9},
+    ]
+    # median of [12, 13, 14, 16, 25] = 14
+    # 14e9 / 371e9 = 0.0377 (3.77%)
+    yld = compute_fcf_yield_normalized(
+        cash_rows, mcap=371e9, reported_currency="USD",
+    )
+    assert yld is not None
+    assert abs(yld - (14e9 / 371e9)) < 1e-9
+
+
+def test_fcf_yield_normalized_returns_none_with_fewer_than_3_years() -> None:
+    """Median of < 3 points = essentially the latest value; no point
+    publishing a 'normalized' label."""
+    import datetime as _dt
+
+    from tessera_worker.features.compute import compute_fcf_yield_normalized
+    cash_rows = [
+        {"period_end": _dt.date(2025, 12, 31), "period": "FY",
+         "freeCashFlow": 16e9},
+        {"period_end": _dt.date(2024, 12, 31), "period": "FY",
+         "freeCashFlow": 25e9},
+    ]
+    assert compute_fcf_yield_normalized(
+        cash_rows, mcap=371e9, reported_currency="USD",
+    ) is None
+
+
+def test_fcf_yield_normalized_unknown_currency_returns_none() -> None:
+    """Same defense as compute_fcf_yield — unknown FX → drop."""
+    import datetime as _dt
+
+    from tessera_worker.features.compute import compute_fcf_yield_normalized
+    cash_rows = [
+        {"period_end": _dt.date(y, 12, 31), "period": "FY",
+         "freeCashFlow": 1e9}
+        for y in (2025, 2024, 2023)
+    ]
+    assert compute_fcf_yield_normalized(
+        cash_rows, mcap=10e9, reported_currency="XYZ",
+    ) is None
+
+
+def test_fcf_yield_normalized_applies_sanity_envelope() -> None:
+    """An absurdly large median vs mcap is dropped, same as
+    compute_fcf_yield."""
+    import datetime as _dt
+
+    from tessera_worker.features.compute import compute_fcf_yield_normalized
+    cash_rows = [
+        {"period_end": _dt.date(y, 12, 31), "period": "FY",
+         "freeCashFlow": 200e9}                                # absurd
+        for y in (2025, 2024, 2023)
+    ]
+    # 200e9 / 1e9 = 200 → outside ±100% envelope → None
+    assert compute_fcf_yield_normalized(
+        cash_rows, mcap=1e9, reported_currency="USD",
+    ) is None
+
+
+def test_fcf_yield_normalized_even_count_median() -> None:
+    """4 values → average of middle two."""
+    import datetime as _dt
+
+    from tessera_worker.features.compute import compute_fcf_yield_normalized
+    cash_rows = [
+        {"period_end": _dt.date(y, 12, 31), "period": "FY",
+         "freeCashFlow": v}
+        for y, v in zip(
+            (2025, 2024, 2023, 2022),
+            (10e9, 20e9, 30e9, 40e9),
+            strict=True,
+        )
+    ]
+    # sorted: [10, 20, 30, 40], median = (20+30)/2 = 25
+    yld = compute_fcf_yield_normalized(
+        cash_rows, mcap=500e9, reported_currency="USD",
+    )
+    assert yld is not None
+    assert abs(yld - (25e9 / 500e9)) < 1e-9
