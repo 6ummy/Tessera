@@ -575,10 +575,17 @@ def compute_gross_margin_trend(rows: list[dict[str, Any]]) -> float | None:
     return latest_margin - anchor_margin
 
 
+FCF_STALENESS_MAX_DAYS = 400  # ~13 months — generous past the longest
+# fiscal-year reporting lag (10-K usually lands within 75 days of FY-end,
+# 10-Q within 40; missing every form for >13 months means the source
+# isn't covering this issuer in the standard concept set).
+
+
 def sum_ttm_fcf(
     rows: list[dict[str, Any]],
     *,
     fy_end_month: int | None = None,
+    as_of: date | None = None,
 ) -> float | None:
     """Trailing-twelve-month FCF — robust to three data shapes.
 
@@ -613,9 +620,37 @@ def sum_ttm_fcf(
     Returns None when fewer than 4 non-FY rows are present and detection
     doesn't fire (partial-year FCF is misleading — drop rather than
     ship a low-balled yield).
+
+    When `as_of` is provided, also returns None if the newest non-null
+    FCF row is older than FCF_STALENESS_MAX_DAYS — guards against the
+    COIN-style case where EDGAR concept mapping breaks for an issuer
+    and the loader falls back to ancient max() of a 2-3yr-old window.
+    Better N/A than a misleading number.
     """
     if not rows:
         return None
+
+    # Staleness guard. The newest row with a non-null FCF must be within
+    # FCF_STALENESS_MAX_DAYS of `as_of`. COIN was the trigger: EDGAR's
+    # standard freeCashFlow concept stopped resolving for COIN after
+    # 2023-09 → loader fell back to a $4B max() from a 2-3yr stale row.
+    if as_of is not None:
+        newest_with_fcf: date | None = None
+        for r in rows:
+            if _fcf_value(r) is None:
+                continue
+            pe = r.get("period_end")
+            if pe is not None:
+                newest_with_fcf = pe
+                break
+        if newest_with_fcf is not None:
+            age = (as_of - newest_with_fcf).days
+            if age > FCF_STALENESS_MAX_DAYS:
+                log.warning("features.fcf_yield.stale_fundamentals",
+                            newest_fcf_period=str(newest_with_fcf),
+                            age_days=age,
+                            limit_days=FCF_STALENESS_MAX_DAYS)
+                return None
 
     # Shape (A): latest is annual FY → already TTM.
     first_period = (rows[0].get("period") or "").upper()
@@ -1372,7 +1407,13 @@ def build(
             ts, close = c
             meta = META_BY_TICKER.get(ticker)
             fy_end_month = meta.fy_end_month if meta is not None else None
-            ttm_fcf = sum_ttm_fcf(f["cash_rows"], fy_end_month=fy_end_month)
+            # ts may be a datetime (TIMESTAMPTZ → psycopg returns
+            # datetime) or a date — normalise to date for the guard.
+            as_of_date = ts.date() if isinstance(ts, datetime) else ts
+            ttm_fcf = sum_ttm_fcf(
+                f["cash_rows"], fy_end_month=fy_end_month,
+                as_of=as_of_date,
+            )
             mcap = estimate_market_cap(
                 close=close,
                 shares_basic=f.get("shares_basic"),
