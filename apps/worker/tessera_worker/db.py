@@ -73,6 +73,22 @@ def try_advisory_lock(name: str) -> Iterator[bool]:
     the with-block; it is released explicitly on exit and implicitly if the
     connection dies (Postgres frees session-level advisory locks on
     disconnect), so a crashed run can never wedge the next one.
+
+    **Why the commit() after acquiring (CS-14, 2026-06-15):** SQLAlchemy
+    2.0 future-mode opens an implicit transaction on the first
+    `execute()`. Without committing, the lock connection sits
+    *idle-in-transaction* for the whole run. Neon's
+    `idle_in_transaction_session_timeout` (~5 min) then kills it mid-run;
+    an 8-11 min ingest_daily reliably tripped this. The kill silently
+    dropped the lock AND made the end-of-run `pg_advisory_unlock` throw,
+    propagating out of the context manager → the JOB exited code 1 even
+    though all 14 steps had already succeeded (Cloud Run flagged the run
+    "Failed" on a benign teardown error). #140 suppressed the unlock
+    exception (stops the crash); committing here removes the root cause —
+    a plain-idle connection is not reaped, so the lock actually protects
+    the full run and the unlock runs on a live connection. SESSION-level
+    advisory locks survive a commit (only pg_advisory_unlock / disconnect
+    release them), so committing does not drop the lock.
     """
     conn = get_engine().connect()
     acquired = False
@@ -81,16 +97,23 @@ def try_advisory_lock(name: str) -> Iterator[bool]:
             text("SELECT pg_try_advisory_lock(hashtext(:name))"),
             {"name": name},
         ).scalar())
+        # End the implicit transaction → connection goes plain-idle for the
+        # run's duration (lock persists). See docstring / CS-14.
+        conn.commit()
         yield acquired
     finally:
         try:
             if acquired:
                 with contextlib.suppress(Exception):
-                    # Neon kills connections idle-in-transaction > 5m.
-                    # The lock is released by the server on disconnect anyway.
+                    # Defensive belt-and-suspenders (#140): if the
+                    # connection died anyway, the server frees the lock on
+                    # disconnect — never crash teardown over a failed
+                    # unlock; the run already succeeded by the time we're
+                    # here.
                     conn.execute(
                         text("SELECT pg_advisory_unlock(hashtext(:name))"),
                         {"name": name},
                     )
+                    conn.commit()
         finally:
             conn.close()
