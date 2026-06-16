@@ -1025,6 +1025,11 @@ distilled rules:
   capital — falls out of the mirror engine: follower return = persona
   return since `started_at`, scaled by `starting_capital`. Surfaced on
   the dashboard as "% since follow".
+- [x] **Account curve across follow history** (2026-06-16): `follow_events`
+  (migration 013) + `/api/me/timeline` + `lib/account-curve.ts` rebuild the
+  whole paper account over the last ~1y — flat in cash, tracking each
+  followed persona, recoloured at every follow/unfollow, S&P 500 always
+  drawn over the full window.
 - [ ] **FCM push** when followed persona rebalances
 - [ ] **Onboard 3 F&F users**: self + 2 family/friends, each on a different persona
 

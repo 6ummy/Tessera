@@ -19,9 +19,9 @@ Monorepo: `apps/web` (Next.js 14 App Router, Vercel) · `apps/worker`
 (Python 3.11 FastAPI on Cloud Run `tessera-worker`, us-east1, project
 `tessera-498200`) · `packages/shared` (Pydantic schemas) ·
 `migrations/` (plain SQL → Neon Postgres + Timescale + pgvector,
-**001–011 applied to prod; 012 (additive `users` ALTER — photo_url +
-last_login_at; users/user_portfolios themselves already exist from
-001 §5) pending operator apply**).
+**001–012 applied to prod (012 = additive `users` ALTER — photo_url +
+last_login_at; users/user_portfolios already exist from 001 §5); 013
+(`follow_events` audit log) pending operator apply**).
 
 ## 2. State as of 2026-06-15 — 🏁 **Phase C CLOSED, Phase D ready to start**
 
@@ -84,9 +84,15 @@ Runs alongside Phase E (lawyer consult).
   - **Dashboard wired to real follows** (2026-06-16): `GET
     /api/me/portfolios` (Edge, token-verified) reads `user_portfolios`;
     `/dashboard` portfolio tab renders real follows (multi-follow persona
-    selector, curve rebased to follow date, positions table, tiles) with
-    sign-in / no-follows empty states. Hardcoded `peter` mock gone. Social
-    feed stays a labelled Phase-D demo.
+    selector, positions table, tiles) with sign-in / no-follows empty
+    states. Hardcoded `peter` mock gone. Social feed stays a labelled demo.
+  - **Account curve** (2026-06-16): `follow_events` (migration 013) logs
+    every follow/unfollow (best-effort write from `/api/follow`, never
+    fails the follow); `GET /api/me/timeline` returns them; the dashboard
+    chart reconstructs the account over the full ~1y S&P window via
+    `lib/account-curve.ts` — flat (grey) in cash, tracking each persona's
+    book while followed, **recoloured at every follow/unfollow**, S&P 500
+    always drawn. Replaces the per-persona since-follow curve.
   - **NOT yet wired**: FCM push on rebalance + onboard 3 F&F users (ops).
 
 Prior state snapshot (pre-closure):
