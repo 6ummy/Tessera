@@ -19,7 +19,9 @@ Monorepo: `apps/web` (Next.js 14 App Router, Vercel) · `apps/worker`
 (Python 3.11 FastAPI on Cloud Run `tessera-worker`, us-east1, project
 `tessera-498200`) · `packages/shared` (Pydantic schemas) ·
 `migrations/` (plain SQL → Neon Postgres + Timescale + pgvector,
-**001–011 applied to prod; 012 (`users`) created, pending operator apply**).
+**001–011 applied to prod; 012 (additive `users` ALTER — photo_url +
+last_login_at; users/user_portfolios themselves already exist from
+001 §5) pending operator apply**).
 
 ## 2. State as of 2026-06-15 — 🏁 **Phase C CLOSED, Phase D ready to start**
 

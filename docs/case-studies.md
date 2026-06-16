@@ -262,13 +262,20 @@
 > **운영 메모 (CS-14/15 공통, deploy 워크플로 footgun)**: 같은 사건에서 `deploy_cloud_run_jobs.ps1 -ImageTag "20260615-002125"`가
 > `Image 'mirror.gcr.io/library/...' not found`로 실패했다. 스크립트가 베어 태그를 full 레퍼런스로 그대로 gcloud에 넘겨 Docker Hub library 이미지로 오인된 것 (#139에서 베어태그/full 둘 다 받도록 수정 + `deploy_cloud_run.ps1`이 끝에 다음 Jobs 명령을 그대로 출력하도록 보강). 또 하나: `deploy_cloud_run_jobs.ps1`은 Job 정의(이미지)만 갱신한다 — features 재계산은 `gcloud run jobs execute ... --wait`를 따로 돌려야 일어난다. "배포했는데 데이터가 안 바뀐다"의 흔한 원인.
 
+### CS-16. `CREATE TABLE IF NOT EXISTS`가 새 컬럼을 조용히 빠뜨릴 뻔한 사연 (#150 → 후속 fix)
+
+- **증상**: Phase D 킥오프(#150)가 `012_users.sql`을 `CREATE TABLE IF NOT EXISTS users (...)` 형태로 추가하면서 `photo_url`/`last_login_at`을 포함시켰다. 운영자가 적용하기 직전, read-only 사전점검에서 prod에 **이미 `users` 테이블이 존재**(row 0)하는데 그 두 컬럼만 없는 걸 발견.
+- **원인**: `users`(와 `user_portfolios`)는 사실 `001_init.sql §5 "User layer (Phase D)"`에 이미 정의돼 prod에 적용돼 있었다. 새 마이그레이션을 쓰면서 **기존 스키마를 확인하지 않았다.** 그대로 적용했다면 `CREATE TABLE IF NOT EXISTS`는 테이블이 있으니 **statement 전체를 no-op** → 두 신규 컬럼은 영영 안 생기고, 에러도 안 난다(인덱스 `CREATE INDEX IF NOT EXISTS`만 따로 실행돼 성공). 전형적인 "조용한 부분 성공".
+- **수정**: 012를 추가(additive) 형태로 재작성 — `ALTER TABLE users ADD COLUMN IF NOT EXISTS photo_url ... / last_login_at ...`. `CREATE TABLE IF NOT EXISTS`는 신규/빈 DB 대비로 남기되, prod의 실제 작업은 ALTER가 한다. 적용 전 발견이라 prod 영향 0.
+- **교훈**: **`CREATE TABLE IF NOT EXISTS`(그리고 `ADD COLUMN`이 아닌 모든 "전부 아니면 전무" DDL)는 기존 객체와 새 정의가 어긋날 때 그 차이를 조용히 삼킨다.** 새 마이그레이션을 쓰기 전에 `\d <table>`(혹은 `information_schema.columns`) 한 번으로 실제 스키마를 확인할 것. 그리고 운영자에게 넘기기 전 **read-only 사전점검으로 대상 객체의 현재 상태를 직접 보라** — 이번엔 그 한 번이 적용 직전 부분 no-op을 잡았다. 컬럼 추가는 항상 `ALTER ... ADD COLUMN IF NOT EXISTS`(멱등 + 기존 테이블에 실제로 동작).
+
 ---
 
 ## 메타 교훈 (발표 마무리 슬라이드용)
 
 | # | 패턴 | 해당 케이스 |
 |---|---|---|
-| 1 | **침묵 실패가 1등 버그 클래스** — `suppress`/`except: pass`/`setdefault`/ok=True/무시된 exit code/통과해버리는 sanity bound/loader가 안 실어준 입력 필드로 빈 결과가 전부 실사고로 | CS-3,4,5,6,12,13,15 |
+| 1 | **침묵 실패가 1등 버그 클래스** — `suppress`/`except: pass`/`setdefault`/ok=True/무시된 exit code/통과해버리는 sanity bound/loader가 안 실어준 입력 필드/기존 객체에 no-op되는 `CREATE ... IF NOT EXISTS`로 빈 결과가 전부 실사고로 | CS-3,4,5,6,12,13,15,16 |
 | 2 | **검증 장치는 자동이어야 의미가 있다** — 수동 캐너리는 없는 것과 같다 | CS-1, CS-6 |
 | 3 | **LLM은 신뢰 경계 밖** — 날짜를 써주고, 산문을 덧붙이고, 형식을 어긴다. 파서·필드 권위·게이트가 방어선 | CS-4, CS-5 |
 | 4 | **스키마/계약이 바뀌면 reader 전수조사** | CS-2 |

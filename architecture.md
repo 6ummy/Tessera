@@ -704,8 +704,10 @@ migrations/
                                     # daily-cap isolation (#132)
   010_gross_margin_qtr_yoy.sql      # gross_margin_qtr_yoy_chg feature col (#133)
   011_fcf_yield_normalized.sql      # fcf_yield_normalized feature col (#134)
-  012_users.sql                     # Phase D: authenticated users table
-                                    # (firebase_uid ↔ id); pending apply
+  012_users.sql                     # Phase D auth: ADD photo_url +
+                                    # last_login_at to users (users +
+                                    # user_portfolios already exist from
+                                    # 001 §5); pending apply
 
 docs/                               # retros, ADRs, runbooks, Grafana JSON
 build-deck.js                       # generates the Tessera deck (.pptx files
