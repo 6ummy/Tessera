@@ -13,6 +13,7 @@ import { CumulativeChart } from "./cumulative-chart";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { ReportList } from "./report-list";
+import { FollowButton } from "./follow-button";
 import { AnalystChat } from "./analyst-chat";
 import { AttributionTable } from "./attribution-table";
 import { PersonaAvatar } from "./persona-avatar";
@@ -104,14 +105,17 @@ export function PersonaDetailSheet({
             </div>
             <p className="mt-4 max-w-prose text-[14px] leading-relaxed text-ink-700">{persona.philosophy}</p>
 
-            {/* View toggle */}
-            <div className="mt-5 inline-flex h-9 items-center gap-1 rounded-full bg-ink-900/[0.05] p-1 text-sm">
-              <ToggleBtn active={view === "thesis"} onClick={() => setView("thesis")}>
-                <Sparkles className="h-3.5 w-3.5" /> Thesis
-              </ToggleBtn>
-              <ToggleBtn active={view === "chat"} onClick={() => setView("chat")}>
-                <MessageCircle className="h-3.5 w-3.5" /> Chat with {persona.name}
-              </ToggleBtn>
+            {/* View toggle + Follow CTA */}
+            <div className="mt-5 flex items-center justify-between gap-3">
+              <div className="inline-flex h-9 items-center gap-1 rounded-full bg-ink-900/[0.05] p-1 text-sm">
+                <ToggleBtn active={view === "thesis"} onClick={() => setView("thesis")}>
+                  <Sparkles className="h-3.5 w-3.5" /> Thesis
+                </ToggleBtn>
+                <ToggleBtn active={view === "chat"} onClick={() => setView("chat")}>
+                  <MessageCircle className="h-3.5 w-3.5" /> Chat with {persona.name}
+                </ToggleBtn>
+              </div>
+              <FollowButton personaId={persona.id} personaName={persona.name} />
             </div>
           </div>
 
