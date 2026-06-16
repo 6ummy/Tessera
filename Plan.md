@@ -1015,8 +1015,16 @@ distilled rules:
   sim; `started_at` anchors the baseline (no look-ahead). Writes
   `user_portfolios.current_positions/current_cash/total_value`. 5 unit
   tests on the pure projection.
-- [ ] **Dashboard reads real positions**: delete mock in `/dashboard`
-- [ ] **Personal P&L diverges** from persona P&L based on follow start + capital
+- [x] **Dashboard reads real positions**: **Live 2026-06-16.** `GET
+  /api/me/portfolios` (Edge, token-verified) reads `user_portfolios`;
+  `/dashboard` portfolio tab now renders real follows (multi-follow
+  persona selector, curve rebased to follow date, positions table, tiles)
+  with sign-in / no-follows empty states. The hardcoded `peter` mock is
+  gone (social feed stays a labelled demo).
+- [x] **Personal P&L diverges** from persona P&L based on follow start +
+  capital — falls out of the mirror engine: follower return = persona
+  return since `started_at`, scaled by `starting_capital`. Surfaced on
+  the dashboard as "% since follow".
 - [ ] **FCM push** when followed persona rebalances
 - [ ] **Onboard 3 F&F users**: self + 2 family/friends, each on a different persona
 
