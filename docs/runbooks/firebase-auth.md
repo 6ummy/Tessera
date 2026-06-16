@@ -86,8 +86,50 @@ Vercel function logs.
 
 ---
 
-## Not yet wired (next — follow + mirror engine)
+## 5. FCM push (optional — rebalance notifications)
 
-- **"Follow this persona"**, `user_portfolios` writes, and the mirror
-  engine (Plan §6) build on top of the verified `users.id` that
-  `/api/auth/sync` now persists.
+Ships dark: with no VAPID key the "Enable notifications" toggle stays
+hidden and the worker logs "would notify N" without sending.
+
+### 5-1. Web Push certificate (VAPID key)
+Firebase Console → ⚙️ Project settings → **Cloud Messaging → Web Push
+certificates → Generate key pair**. Set on Vercel (public values):
+```
+NEXT_PUBLIC_FIREBASE_VAPID_KEY=<the generated key>
+NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=987211534763   # from firebaseConfig
+```
+Redeploy. The account menu now shows **Enable notifications** for
+signed-in users; clicking it requests permission + registers the device
+token (`fcm_tokens`).
+
+### 5-2. Let the worker SEND (keyless cross-project IAM)
+The worker (project `tessera-498200`) sends FCM v1 to the Firebase
+project `tessera-641a5`. Grant its SA the messaging role on that project
+— no key file:
+```bash
+gcloud projects add-iam-policy-binding tessera-641a5 \
+  --member="serviceAccount:tessera-worker@tessera-498200.iam.gserviceaccount.com" \
+  --role="roles/firebasecloudmessaging.admin"
+```
+Then flip the worker flag and redeploy:
+```
+FEATURE_FCM_PUSH=true   # apps/worker env (deploy scripts)
+```
+The worker mints its OAuth token from the Cloud Run metadata server
+(cloud-platform scope) — no service-account secret to store/rotate.
+
+### 5-3. Apply migration 014
+`migrations/014_fcm_tokens.sql` in the Neon console.
+
+### Verify
+Enable notifications in the browser → `SELECT * FROM fcm_tokens;` shows
+your token. On the next Friday persona batch (or a manual run), followers
+get a "X rebalanced" push; worker logs `fcm.notified` (or `fcm.would_notify`
+when the flag is off).
+
+---
+
+## Done (no longer pending)
+
+`/api/follow` + mirror engine + dashboard + account curve are all live;
+this runbook now also covers FCM. Remaining Phase D: onboard F&F users.
