@@ -55,13 +55,14 @@ to turn captures into a page:
 3. Action: notify your email immediately. Action interval: 5 minutes.
 4. Name: `paper-engine-page`.
 
-### 1-3. Alerts (optional but recommended — Plan §9 thresholds)
+### 1-3. Alerts (LIVE since 2026-06-16 — Plan §9 thresholds)
 
-Grafana Alerting → New alert rule on the "Spend today" query:
+Grafana Alerting → alert rule on the "Spend today" query:
 - ≥ $5/day → notify (info), ≥ $10 → warning, ≥ $20 → page.
-Contact point: email (free) or Slack webhook if/when the team has one.
-The in-app hard pause (`check_daily_budget`) remains the safety net —
-these alerts just fire earlier.
+Contact point: **Slack webhook** (wired 2026-06-16). The in-app hard
+pause (`check_daily_budget`) remains the safety net — these alerts just
+fire earlier. To rotate the webhook URL, update the Grafana contact
+point; no code or redeploy is involved.
 
 > Not in this dashboard: `cross_validated()` disagreement tracking. That
 > signal lives in Cloud Run structured logs, not the DB — needs a
