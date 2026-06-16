@@ -2,7 +2,7 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, Sparkles, Users } from "lucide-react";
-import { PERSONAS, ACCENT_CLASS, type Persona } from "@/lib/mock/personas";
+import { PERSONAS, PERSONA_BY_ID, ACCENT_CLASS, type Persona } from "@/lib/mock/personas";
 import { fetchProposal, fetchReports } from "@/lib/analyst-data";
 import type { Proposal, Report } from "@/lib/thesis-types";
 import { Header } from "@/components/header";
@@ -10,7 +10,9 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { PositionFeatures } from "@/components/position-features";
 import { RelatedThesis, type RelatedThesisEntry } from "@/components/related-thesis";
-import { ChevronDown } from "lucide-react";
+import { PersonaDetailSheet } from "@/components/persona-detail-sheet";
+import { FollowButton } from "@/components/follow-button";
+import { ArrowUpRight, ChevronDown } from "lucide-react";
 import { cn, fmt } from "@/lib/utils";
 
 const ACCENT_HEX: Record<Persona["accent"], string> = {
@@ -30,6 +32,9 @@ type ConsensusRow = {
 
 export default function ProposalsPage() {
   const [highlight, setHighlight] = useState<string | null>(null);
+  // Persona detail sheet — same panel the landing page opens, shared here
+  // so clicking an analyst in proposals shows the full thesis/chat/follow.
+  const [openId, setOpenId] = useState<string | null>(null);
   // Expanded position key: "${personaId}:${ticker}" so the same ticker
   // can be open independently across personas.
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -215,7 +220,15 @@ export default function ProposalsPage() {
                           </span>
                         </div>
                         <div className="mt-1 flex items-baseline justify-between gap-2">
-                          <h3 className="display-serif text-2xl text-ink-900">{persona.name}</h3>
+                          <button
+                            type="button"
+                            onClick={() => setOpenId(persona.id)}
+                            className="group/name inline-flex items-baseline gap-1.5 text-left ring-focus rounded-md"
+                            aria-label={`Open ${persona.name}'s thesis`}
+                          >
+                            <h3 className="display-serif text-2xl text-ink-900 group-hover/name:text-ink-700">{persona.name}</h3>
+                            <ArrowUpRight className="h-4 w-4 -translate-y-0.5 text-ink-400 transition-transform group-hover/name:translate-x-0.5 group-hover/name:text-ink-600" />
+                          </button>
                           <Badge tone={persona.accent === "ink" ? "default" : persona.accent}>
                             {persona.riskLabel}
                           </Badge>
@@ -223,6 +236,9 @@ export default function ProposalsPage() {
                         <div className="mt-4 grid grid-cols-2 gap-3 text-[11px]">
                           <Stat label="Horizon" value={prop?.horizon ?? "—"} />
                           <Stat label="Cash" value={prop ? fmt.pctAbs(prop.cashWeight ?? 0) : "—"} />
+                        </div>
+                        <div className="mt-4">
+                          <FollowButton personaId={persona.id} personaName={persona.name} />
                         </div>
                       </div>
 
@@ -428,6 +444,12 @@ export default function ProposalsPage() {
           </Tabs>
         </div>
       </section>
+
+      <PersonaDetailSheet
+        persona={openId ? PERSONA_BY_ID[openId] : null}
+        open={!!openId}
+        onOpenChange={(o) => !o && setOpenId(null)}
+      />
     </main>
   );
 }
