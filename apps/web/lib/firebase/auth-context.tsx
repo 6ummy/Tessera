@@ -17,6 +17,23 @@ import {
 } from "firebase/auth";
 import { getFirebaseAuth, googleProvider, isFirebaseConfigured } from "./client";
 
+/** POST the freshly-minted ID token to the server so it verifies it and
+ *  upserts the users row. Best-effort: a sync failure must not block a
+ *  successful client sign-in (the user is still authenticated; the row
+ *  catches up on the next sign-in / token refresh). Logged loudly. */
+async function syncUser(user: User): Promise<void> {
+  try {
+    const idToken = await user.getIdToken();
+    const res = await fetch("/api/auth/sync", {
+      method: "POST",
+      headers: { authorization: `Bearer ${idToken}` },
+    });
+    if (!res.ok) console.error("auth.sync_non_ok", res.status);
+  } catch (err) {
+    console.error("auth.sync_failed", err);
+  }
+}
+
 export type AuthState = {
   /** Whether the operator has wired a Firebase project yet. */
   configured: boolean;
@@ -44,6 +61,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const unsub = onAuthStateChanged(auth, (u) => {
       setUser(u);
       setLoading(false);
+      // Fires on explicit sign-in AND on session restore (reload) — upsert
+      // is idempotent, so this guarantees the users row exists + refreshes
+      // last_login_at whenever an authenticated session is seen.
+      if (u) void syncUser(u);
     });
     return unsub;
   }, []);
@@ -51,9 +72,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signInWithGoogle = useCallback(async () => {
     const auth = getFirebaseAuth();
     if (!auth) return;
+    // The users-row upsert happens in the onAuthStateChanged handler above,
+    // which fires right after the popup resolves.
     await signInWithPopup(auth, googleProvider());
-    // TODO(auth-sync PR): POST the ID token to /api/auth/sync so the worker
-    // verifies it (firebase-admin) and upserts the users row.
   }, []);
 
   const signOut = useCallback(async () => {
