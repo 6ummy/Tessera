@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import Link from "next/link";
-import { ArrowDown, ArrowRight, ChevronRight, Database, FileText, GitBranch, ShieldCheck, Sparkles } from "lucide-react";
+import { ArrowDown, ArrowRight, ChevronRight, Database, FileText, GitBranch, ShieldCheck } from "lucide-react";
 import { PERSONAS, PERSONA_BY_ID, type Persona } from "@/lib/mock/personas";
 import { toPoints, usePerformance } from "@/lib/performance-data";
 import { Header } from "@/components/header";
@@ -63,12 +63,10 @@ export default function Page() {
               <span className="text-coral-600">at a time.</span>
             </h1>
 
-            <p className="mx-auto mt-6 max-w-2xl text-[17px] leading-relaxed text-ink-600 animate-fade-up">
-              Tessera's desk is staffed by four <span className="font-medium text-ink-800">AI analyst personas</span> — each
-              with a full biography, a distinct investment philosophy, and a voice of their own.
-              Each publishes their own long-term portfolio, side-by-side, so you can see the full
-              spectrum of how a thoughtful investor might read today's market — and follow the one
-              that fits you.
+            <p className="mx-auto mt-6 max-w-xl text-[17px] leading-relaxed text-ink-600 animate-fade-up">
+              Four <span className="font-medium text-ink-800">AI analysts</span>, each with their
+              own philosophy and voice. Same market, four portfolios — follow the one that thinks
+              like you.
             </p>
 
             <div className="mt-8 flex items-center justify-center gap-3 animate-fade-up">
@@ -135,10 +133,8 @@ export default function Page() {
                 Meet your analysts.
               </h2>
               <p className="mt-4 max-w-xl text-[15px] leading-relaxed text-ink-600">
-                Four AI agents — each a character with a complete backstory, an investing
-                philosophy, and a written voice. They read the same market and reach different
-                conclusions. Click any card to see who they are, what they believe, and
-                what they currently hold.
+                Four philosophies, four voices. They read the same market and reach different
+                conclusions. Tap any card for the full thesis and current book.
               </p>
             </div>
             <Link href="/proposals" className="group inline-flex items-center gap-2 text-sm font-medium text-ink-700 hover:text-ink-900">
@@ -171,10 +167,9 @@ export default function Page() {
               <br />
               <span className="italic text-ink-700">You make the call.</span>
             </h2>
-            <p className="mx-auto mt-5 max-w-xl text-[15px] leading-relaxed text-ink-600">
-              Once per session the desk runs end-to-end. Numbers and statistics are computed
-              deterministically by Python; analysts write the thesis. A manager then proposes three
-              portfolios for your review.
+            <p className="mx-auto mt-5 max-w-lg text-[15px] leading-relaxed text-ink-600">
+              The numbers are computed in code; the analysts write the thesis. Every position
+              clears a deterministic risk gateway before you see it.
             </p>
           </div>
 
