@@ -213,7 +213,9 @@ def call_anthropic_construction(
         messages=[{"role": "user", "content": user_content}],
     )
     latency_ms = int((time.perf_counter() - t0) * 1000)
-    raw = resp.content[0].text if resp.content else ""
+    # We only request a text block; reach .text defensively past the SDK's
+    # tool/thinking-block union.
+    raw = getattr(resp.content[0], "text", "") if resp.content else ""
     usage = resp.usage
     log.info(
         "anthropic_construction_ok",
@@ -517,7 +519,7 @@ def construct_portfolio(
     raise RuntimeError(f"construction unreachable: {last_error}")
 
 
-def research_to_payload_dict(research) -> dict[str, Any]:
+def research_to_payload_dict(research: Any) -> dict[str, Any]:
     """Convert a TickerResearch instance to a plain dict suitable for
     `format_research_payload`. Handles both Pydantic model instances
     and already-dict shapes."""

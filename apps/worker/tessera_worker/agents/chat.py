@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import AsyncGenerator
-from typing import Literal, TypedDict
+from typing import Any, Literal, TypedDict
 
 from sqlalchemy import text
 
@@ -66,7 +66,7 @@ class ChatBudgetExceeded(RuntimeError):
     """Daily LLM cost cap reached. Chat path must refuse, same as thesis path."""
 
 
-def _check_daily_chat_budget(session) -> float:
+def _check_daily_chat_budget(session: Any) -> float:
     """Chat-only daily pool on top of the global cap. stage='chat' spend
     today vs llm_max_daily_cost_chat_usd; beyond → ChatBudgetExceeded."""
     settings = get_settings()
@@ -93,7 +93,7 @@ def _check_daily_chat_budget(session) -> float:
 # ─────────────────────────────────────────────────────────────────────────
 
 
-def _build_recent_reports_block(session, persona: PersonaId, limit: int = 5) -> str:
+def _build_recent_reports_block(session: Any, persona: PersonaId, limit: int = 5) -> str:
     """Most-recent N analyst_reports for this persona — what they've ACTUALLY
     written. Lets the model reference its own published views without
     hallucinating prior positions."""
@@ -140,7 +140,7 @@ def _build_recent_reports_block(session, persona: PersonaId, limit: int = 5) -> 
     return "\n".join(lines)
 
 
-def _build_ticker_features_block(session, tickers: list[str]) -> str:
+def _build_ticker_features_block(session: Any, tickers: list[str]) -> str:
     """For each ticker the user mentioned, surface the latest features row.
     This is the RAG step — tells the model 'here are today's numbers for the
     stock they're asking about, don't hallucinate them.'"""
@@ -183,7 +183,7 @@ def _build_ticker_features_block(session, tickers: list[str]) -> str:
 
 
 def assemble_chat_system_prompt(
-    session, persona: PersonaId, user_message: str,
+    session: Any, persona: PersonaId, user_message: str,
     *, recent_report_count: int = 5,
 ) -> tuple[str, list[str]]:
     """Build the full system block + return the resolved ticker list (for
@@ -278,7 +278,13 @@ async def run_chat_stream(
             session, persona, user_message,
         )
 
-    messages = list(history) + [{"role": "user", "content": user_message}]
+    # ChatMessage is structurally a MessageParam (role Literal + str content);
+    # rebuild as the SDK's param type so the stream call type-checks.
+    from anthropic.types import MessageParam
+    messages: list[MessageParam] = [
+        {"role": m["role"], "content": m["content"]} for m in history
+    ]
+    messages.append({"role": "user", "content": user_message})
 
     log.info("chat.start", persona=persona, tickers=tickers,
              history_len=len(history), system_chars=len(system_prompt))

@@ -118,15 +118,16 @@ ignore_missing_imports = true
 #     agents.prompt_assembler (2026-06-14 — 64 errors, all `dict[str, Any]`
 #     widening + `session: Any` annotations + a pd.DataFrame narrowing
 #     assert + the pandas-stubs ignore_missing_imports above).
-# 12 modules remain.
+#   - agents.portfolio_construction + agents.ticker_resolver + agents.chat
+#     (2026-06-16 — 29 errors: getattr() past the Anthropic content-block
+#     union for `.text`, `session: Any` params, a list[MessageParam] cast,
+#     and a getattr() form of sys.stdout.reconfigure).
+# 9 modules remain.
 [[tool.mypy.overrides]]
 module = [
     "tessera_worker.features.demo_data_explorer",
     "tessera_worker.features.demo_fcf_yield",
     "tessera_worker.features.demo_macro_sensitivity",
-    "tessera_worker.agents.portfolio_construction",
-    "tessera_worker.agents.ticker_resolver",
-    "tessera_worker.agents.chat",
     "tessera_worker.agents.demo_warren_aapl",
     "tessera_worker.ingestors.*",
     "tessera_worker.jobs.hallucination_canary",

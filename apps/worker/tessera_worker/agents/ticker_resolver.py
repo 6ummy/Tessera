@@ -24,10 +24,6 @@ import re
 import sys
 
 from tessera_worker.logging import get_logger
-
-# UTF-8 stdout so CLI demos with Korean / em-dashes don't crash on Windows cp1252
-with contextlib.suppress(AttributeError):
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 from tessera_worker.universe import _RAW as _EQUITIES_AND_ETFS
 
 try:
@@ -35,6 +31,14 @@ try:
 except ImportError:
     _CRYPTO = []
 _UNIVERSE_RAW = list(_EQUITIES_AND_ETFS) + list(_CRYPTO)
+
+# UTF-8 stdout so CLI demos with Korean / em-dashes don't crash on Windows
+# cp1252. `reconfigure` exists on TextIOWrapper but not the TextIO protocol
+# mypy sees, so reach it via getattr (and it's absent under some redirects).
+_reconfigure = getattr(sys.stdout, "reconfigure", None)
+if _reconfigure is not None:
+    with contextlib.suppress(Exception):
+        _reconfigure(encoding="utf-8", errors="replace")
 
 log = get_logger(__name__)
 
@@ -240,7 +244,9 @@ def _haiku_extract(text: str) -> set[str]:
             system=system,
             messages=[{"role": "user", "content": user}],
         )
-        raw = resp.content[0].text if resp.content else "[]"
+        # content[0] is a text block (we only request text); the SDK union
+        # also covers tool/thinking blocks, so reach .text defensively.
+        raw = getattr(resp.content[0], "text", "[]") if resp.content else "[]"
         # Strip code fences if Haiku adds them
         raw = re.sub(r"^```(?:json)?|```$", "", raw.strip(), flags=re.MULTILINE).strip()
         import json as _json
