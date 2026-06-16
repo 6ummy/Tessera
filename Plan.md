@@ -1030,7 +1030,13 @@ distilled rules:
   whole paper account over the last ~1y — flat in cash, tracking each
   followed persona, recoloured at every follow/unfollow, S&P 500 always
   drawn over the full window.
-- [ ] **FCM push** when followed persona rebalances
+- [x] **FCM push** when followed persona rebalances (2026-06-16, dark until
+  operator setup): web "Enable notifications" toggle → `getToken(VAPID)` →
+  `/api/me/fcm-token` (`fcm_tokens`, migration 014) + service worker;
+  worker `notify/fcm.py` pushes a persona's followers from `persona_batch`
+  on rebalance (best-effort). Keyless send (worker SA metadata token →
+  FCM v1; `roles/firebasecloudmessaging.admin` on `tessera-641a5`).
+  Gated on `FEATURE_FCM_PUSH` + VAPID env. Runbook §5.
 - [ ] **Onboard 3 F&F users**: self + 2 family/friends, each on a different persona
 
 **Compression note**: previously two weeks. The social feed feature is

@@ -19,9 +19,9 @@ Monorepo: `apps/web` (Next.js 14 App Router, Vercel) · `apps/worker`
 (Python 3.11 FastAPI on Cloud Run `tessera-worker`, us-east1, project
 `tessera-498200`) · `packages/shared` (Pydantic schemas) ·
 `migrations/` (plain SQL → Neon Postgres + Timescale + pgvector,
-**001–012 applied to prod (012 = additive `users` ALTER — photo_url +
-last_login_at; users/user_portfolios already exist from 001 §5); 013
-(`follow_events` audit log) pending operator apply**).
+**001–013 applied to prod (012 = additive `users` ALTER; 013 =
+`follow_events`); 014 (`fcm_tokens`) pending operator apply. users/
+user_portfolios already exist from 001 §5**).
 
 ## 2. State as of 2026-06-15 — 🏁 **Phase C CLOSED, Phase D ready to start**
 
@@ -93,7 +93,16 @@ Runs alongside Phase E (lawyer consult).
     `lib/account-curve.ts` — flat (grey) in cash, tracking each persona's
     book while followed, **recoloured at every follow/unfollow**, S&P 500
     always drawn. Replaces the per-persona since-follow curve.
-  - **NOT yet wired**: FCM push on rebalance + onboard 3 F&F users (ops).
+  - **FCM push shipped** (2026-06-16): web "Enable notifications" toggle →
+    `getToken(VAPID)` → `/api/me/fcm-token` (`fcm_tokens`, migration 014) +
+    `public/firebase-messaging-sw.js`; worker `notify/fcm.py` pushes
+    followers on rebalance from `persona_batch` (best-effort, never breaks
+    the batch). **Keyless send**: worker SA OAuth from the Cloud Run
+    metadata server → FCM v1; needs the SA granted
+    `roles/firebasecloudmessaging.admin` on `tessera-641a5` + flags
+    `FEATURE_FCM_PUSH=true` (worker) + `NEXT_PUBLIC_FIREBASE_VAPID_KEY` /
+    `_MESSAGING_SENDER_ID` (Vercel). Ships dark until then. Runbook §5.
+  - **NOT yet wired**: onboard 3 F&F users (ops).
 
 Prior state snapshot (pre-closure):
 

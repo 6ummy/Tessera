@@ -77,6 +77,14 @@ class Settings(BaseSettings):
     feature_live_trading: bool = Field(
         False,
         description="Never enable without explicit user OAuth + compliance review")
+    feature_fcm_push: bool = Field(
+        False,
+        description="On → send FCM push to followers when a persona rebalances. "
+                    "Needs the worker SA granted firebasecloudmessaging on the "
+                    "Firebase project (keyless, via the Cloud Run metadata token).")
+    fcm_project_id: str = Field(
+        "tessera-641a5",
+        description="Firebase project id that owns FCM (target of the v1 send).")
 
     # ── Observability ──
     sentry_dsn: str = Field(

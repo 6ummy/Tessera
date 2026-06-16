@@ -166,6 +166,20 @@ def run_one(
         result.bump(persona, "errors")
 
 
+def _notify_followers(persona: str) -> None:
+    """Best-effort FCM push to a persona's followers after it rebalances.
+    A notification failure must NEVER affect the batch — fully swallowed."""
+    try:
+        from tessera_worker.db import session_scope
+        from tessera_worker.notify.fcm import notify_persona_followers
+        title = f"{persona.title()} rebalanced"
+        body = f"{persona.title()} published a new book — your paper portfolio is updating."
+        with session_scope() as session:
+            notify_persona_followers(session, persona, title=title, body=body, link="/dashboard")
+    except Exception as e:
+        log.warning("persona_batch_v2.notify_failed", persona=persona, error=str(e))
+
+
 def run_batch_v2(
     *, personas: list[PersonaId] | None = None,
     dry_run: bool = False, as_of: date | None = None,
@@ -226,6 +240,7 @@ def run_batch_v2(
                     rep = run_regime_thesis(as_of=as_of)
                     result.persisted += 1
                     result.bump("ray", "persisted")
+                    _notify_followers("ray")
                     result.total_cost_usd += float(rep.cost_usd)
                     result.bump("ray", "cost_usd", float(rep.cost_usd))
                 except (LlmDailyBudgetExceeded, LlmDisabledError) as e:
@@ -273,6 +288,7 @@ def run_batch_v2(
                 result.bump(persona, "persisted")
                 result.total_cost_usd += float(construction_report.cost_usd)
                 result.bump(persona, "cost_usd", float(construction_report.cost_usd))
+                _notify_followers(persona)
                 log.info("persona_batch_v2.construction_ok",
                          persona=persona,
                          n_research=len(research_notes),

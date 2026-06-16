@@ -12,6 +12,7 @@ import {
   X,
 } from "lucide-react";
 import { useAuth } from "@/lib/firebase/auth-context";
+import { NotificationsToggle } from "./notifications-toggle";
 import { cn } from "@/lib/utils";
 
 const NAV_LINKS = [
@@ -150,6 +151,7 @@ export function Header({ variant = "transparent" }: { variant?: "transparent" | 
                   <MenuLink href="/dashboard" icon={<LayoutDashboard className="h-4 w-4" />} label="My dashboard" sub="P&L · positions" onNavigate={closeAll} />
                   <MenuLink href="/dashboard?tab=leaderboard" icon={<Trophy className="h-4 w-4" />} label="Leaderboard" sub="Persona rankings" onNavigate={closeAll} />
                   <MenuLink href="/dashboard?tab=social" icon={<Users className="h-4 w-4" />} label="Social feed" sub="Forks · followers" onNavigate={closeAll} />
+                  <NotificationsToggle onDone={closeAll} />
                 </div>
                 {signedIn && (
                   <div className="border-t border-ink-900/[0.06] p-1.5">
