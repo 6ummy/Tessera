@@ -74,8 +74,15 @@ Runs alongside Phase E (lawyer consult).
     A follow seeds the user's $100K paper `user_portfolios` row (exists
     from 001; the row IS the follow — no separate `follows` table);
     unfollow drops it. User derived from the verified token only.
-  - **NOT yet wired**: mirror engine (populate follower positions/cash when
-    a persona rebalances) + dashboard real positions + FCM push.
+  - **Mirror engine shipped** (2026-06-16): nightly `mirror` step
+    (`risk/mirror.py`, after `paper`, same flag) projects each persona's
+    paper book onto its followers' `user_portfolios` by WEIGHT —
+    `follower_nav = starting_capital × (persona_nav_today / persona_nav_at_follow_start)`,
+    holdings carry the persona's current weights scaled to that NAV. No
+    per-follower fill sim (deterministic, cheap, reconciles to the
+    persona track); `started_at` anchors the baseline (no look-ahead).
+  - **NOT yet wired**: dashboard real positions (still mock `peter`; needs
+    a route reading `user_portfolios` + frontend swap) + FCM push.
 
 Prior state snapshot (pre-closure):
 

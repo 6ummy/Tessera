@@ -365,6 +365,21 @@ def _step_paper_engine() -> dict[str, object]:
     return run_paper_engine()
 
 
+def _step_mirror_engine() -> dict[str, object]:
+    """Project each persona's freshly-marked paper book onto its followers'
+    user_portfolios rows. Runs right AFTER `paper` so today's persona
+    snapshot exists. Same flag gate — meaningless without the persona track
+    it mirrors.
+    """
+    from tessera_worker.config import get_settings
+
+    if not get_settings().feature_paper_execution:
+        return {"skipped_reason": "FEATURE_PAPER_EXECUTION=false"}
+    from tessera_worker.risk.mirror import run_mirror_engine
+
+    return run_mirror_engine()
+
+
 STEPS: dict[str, StepFn] = {
     "ohlcv_equity":  _step_ohlcv_equity,
     "ohlcv_crypto":  _step_ohlcv_crypto,
@@ -381,6 +396,7 @@ STEPS: dict[str, StepFn] = {
     "coverage":      _step_coverage_audit,  # post-build NULL audit per ticker
     "canary":        _step_spy_canary,      # SPY 1y return vs Yahoo, >100bps fails
     "paper":         _step_paper_engine,    # fills + MTM + performance (flag-gated)
+    "mirror":        _step_mirror_engine,   # project persona books onto followers (flag-gated)
 }
 
 
