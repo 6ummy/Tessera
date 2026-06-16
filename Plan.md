@@ -1123,6 +1123,8 @@ deferred to post-launch. Auth + mirror engine + onboarding ship in one week.
 | Persona run cadence | **Weekly (Fri close), not daily** | 2026-06-04 | Daily = 4×30×$0.02 ≈ $72/mo. Weekly = ~$10/mo, sufficient for paper-pilot. Hard-coded in `persona_batch.py` design (pending ship) |
 | Screen funnel | **Deferred** — universe is 50 names, no Haiku screen needed yet | 2026-06-03 | Revisit when universe > 200 |
 | Cathie sector cap | **0.50 → 0.70** | 2026-06-12 | The 50% cap contradicted her "concentrated by S-curve sector" mandate — she breached it twice in live batches even after explicit gateway feedback (67% → 56%; case study CS-11: role beats rule). The cap now encodes the mandate; her risk budget stays governed by VaR99 ≤ 8.5% + single-name 16% + crypto-sleeve rules |
+| Cathie sector cap | **0.70 → removed (none)** | 2026-06-15 | The sector cap was the wrong tool for this persona — tech/S-curve concentration IS her mandate, not a risk to fence. `max_sector >= 1.0` now means "no cap"; the gateway skips the sector check for her. Risk stays hard-bounded by single-name 16% + VaR99 ≤ 8.5% + the 35% drawdown floor. (CS-11 lesson intact: drop a cap because it's the wrong tool, not because the LLM keeps busting it.) |
+| Cathie max positions | **20 → 12** | 2026-06-15 | Focused, highest-conviction book rather than a thin 20-name spray. Enforced as a HARD count ceiling in construction (prompt-only guidance gets ignored under role immersion); candidate shortlist stays 14 |
 
 ### Still open
 | Decision | Options | Recommendation | Decide by |

@@ -39,8 +39,10 @@ class PortfolioConstraints:
     max_sector: float
     """Hard ceiling on any one sector of the persona's book. (The shared
     `Persona` metadata schema caps ITS max_sector at 0.60, but this
-    dataclass is the operational source the gateway enforces — cathie
-    runs 0.70 by mandate since 2026-06-12, see her entry below.)"""
+    dataclass is the operational source the gateway enforces.) A value of
+    1.0 means NO sector cap — a single theme may be the entire book; the
+    gateway skips the sector check and the prompt says so. Cathie runs
+    no cap (2026-06-15) since concentration is her mandate, see below."""
 
     # Cash discipline
     cash_min: float
@@ -119,22 +121,28 @@ PERSONA_CONSTRAINTS: dict[PersonaId, PortfolioConstraints] = {
     # Mandate forbids large cash drag; equity exposure IS the position.
     # Crypto sleeve is its own envelope; this is the equity-side cap.
     #
-    # max_sector 0.50 → 0.70 (2026-06-12, product decision): the 50% cap
-    # contradicted her mandate — "concentrated by S-curve sector" IS a
-    # tech-heavy book. In live batches she breached it twice (67%, then
-    # 56% after explicit gateway feedback — case study CS-11: the persona
-    # role beat the rule). Rather than fight the persona every Friday,
-    # the cap now encodes the mandate; the gateway still hard-stops past
-    # 70%, and her risk budget is governed by max_var99_1d (8.5%).
+    # max_sector NONE (1.0 = no operational cap, 2026-06-15 product
+    # decision). History: 0.50 → 0.70 (2026-06-12) → removed. The sector
+    # cap was simply the wrong tool for this persona — "concentrated by
+    # S-curve sector" MEANS a tech-heavy book, and she busted every cap we
+    # set (67%, then 56% after explicit feedback — CS-11). Tech/AI
+    # concentration is a feature of her mandate, not a risk to fence. The
+    # risks that DO matter are still hard-gated: single-name 16%, VaR99
+    # 8.5% (her real risk budget), and the 35% drawdown floor. 1.0 reads
+    # as "a single theme may be the whole book"; the gateway treats
+    # max_sector >= 1.0 as no-cap and skips the sector check for her.
     "cathie": PortfolioConstraints(
         max_single_name=0.16,
-        max_sector=0.70,
+        max_sector=1.00,
         cash_min=0.00,
         cash_max=0.10,
         min_active_conviction=0.50,
         min_strong_conviction=0.75,
         target_position_count_min=10,
-        target_position_count_max=20,
+        target_position_count_max=12,  # 20 → 12 (2026-06-15): keep the book
+        # readable — a focused 10–12 disruptive-growth basket, not a 20-name
+        # spray. Enforced as a HARD cap in construction (CS-11: Cathie busts
+        # soft caps), candidate shortlist stays 14 so she still gets choice.
         max_var99_1d=0.085,   # measured 5.1% (crypto sleeve) — high-risk mandate
         max_drawdown=0.35,
     ),
@@ -193,9 +201,15 @@ def constraints_prompt_block(persona: PersonaId) -> str:
     """Format the constraints as a prose block the construction LLM can
     read inline. Used by `portfolio_construction.build_prompt()`."""
     c = constraints_for(persona)
+    sector_line = (
+        "- Sector: no cap — concentrate in a single S-curve theme as far "
+        "as conviction warrants."
+        if c.max_sector >= 1.0
+        else f"- Sector cap: {c.max_sector * 100:.0f}% of NAV."
+    )
     lines = [
         f"- Single-name cap: {c.max_single_name * 100:.0f}% of NAV.",
-        f"- Sector cap: {c.max_sector * 100:.0f}% of NAV.",
+        sector_line,
         f"- Cash range: {c.cash_min * 100:.0f}%–{c.cash_max * 100:.0f}%.",
         f"- Active positions: {c.target_position_count_min}–{c.target_position_count_max} names.",
         f"- A candidate qualifies for sizing at conviction ≥ {c.min_active_conviction:.2f}. "

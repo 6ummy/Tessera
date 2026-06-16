@@ -134,18 +134,22 @@ def gate(
             )
 
     # 4 — sector cap. Unknown tickers are already flagged in (1); skip
-    # them here so one bad ticker doesn't double-report.
+    # them here so one bad ticker doesn't double-report. max_sector >= 1.0
+    # means the persona has no operational sector cap (Cathie — sector
+    # concentration is her mandate, not a risk to fence; see
+    # persona_constraints). We still tally sector_weights for the audit log.
     sector_weights: dict[str, float] = defaultdict(float)
     for p in report.proposals:
         meta = META_BY_TICKER.get(p.ticker)
         if meta is not None:
             sector_weights[meta.sector] += p.target_weight
-    for sector, weight in sorted(sector_weights.items()):
-        if weight > constraints.max_sector + CAP_TOLERANCE:
-            reasons.append(
-                f"sector '{sector}' weight {weight:.4f} > sector cap "
-                f"{constraints.max_sector:.2f}"
-            )
+    if constraints.max_sector < 1.0:
+        for sector, weight in sorted(sector_weights.items()):
+            if weight > constraints.max_sector + CAP_TOLERANCE:
+                reasons.append(
+                    f"sector '{sector}' weight {weight:.4f} > sector cap "
+                    f"{constraints.max_sector:.2f}"
+                )
 
     # ── Soft checks — logged for audit, never fail the gate ──────────
     if not (constraints.cash_min - CAP_TOLERANCE

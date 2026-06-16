@@ -33,11 +33,9 @@ export default function HowItWorks() {
               <span className="italic text-ink-700">One mosaic </span>
               <span className="text-coral-600">for you.</span>
             </h1>
-            <p className="mt-6 max-w-2xl text-[17px] leading-relaxed text-ink-600">
-              Tessera is an AI-powered research desk. Four analyst personas, each with a distinct
-              philosophy, read the market every day and write the kind of long-form theses you
-              would otherwise pay an institutional research firm for. You read, you compare, you
-              decide.
+            <p className="mt-6 max-w-xl text-[17px] leading-relaxed text-ink-600">
+              An AI research desk of four analysts. Each reads the market daily and writes the
+              long-form thesis you'd normally pay a research firm for. You read, compare, decide.
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-3">
               <Badge tone="sage">Paper trading pilot</Badge>
@@ -56,11 +54,9 @@ export default function HowItWorks() {
             <h2 className="display-serif mt-3 text-4xl leading-tight tracking-tightest text-ink-900">
               Institutional research, on tap.
             </h2>
-            <p className="mt-4 text-[15px] leading-relaxed text-ink-600">
-              Most retail investors are stuck choosing between noisy sell-side ratings and a
-              do-it-yourself spreadsheet. Tessera gives you something closer to what allocators
-              get inside a real fund: a desk of distinct voices, written theses, and a curated
-              shortlist you can actually act on.
+            <p className="mt-4 max-w-xl text-[15px] leading-relaxed text-ink-600">
+              Not noisy sell-side ratings, not a DIY spreadsheet — a desk of distinct voices,
+              written theses, and a shortlist you can act on.
             </p>
           </div>
 
@@ -86,7 +82,7 @@ export default function HowItWorks() {
               What happens between close and your morning coffee.
             </h2>
             <p className="mt-4 text-[15px] leading-relaxed text-ink-600">
-              You don't need to know the plumbing. Here's what you'll see when you log in.
+              No plumbing required — here's what you'll see when you log in.
             </p>
           </div>
 
@@ -94,11 +90,11 @@ export default function HowItWorks() {
             <FlowStep n="01" title="The desk reads everything"
               body="Earnings releases, regulatory filings, macro data, and high-signal news from the trading day. Each analyst reads from their own lens." />
             <FlowStep n="02" title="Each analyst writes their view"
-              body="Warren writes about businesses he'd own for a decade. Cathie writes about platform shifts in AI and crypto. Ray writes about the macro regime. Peter writes about what he'd buy at a reasonable price. Their views often disagree — that's the point." />
+              body="Warren on decade-long businesses, Cathie on AI and crypto platform shifts, Ray on the macro regime, Peter on growth at a fair price. They often disagree — that's the point." />
             <FlowStep n="03" title="The desk lines up side-by-side"
-              body="All four portfolios appear together in one view, with a consensus column that highlights the names multiple analysts agree on. Disagreement is visible too — that's a feature, not a bug." />
+              body="All four portfolios in one view, with a consensus column for the names they agree on. Where they split is visible too." />
             <FlowStep n="04" title="You read, compare, decide"
-              body="Open any portfolio. Hover any position. See exactly which analyst put it there and why. Pick the philosophy that matches you to follow, or just read to learn how the desk thinks." />
+              body="Open any portfolio, tap any position, see which analyst put it there and why. Follow the philosophy that fits you — or just read along." />
           </ol>
         </div>
       </section>
@@ -113,31 +109,26 @@ export default function HowItWorks() {
                 Built so the AI <span className="italic text-ink-700">can't run away with it.</span>
               </h2>
               <p className="mt-4 text-[15px] leading-relaxed text-ink-600">
-                AI models can sound confident and still be wrong. We took that as the central
-                design problem. Every analyst's output passes through three guards before it ever
-                reaches you.
-              </p>
-              <p className="mt-3 text-[13px] leading-relaxed text-ink-500">
-                The details of how each guard works are proprietary, but the high-level behavior
-                is below.
+                AI can sound confident and still be wrong. So every analyst's output clears three
+                guards before it reaches you.
               </p>
             </div>
 
             <ol className="space-y-3">
               <Guard
                 icon={<BookOpen className="h-4 w-4" />}
-                title="Analysts see structured facts, not raw text"
-                body="Each analyst writes about pre-computed numbers — returns, valuations, growth — that our system calculates before the AI ever reads them. The AI can interpret. It can't invent the inputs."
+                title="Facts are computed, not invented"
+                body="Returns, valuations, growth — all calculated in code before the AI reads them. The analyst interprets the numbers; it can't make them up."
               />
               <Guard
                 icon={<ShieldCheck className="h-4 w-4" />}
-                title="Every recommendation is validated"
-                body="Before a position can appear in any portfolio, it's checked against the real list of tradable securities, the analyst's own rules, and the desk's risk limits. Anything inconsistent is removed silently."
+                title="Every position is validated"
+                body="Each holding is checked against real tradable securities, the analyst's own rules, and the desk's risk limits. Anything inconsistent is dropped."
               />
               <Guard
                 icon={<Lock className="h-4 w-4" />}
-                title="No analyst can exceed risk limits"
-                body="Single-name caps, sector concentration, drawdown budgets — enforced by deterministic checks no analyst can override. The AI proposes. Rules dispose."
+                title="Risk limits can't be overridden"
+                body="Single-name caps, sector concentration, drawdown budgets — enforced in code. The AI proposes; the rules dispose."
               />
             </ol>
           </div>
@@ -152,9 +143,9 @@ export default function HowItWorks() {
             <h2 className="display-serif mt-3 text-4xl leading-tight tracking-tightest text-ink-900">
               Four analysts. <span className="italic text-ink-700">Four philosophies.</span>
             </h2>
-            <p className="mt-4 text-[15px] leading-relaxed text-ink-600">
-              We didn't average them into one safe consensus. Disagreement is the value — it shows
-              you the real spectrum of how a thoughtful investor might look at the same name.
+            <p className="mt-4 max-w-xl text-[15px] leading-relaxed text-ink-600">
+              No safe averaged consensus. The disagreement is the value — the real spectrum of
+              views on the same name.
             </p>
           </div>
 
@@ -183,9 +174,9 @@ export default function HowItWorks() {
             <h2 className="display-serif mt-3 text-4xl leading-tight tracking-tightest text-ink-900">
               We're research. <span className="italic text-ink-700">Not your broker.</span>
             </h2>
-            <p className="mt-4 text-[15px] leading-relaxed text-ink-600">
-              Tessera publishes ideas. It does not hold your money, place orders for you without
-              your say-so, or tell you what's right for your account.
+            <p className="mt-4 max-w-xl text-[15px] leading-relaxed text-ink-600">
+              Tessera publishes ideas. It never holds your money, trades without your say-so, or
+              tells you what's right for your account.
             </p>
           </div>
 
@@ -212,13 +203,11 @@ export default function HowItWorks() {
             />
           </div>
 
-          <p className="mt-8 max-w-3xl text-[13px] leading-relaxed text-ink-500">
-            During the pilot phase Tessera operates as paper trading only — no real money, no
-            brokerage connection. If and when live execution becomes available, it will route
-            through your own brokerage via secure authorization, and every order will require your
-            confirmation. Past performance, paper or otherwise, is not indicative of future results.
-            Tessera is not a registered investment advisor and does not provide individualized
-            investment advice.
+          <p className="mt-8 max-w-2xl text-[13px] leading-relaxed text-ink-500">
+            Pilot phase is paper trading only — no real money, no brokerage connection. Any future
+            live execution would route through your own brokerage and require your confirmation on
+            every order. Past performance, paper or otherwise, doesn't predict future results.
+            Tessera is not a registered investment advisor and gives no individualized advice.
           </p>
         </div>
       </section>
