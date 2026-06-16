@@ -25,9 +25,19 @@ pilot identity. Setting them flips on real Google SSO with no code change.
 
 ## 2. Apply migration 012 (Neon SQL editor)
 
-Run `migrations/012_users.sql` in the Neon console. Creates the `users`
-table (keyed by `firebase_uid`). Nothing writes to it yet — the secure
-upsert lands with the auth-sync PR; this is the schema ahead of the writer.
+Run `migrations/012_users.sql` in the Neon console. NOTE: `users` (and
+`user_portfolios`) already exist in prod — they shipped in `001_init.sql`.
+012 is purely ADDITIVE: it `ALTER ... ADD COLUMN IF NOT EXISTS`s the two
+columns Firebase needs (`photo_url`, `last_login_at`) plus an email index
+and comments. It's idempotent — safe to run once or re-run. Nothing
+writes to the table yet; the secure upsert lands with the auth-sync PR.
+
+Verify after applying (or ask Claude to run a read-only check):
+```sql
+SELECT column_name FROM information_schema.columns
+WHERE table_name='users' ORDER BY ordinal_position;
+-- expect photo_url + last_login_at present
+```
 
 ## 3. Set the env vars
 
