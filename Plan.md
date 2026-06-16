@@ -1007,7 +1007,14 @@ distilled rules:
   NOTHING`. (A separate `follows` table was unnecessary — the portfolio
   row IS the follow.) Engine-side population (positions/cash) comes with
   the mirror engine.
-- [ ] **Mirror engine**: when persona trades, mirror in every follower's account
+- [x] **Mirror engine**: **Live 2026-06-16** (`risk/mirror.py`, nightly
+  `mirror` step after `paper`, same flag). Weight projection — a follower
+  holds the persona's current weights scaled to
+  `starting_capital × (persona_nav_today / persona_nav_at_follow_start)`,
+  so follower return since follow == persona return. No per-follower fill
+  sim; `started_at` anchors the baseline (no look-ahead). Writes
+  `user_portfolios.current_positions/current_cash/total_value`. 5 unit
+  tests on the pure projection.
 - [ ] **Dashboard reads real positions**: delete mock in `/dashboard`
 - [ ] **Personal P&L diverges** from persona P&L based on follow start + capital
 - [ ] **FCM push** when followed persona rebalances
