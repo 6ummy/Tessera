@@ -104,12 +104,16 @@ function DashboardInner() {
   const selPerf = selected ? perf[selected.personaId] ?? null : null;
   const series = useMemo(() => {
     if (!selPerf || !selected) return [];
+    // ONLY the persona's track since your follow date — rebased to 0% at
+    // follow. Before you followed you held cash (flat / nothing to show),
+    // so a brand-new follow yields ≤1 point and we render the "building"
+    // placeholder rather than back-painting the persona's prior history
+    // as if it were yours.
     const start = selected.startedAt.slice(0, 10);
     const pts = selPerf.series
       .filter((s) => s.date >= start)
       .map((s, i) => ({ day: i, date: s.date, value: s.value }));
-    // Fall back to the last 180d if the follow is brand-new (≤1 point).
-    return rebase(pts.length > 1 ? pts : selPerf.series.slice(-180).map((s, i) => ({ day: i, date: s.date, value: s.value })));
+    return pts.length > 1 ? rebase(pts) : [];
   }, [selPerf, selected]);
   const bench180 = benchmark ? rebase(benchmark.slice(-180)) : null;
 
@@ -135,12 +139,20 @@ function DashboardInner() {
               <h1 className="display-serif mt-2 text-5xl tracking-tightest text-ink-900">Dashboard</h1>
               <p className="mt-2 text-sm text-ink-600">
                 {hasFollows ? (
-                  <>
-                    Paper portfolio · Following{" "}
-                    <span className="font-medium text-ink-800">
-                      {portfolios!.length === 1 ? PERSONA_BY_ID[portfolios![0].personaId].name : `${portfolios!.length} analysts`}
-                    </span>
-                  </>
+                  portfolios!.length === 1 ? (
+                    <>
+                      Paper portfolio · Following{" "}
+                      <span className="font-medium text-ink-800">
+                        {PERSONA_BY_ID[portfolios![0].personaId].name}
+                      </span>{" "}
+                      since <span className="num">{portfolios![0].startedAt.slice(0, 10)}</span>
+                    </>
+                  ) : (
+                    <>
+                      Paper portfolio · Following{" "}
+                      <span className="font-medium text-ink-800">{portfolios!.length} analysts</span>
+                    </>
+                  )
                 ) : (
                   "Paper portfolio"
                 )}
@@ -229,8 +241,10 @@ function DashboardInner() {
                           ]}
                         />
                       ) : (
-                        <div className="grid h-[280px] w-full place-items-center rounded-2xl bg-ink-900/[0.03] text-sm text-ink-500">
-                          Curve starts building from your follow date.
+                        <div className="grid h-[280px] w-full place-items-center rounded-2xl bg-ink-900/[0.03] px-6 text-center text-sm text-ink-500">
+                          Tracking {selectedPersona?.name} since{" "}
+                          <span className="num mx-1">{selected!.startedAt.slice(0, 10)}</span>
+                          — your curve builds from your follow date (flat until then; you held cash).
                         </div>
                       )}
                       <p className="mt-2 text-[11px] text-ink-500">
