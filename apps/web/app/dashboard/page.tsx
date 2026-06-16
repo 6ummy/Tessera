@@ -4,7 +4,8 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, Heart, LogIn, MessageCircle, Repeat2, TrendingUp } from "lucide-react";
 import { ACCENT_CLASS, PERSONAS, PERSONA_BY_ID, type Persona } from "@/lib/mock/personas";
-import { rebase, usePerformance } from "@/lib/performance-data";
+import { rebase, usePerformance, toPoints } from "@/lib/performance-data";
+import { buildAccountSegments, type FollowEvent, ACCOUNT_CASH_KEY, ACCOUNT_MIXED_KEY } from "@/lib/account-curve";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { Header } from "@/components/header";
 import { CumulativeChart } from "@/components/cumulative-chart";
@@ -58,6 +59,27 @@ function useMyPortfolios() {
   return portfolios;
 }
 
+/** Fetch the user's follow/unfollow history for the account curve. */
+function useMyTimeline() {
+  const { user } = useAuth();
+  const [events, setEvents] = useState<FollowEvent[]>([]);
+  useEffect(() => {
+    if (!user) { setEvents([]); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await user.getIdToken();
+        const res = await fetch("/api/me/timeline", { headers: { authorization: `Bearer ${token}` } });
+        if (!res.ok || cancelled) return;
+        const { events } = (await res.json()) as { events: FollowEvent[] };
+        if (!cancelled) setEvents(events);
+      } catch { /* leave empty — curve falls back to all-cash */ }
+    })();
+    return () => { cancelled = true; };
+  }, [user]);
+  return events;
+}
+
 export default function DashboardPage() {
   return (
     <Suspense fallback={null}>
@@ -98,24 +120,39 @@ function DashboardInner() {
   const totalStarting = portfolios?.reduce((s, p) => s + p.startingCapital, 0) ?? 0;
   const aggReturn = totalStarting > 0 ? totalValue / totalStarting - 1 : 0;
 
-  // Selected persona's curve, re-based to the follow's start date so it
-  // reflects the user's actual holding window.
   const selectedPersona = selected ? PERSONA_BY_ID[selected.personaId] : null;
-  const selPerf = selected ? perf[selected.personaId] ?? null : null;
-  const series = useMemo(() => {
-    if (!selPerf || !selected) return [];
-    // ONLY the persona's track since your follow date — rebased to 0% at
-    // follow. Before you followed you held cash (flat / nothing to show),
-    // so a brand-new follow yields ≤1 point and we render the "building"
-    // placeholder rather than back-painting the persona's prior history
-    // as if it were yours.
-    const start = selected.startedAt.slice(0, 10);
-    const pts = selPerf.series
-      .filter((s) => s.date >= start)
-      .map((s, i) => ({ day: i, date: s.date, value: s.value }));
-    return pts.length > 1 ? rebase(pts) : [];
-  }, [selPerf, selected]);
-  const bench180 = benchmark ? rebase(benchmark.slice(-180)) : null;
+
+  // ── Account curve over the full S&P window ──────────────────────────────
+  // The chart shows your whole paper account over the last ~1y: flat (cash)
+  // before/after follows, tracking each persona while followed, recoloured at
+  // every follow/unfollow. The S&P 500 reference is ALWAYS drawn over the
+  // full window, even before your first follow.
+  const events = useMyTimeline();
+  const accountChart = useMemo(() => {
+    if (!benchmark || benchmark.length < 2) return null;
+    const axis = benchmark.map((p) => p.date);
+    const seriesByPersona: Record<string, ReturnType<typeof toPoints>> = {};
+    for (const p of PERSONAS) {
+      const pf = perf[p.id];
+      if (pf) seriesByPersona[p.id] = toPoints(pf);
+    }
+    const colorFor = (key: string) =>
+      key === ACCOUNT_CASH_KEY ? "#C9C5BC"
+      : key === ACCOUNT_MIXED_KEY ? "#1F1E1B"
+      : ACCENT_HEX[PERSONA_BY_ID[key].accent];
+    const segments = buildAccountSegments(events, seriesByPersona, axis, colorFor);
+    const label = (key: string) =>
+      key === ACCOUNT_CASH_KEY ? "Cash"
+      : key === ACCOUNT_MIXED_KEY ? "You · mixed"
+      : `You · ${PERSONA_BY_ID[key].name}`;
+    const youSeries = segments.map((seg, i) => ({
+      id: `you-${i}`, name: label(seg.key), color: seg.color, data: seg.data,
+    }));
+    return [
+      ...youSeries,
+      { id: "sp500", name: "S&P 500", color: "#A8A39A", data: rebase(benchmark), dashed: true },
+    ];
+  }, [benchmark, perf, events]);
 
   const selectedPositions = useMemo(() => {
     if (!selected) return [];
@@ -225,30 +262,19 @@ function DashboardInner() {
                   <div className="grid gap-4 lg:grid-cols-[1.5fr_1fr]">
                     <div className="rounded-3xl border border-ink-900/[0.06] bg-cream-50 p-6">
                       <div className="mb-4">
-                        <div className="text-xs uppercase tracking-[0.16em] text-ink-500">Since you followed · paper</div>
+                        <div className="text-xs uppercase tracking-[0.16em] text-ink-500">Last 1 year · paper</div>
                         <h2 className="display-serif mt-1 text-2xl text-ink-900">
-                          {selectedPersona?.name} vs benchmark
+                          Your account vs S&amp;P 500
                         </h2>
                       </div>
-                      {series.length > 1 && selectedPersona ? (
-                        <CumulativeChart
-                          height={280}
-                          series={[
-                            { id: selectedPersona.id, name: "You", color: ACCENT_HEX[selectedPersona.accent], data: series },
-                            ...(bench180
-                              ? [{ id: "sp500", name: "S&P 500", color: "#A8A39A", data: bench180, dashed: true }]
-                              : []),
-                          ]}
-                        />
+                      {accountChart ? (
+                        <CumulativeChart height={280} series={accountChart} />
                       ) : (
-                        <div className="grid h-[280px] w-full place-items-center rounded-2xl bg-ink-900/[0.03] px-6 text-center text-sm text-ink-500">
-                          Tracking {selectedPersona?.name} since{" "}
-                          <span className="num mx-1">{selected!.startedAt.slice(0, 10)}</span>
-                          — your curve builds from your follow date (flat until then; you held cash).
-                        </div>
+                        <div className="h-[280px] w-full animate-pulse rounded-2xl bg-ink-900/[0.04]" />
                       )}
-                      <p className="mt-2 text-[11px] text-ink-500">
-                        You mirror {selectedPersona?.name}&apos;s book by weight from your follow date. Real paper track — no real money.
+                      <p className="mt-2 text-[11px] leading-relaxed text-ink-500">
+                        Flat while you hold cash; tracks each analyst&apos;s book by weight while you
+                        follow them (recoloured at every follow / unfollow). Real paper track — no real money.
                       </p>
                     </div>
 

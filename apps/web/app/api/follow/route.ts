@@ -64,9 +64,10 @@ export async function POST(req: Request) {
 
   try {
     const sql = getSql();
-    // Ensure the user row exists (it does after sign-in) AND seed the paper
-    // portfolio in one statement. ON CONFLICT makes a repeat follow a no-op.
-    await sql`
+    // Authoritative step: ensure the user row exists AND seed the paper
+    // portfolio. ON CONFLICT makes a repeat follow a no-op; `inserted` is
+    // truthy only when a NEW portfolio row was created.
+    const rows = await sql`
       WITH u AS (
         INSERT INTO users (firebase_uid, email, display_name, photo_url, last_login_at)
         VALUES (${user.uid}, ${user.email}, ${user.displayName}, ${user.photoUrl}, now())
@@ -78,7 +79,13 @@ export async function POST(req: Request) {
       SELECT u.id, ${personaId}, ${STARTING_CAPITAL}, ${STARTING_CAPITAL}, ${STARTING_CAPITAL}, '{}'::jsonb
       FROM u
       ON CONFLICT (user_id, persona_id) DO NOTHING
+      RETURNING user_id
     `;
+    // Best-effort audit event — never fail a follow if follow_events is
+    // missing (e.g. migration 013 not yet applied) or errors.
+    if (rows.length > 0) {
+      await logEvent(sql, rows[0].user_id as string, personaId, "follow");
+    }
     return NextResponse.json({ following: true, personaId });
   } catch (err) {
     console.error("follow.create_failed", err);
@@ -97,14 +104,38 @@ export async function DELETE(req: Request) {
 
   try {
     const sql = getSql();
-    await sql`
+    const rows = await sql`
       DELETE FROM user_portfolios
       WHERE persona_id = ${personaId}
         AND user_id = (SELECT id FROM users WHERE firebase_uid = ${user.uid})
+      RETURNING user_id
     `;
+    // Best-effort 'unfollow' event only when a row was actually removed.
+    if (rows.length > 0) {
+      await logEvent(sql, rows[0].user_id as string, personaId, "unfollow");
+    }
     return NextResponse.json({ following: false, personaId });
   } catch (err) {
     console.error("follow.delete_failed", err);
     return NextResponse.json({ error: "unfollow failed" }, { status: 500 });
+  }
+}
+
+/** Append a follow/unfollow audit row. Best-effort: a missing follow_events
+ *  table (migration 013 not yet applied) or any error must NOT fail the
+ *  follow/unfollow itself — the portfolio mutation is the source of truth. */
+async function logEvent(
+  sql: ReturnType<typeof getSql>,
+  userId: string,
+  personaId: string,
+  action: "follow" | "unfollow",
+): Promise<void> {
+  try {
+    await sql`
+      INSERT INTO follow_events (user_id, persona_id, action)
+      VALUES (${userId}, ${personaId}, ${action})
+    `;
+  } catch (err) {
+    console.error("follow.event_log_failed", action, err);
   }
 }
