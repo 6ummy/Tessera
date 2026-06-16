@@ -4,12 +4,14 @@ import { useEffect, useId, useState } from "react";
 import {
   ChevronDown,
   LayoutDashboard,
+  LogIn,
   LogOut,
   Menu,
   Trophy,
   Users,
   X,
 } from "lucide-react";
+import { useAuth } from "@/lib/firebase/auth-context";
 import { cn } from "@/lib/utils";
 
 const NAV_LINKS = [
@@ -36,6 +38,18 @@ export function Header({ variant = "transparent" }: { variant?: "transparent" | 
   const [accountOpen, setAccountOpen] = useState(false);
   const mobileNavId = useId();
   const accountMenuId = useId();
+
+  const { configured, user, signInWithGoogle, signOut } = useAuth();
+  // When Firebase isn't wired yet, keep the pre-auth pilot identity so the
+  // app stays usable. Once configured + signed in, show the real user.
+  const signedIn = configured && !!user;
+  const displayName = user?.displayName || user?.email || (configured ? "Account" : "jshin");
+  const subtitle = user?.email || (configured ? "Signed in" : "Pilot account");
+  const initial = (displayName.trim()[0] ?? "J").toUpperCase();
+  const photoUrl = user?.photoURL ?? null;
+  // Show the sign-in CTA only once we KNOW there's no user (configured but
+  // signed out) — never during the pilot fallback or the initial load flash.
+  const showSignIn = configured && !user;
 
   useEffect(() => {
     if (!mobileNavOpen && !accountOpen) return;
@@ -94,6 +108,16 @@ export function Header({ variant = "transparent" }: { variant?: "transparent" | 
             {mobileNavOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
           </button>
 
+          {showSignIn ? (
+            <button
+              type="button"
+              onClick={() => { setMobileNavOpen(false); void signInWithGoogle(); }}
+              className="inline-flex h-10 items-center gap-2 rounded-full bg-ink-900 px-4 text-sm font-medium text-cream-50 hover:bg-ink-800 ring-focus"
+            >
+              <LogIn className="h-4 w-4" />
+              <span className="hidden sm:inline">Sign in</span>
+            </button>
+          ) : (
           <div className="relative">
             <button
               type="button"
@@ -104,9 +128,14 @@ export function Header({ variant = "transparent" }: { variant?: "transparent" | 
               aria-controls={accountMenuId}
               aria-label="Account menu"
             >
-              <span className="hidden text-sm font-medium text-ink-800 sm:inline">jshin</span>
+              <span className="hidden max-w-[10ch] truncate text-sm font-medium text-ink-800 sm:inline">{displayName}</span>
               <ChevronDown className={cn("hidden h-3.5 w-3.5 text-ink-500 transition-transform sm:inline", accountOpen && "rotate-180")} />
-              <div className="grid h-8 w-8 place-items-center rounded-full bg-gradient-to-br from-coral-400 to-plum-500 text-xs font-semibold text-cream-50">J</div>
+              {photoUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={photoUrl} alt="" className="h-8 w-8 rounded-full object-cover" referrerPolicy="no-referrer" />
+              ) : (
+                <div className="grid h-8 w-8 place-items-center rounded-full bg-gradient-to-br from-coral-400 to-plum-500 text-xs font-semibold text-cream-50">{initial}</div>
+              )}
             </button>
 
             {accountOpen && (
@@ -114,23 +143,31 @@ export function Header({ variant = "transparent" }: { variant?: "transparent" | 
                 <button type="button" tabIndex={-1} className="fixed inset-0 z-30 cursor-default" onClick={() => setAccountOpen(false)} aria-label="Close account menu" />
                 <div id={accountMenuId} role="menu" className="absolute right-0 z-40 mt-2 w-64 origin-top-right overflow-hidden rounded-2xl border border-ink-900/10 bg-cream-50 shadow-[0_24px_60px_-20px_rgba(31,30,27,0.25)] animate-fade-up">
                   <div className="border-b border-ink-900/[0.06] p-4">
-                  <div className="text-sm font-medium text-ink-900">jshin</div>
-                  <div className="text-xs text-ink-500">Pilot account</div>
+                  <div className="truncate text-sm font-medium text-ink-900">{displayName}</div>
+                  <div className="truncate text-xs text-ink-500">{subtitle}</div>
                 </div>
                 <div className="p-1.5">
                   <MenuLink href="/dashboard" icon={<LayoutDashboard className="h-4 w-4" />} label="My dashboard" sub="P&L · positions" onNavigate={closeAll} />
                   <MenuLink href="/dashboard?tab=leaderboard" icon={<Trophy className="h-4 w-4" />} label="Leaderboard" sub="Persona rankings" onNavigate={closeAll} />
                   <MenuLink href="/dashboard?tab=social" icon={<Users className="h-4 w-4" />} label="Social feed" sub="Forks · followers" onNavigate={closeAll} />
                 </div>
-                <div className="border-t border-ink-900/[0.06] p-1.5">
-                  <button type="button" role="menuitem" className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm text-ink-600 hover:bg-ink-900/[0.04]">
-                    <LogOut className="h-4 w-4" /> Sign out
-                  </button>
-                </div>
+                {signedIn && (
+                  <div className="border-t border-ink-900/[0.06] p-1.5">
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => { closeAll(); void signOut(); }}
+                      className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm text-ink-600 hover:bg-ink-900/[0.04]"
+                    >
+                      <LogOut className="h-4 w-4" /> Sign out
+                    </button>
+                  </div>
+                )}
               </div>
               </>
             )}
           </div>
+          )}
         </div>
       </div>
 

@@ -985,8 +985,16 @@ distilled rules:
 **Goal**: 3 friends-and-family users sign up, each follows a persona on their own paper account.
 
 ### Tasks
-- [ ] **Firebase Auth**: Google SSO, callback to Next.js middleware
-- [ ] **Users table** in Neon: `firebase_uid` ↔ Tessera user, preferences
+- [~] **Firebase Auth**: Google SSO. **Client scaffolding shipped
+  2026-06-16** — `firebase` SDK + `lib/firebase/client.ts` (lazy,
+  env-gated) + `auth-context.tsx` (`AuthProvider`/`useAuth`) in the root
+  layout; header does Sign-in / user / Sign-out with a pilot fallback
+  when unconfigured. Operator setup: `docs/runbooks/firebase-auth.md`.
+  **Remaining**: server-side ID-token verification (`firebase-admin` +
+  `/api/auth/sync`) so login upserts the user row.
+- [~] **Users table** in Neon: `firebase_uid` ↔ Tessera user, preferences.
+  **`012_users.sql` created 2026-06-16** (pending operator apply); writer
+  lands with the auth-sync route above.
 - [ ] **"Follow this persona" CTA** on persona detail sheet
 - [ ] **user_portfolios table**: (user_id, persona_id, started_at, starting_capital, current_positions)
 - [ ] **Mirror engine**: when persona trades, mirror in every follower's account

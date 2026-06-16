@@ -19,7 +19,7 @@ Monorepo: `apps/web` (Next.js 14 App Router, Vercel) · `apps/worker`
 (Python 3.11 FastAPI on Cloud Run `tessera-worker`, us-east1, project
 `tessera-498200`) · `packages/shared` (Pydantic schemas) ·
 `migrations/` (plain SQL → Neon Postgres + Timescale + pgvector,
-**001–011 all applied to prod**).
+**001–011 applied to prod; 012 (`users`) created, pending operator apply**).
 
 ## 2. State as of 2026-06-15 — 🏁 **Phase C CLOSED, Phase D ready to start**
 
@@ -48,10 +48,22 @@ all closed before Phase D opens:
     2026-06-14 baseline's 6-of-9-cells Tech-cap failures were the
     proximate trigger.
 
-**Phase D (§6) starts next**: Firebase Auth + Google SSO; `users`
+**Phase D (§6) IN PROGRESS**: Firebase Auth + Google SSO; `users`
 table; "Follow this persona" CTA; `user_portfolios` + mirror engine;
 real dashboard positions; FCM push on rebalance; onboard 3 F&F users.
 Runs alongside Phase E (lawyer consult).
+
+  - **Auth scaffolding shipped** (2026-06-16): `firebase` client SDK +
+    `lib/firebase/client.ts` (lazy, env-gated) + `auth-context.tsx`
+    (`AuthProvider`/`useAuth`) wired into the root layout; header now
+    shows Sign-in / real user / Sign-out, falling back to the "jshin"
+    pilot chip when `NEXT_PUBLIC_FIREBASE_*` is unset (so prod is never
+    broken pre-config). Migration `012_users.sql` created. Operator
+    setup: `docs/runbooks/firebase-auth.md`.
+  - **NOT yet wired**: server-side ID-token verification (`firebase-admin`
+    + `/api/auth/sync`) that upserts the `users` row on login — so `users`
+    is empty until that PR. Follow CTA / `user_portfolios` / mirror engine
+    build on the verified `users.id` after it.
 
 Prior state snapshot (pre-closure):
 
@@ -79,7 +91,9 @@ Everything below is LIVE in prod unless marked otherwise:
 - **Frontend**: all real — reports/proposals/chat (since 06-05),
   performance/portfolio (since 06-12, mock deleted). Remaining mocks:
   dashboard "My portfolio" positions + Social tab (Phase-D demos,
-  labelled) and auth (assumes "jshin").
+  labelled). Auth is now real-capable (Firebase scaffolding 06-16) but
+  falls back to the "jshin" pilot chip until `NEXT_PUBLIC_FIREBASE_*` is
+  configured.
 - **Observability**: Grafana Cloud dashboard over `llm_call_log`
   (`docs/grafana/llm-cost-dashboard.json`); cross-source disagreement
   audit panel over `cross_source_disagreements` (#125,
