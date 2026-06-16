@@ -88,8 +88,10 @@ Everything below is LIVE in prod unless marked otherwise:
   the post-build audit step; Sentry errors-only; Voyage embeddings on
   prod (similarity recall fires in the WEEKLY BATCH logs as `sim=0.xx`
   — chat has no memory recall, that's Phase D). Slack alert webhook at
-  $5/$10/$20 spend thresholds is the last optional observability piece
-  (operator console wiring, no code).
+  $5/$10/$20 spend thresholds is LIVE (2026-06-16, operator-wired Grafana
+  contact point + alert rules over `llm_call_log`; no code). The
+  `check_daily_budget()` hard-pause remains the safety net; the alert is
+  the earlier warning.
 - **CI** (`.github/workflows/ci.yml`): ruff + pytest + mypy ALL
   blocking (mypy via a legacy `ignore_errors` ledger in
   `apps/worker/pyproject.toml` — NEW modules must be strict-clean and
