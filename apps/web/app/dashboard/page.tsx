@@ -1,13 +1,15 @@
 "use client";
-import { Suspense } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, Heart, MessageCircle, Repeat2, TrendingUp } from "lucide-react";
+import { ArrowLeft, Heart, LogIn, MessageCircle, Repeat2, TrendingUp } from "lucide-react";
 import { ACCENT_CLASS, PERSONAS, PERSONA_BY_ID, type Persona } from "@/lib/mock/personas";
 import { rebase, usePerformance } from "@/lib/performance-data";
+import { useAuth } from "@/lib/firebase/auth-context";
 import { Header } from "@/components/header";
 import { CumulativeChart } from "@/components/cumulative-chart";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { PersonaAvatar } from "@/components/persona-avatar";
 import { cn, fmt, signClass } from "@/lib/utils";
@@ -16,30 +18,45 @@ const ACCENT_HEX: Record<Persona["accent"], string> = {
   coral: "#D97757", sage: "#6B8E6B", plum: "#8B6B8E", ink: "#1F1E1B",
 };
 
-// Mock user portfolio
-const MY = {
-  startingCapital: 100_000,
-  followedPersona: "peter",
-  startedOn: "2025-08-12",
-  positions: [
-    { ticker: "META", weight: 0.13, pnl: 0.082 },
-    { ticker: "ANET", weight: 0.11, pnl: 0.041 },
-    { ticker: "BKNG", weight: 0.10, pnl: -0.012 },
-    { ticker: "ISRG", weight: 0.09, pnl: 0.056 },
-    { ticker: "LRCX", weight: 0.10, pnl: 0.118 },
-    { ticker: "TSM",  weight: 0.12, pnl: 0.091 },
-    { ticker: "NOW",  weight: 0.09, pnl: 0.024 },
-    { ticker: "DECK", weight: 0.08, pnl: -0.038 },
-    { ticker: "URI",  weight: 0.10, pnl: 0.067 },
-  ],
+type Portfolio = {
+  personaId: string;
+  startingCapital: number;
+  currentCash: number;
+  totalValue: number;
+  positions: Record<string, { qty: number; close: number; value: number }>;
+  startedAt: string;
 };
 
+// Social feed is still a Phase-D demo (labelled in the UI).
 const SOCIAL = [
   { user: "nara_k", persona: "cathie", fork: "Cathie · ex-China", note: "Removed China exposure, tilted toward Nordic semis.", likes: 142, replies: 18, ret: 0.41 },
   { user: "ben.t",  persona: "warren", fork: "Warren · Dividend-only", note: "Filtered for yield > 2.5% and 10-yr div growth.", likes: 89, replies: 7, ret: 0.13 },
   { user: "min_su", persona: "ray",    fork: "Ray · Inflation hedged", note: "Doubled TIPS allocation; cut nominal duration.", likes: 56, replies: 4, ret: 0.07 },
   { user: "alex.r", persona: "peter",  fork: "Peter · Industrials focus", note: "Concentrated GARP in re-shoring beneficiaries.", likes: 211, replies: 24, ret: 0.22 },
 ];
+
+/** Fetch the signed-in user's real paper portfolios (their follows). */
+function useMyPortfolios() {
+  const { user } = useAuth();
+  const [portfolios, setPortfolios] = useState<Portfolio[] | null>(null);
+  useEffect(() => {
+    if (!user) { setPortfolios(null); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await user.getIdToken();
+        const res = await fetch("/api/me/portfolios", { headers: { authorization: `Bearer ${token}` } });
+        if (!res.ok || cancelled) return;
+        const { portfolios } = (await res.json()) as { portfolios: Portfolio[] };
+        if (!cancelled) setPortfolios(portfolios);
+      } catch {
+        if (!cancelled) setPortfolios([]);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [user]);
+  return portfolios;
+}
 
 export default function DashboardPage() {
   return (
@@ -61,23 +78,47 @@ function DashboardInner() {
     router.replace(next === "portfolio" ? "/dashboard" : `/dashboard?tab=${next}`, { scroll: false });
   };
 
-  const followed = PERSONA_BY_ID[MY.followedPersona];
-  const pnlPct = MY.positions.reduce((s, p) => s + p.weight * p.pnl, 0);
-  const value = MY.startingCapital * (1 + pnlPct);
-  // Real paper-track data: followed persona's curve for the portfolio
-  // tab, all four personas' metrics for the leaderboard.
+  const { configured, user, signInWithGoogle } = useAuth();
+  const portfolios = useMyPortfolios();
+  const hasFollows = !!portfolios && portfolios.length > 0;
+
+  // Which followed persona is in focus (default: first follow).
+  const [focusId, setFocusId] = useState<string | null>(null);
+  const selected = useMemo<Portfolio | null>(() => {
+    if (!portfolios || portfolios.length === 0) return null;
+    return portfolios.find((p) => p.personaId === focusId) ?? portfolios[0];
+  }, [portfolios, focusId]);
+
+  // Real paper-track data: persona curves + leaderboard metrics.
   const personaIds = PERSONAS.map((p) => p.id);
   const { perf, benchmark } = usePerformance(personaIds);
-  const followedPerf = perf[MY.followedPersona] ?? null;
-  // Last ~180 trading days, re-based so the window starts at 0%.
-  const series = followedPerf
-    ? rebase(
-        followedPerf.series
-          .slice(-180)
-          .map((s, i) => ({ day: i, date: s.date, value: s.value })),
-      )
-    : [];
+
+  // Aggregate header figures across every follow.
+  const totalValue = portfolios?.reduce((s, p) => s + p.totalValue, 0) ?? 0;
+  const totalStarting = portfolios?.reduce((s, p) => s + p.startingCapital, 0) ?? 0;
+  const aggReturn = totalStarting > 0 ? totalValue / totalStarting - 1 : 0;
+
+  // Selected persona's curve, re-based to the follow's start date so it
+  // reflects the user's actual holding window.
+  const selectedPersona = selected ? PERSONA_BY_ID[selected.personaId] : null;
+  const selPerf = selected ? perf[selected.personaId] ?? null : null;
+  const series = useMemo(() => {
+    if (!selPerf || !selected) return [];
+    const start = selected.startedAt.slice(0, 10);
+    const pts = selPerf.series
+      .filter((s) => s.date >= start)
+      .map((s, i) => ({ day: i, date: s.date, value: s.value }));
+    // Fall back to the last 180d if the follow is brand-new (≤1 point).
+    return rebase(pts.length > 1 ? pts : selPerf.series.slice(-180).map((s, i) => ({ day: i, date: s.date, value: s.value })));
+  }, [selPerf, selected]);
   const bench180 = benchmark ? rebase(benchmark.slice(-180)) : null;
+
+  const selectedPositions = useMemo(() => {
+    if (!selected) return [];
+    return Object.entries(selected.positions)
+      .map(([ticker, p]) => ({ ticker, value: p.value, weight: selected.totalValue > 0 ? p.value / selected.totalValue : 0 }))
+      .sort((a, b) => b.value - a.value);
+  }, [selected]);
 
   return (
     <main className="min-h-screen">
@@ -93,20 +134,29 @@ function DashboardInner() {
               <div className="text-xs font-medium uppercase tracking-[0.18em] text-coral-600">Your account</div>
               <h1 className="display-serif mt-2 text-5xl tracking-tightest text-ink-900">Dashboard</h1>
               <p className="mt-2 text-sm text-ink-600">
-                Paper portfolio · Following{" "}
-                <span className="font-medium text-ink-800">{followed.name}</span> since{" "}
-                <span className="num">{MY.startedOn}</span>
+                {hasFollows ? (
+                  <>
+                    Paper portfolio · Following{" "}
+                    <span className="font-medium text-ink-800">
+                      {portfolios!.length === 1 ? PERSONA_BY_ID[portfolios![0].personaId].name : `${portfolios!.length} analysts`}
+                    </span>
+                  </>
+                ) : (
+                  "Paper portfolio"
+                )}
               </p>
             </div>
-            <div className="text-right">
-              <div className="text-[10px] uppercase tracking-[0.16em] text-ink-500">Portfolio value</div>
-              <div className="num mt-1 text-4xl font-medium text-ink-900">
-                ${value.toLocaleString("en-US", { maximumFractionDigits: 0 })}
+            {hasFollows && (
+              <div className="text-right">
+                <div className="text-[10px] uppercase tracking-[0.16em] text-ink-500">Portfolio value</div>
+                <div className="num mt-1 text-4xl font-medium text-ink-900">
+                  ${totalValue.toLocaleString("en-US", { maximumFractionDigits: 0 })}
+                </div>
+                <div className={cn("num mt-0.5 text-sm", signClass(aggReturn))}>
+                  {fmt.pct(aggReturn)} since follow
+                </div>
               </div>
-              <div className={cn("num mt-0.5 text-sm", signClass(pnlPct))}>
-                {fmt.pct(pnlPct)} all-time
-              </div>
-            </div>
+            )}
           </div>
         </div>
       </section>
@@ -122,59 +172,106 @@ function DashboardInner() {
 
             {/* ───── PORTFOLIO ───── */}
             <TabsContent value="portfolio">
-              <div className="grid gap-4 lg:grid-cols-[1.5fr_1fr]">
-                <div className="rounded-3xl border border-ink-900/[0.06] bg-cream-50 p-6">
-                  <div className="mb-4 flex items-center justify-between">
-                    <div>
-                      <div className="text-xs uppercase tracking-[0.16em] text-ink-500">Last 180 days · paper</div>
-                      <h2 className="display-serif mt-1 text-2xl text-ink-900">Performance vs benchmark</h2>
+              {configured && !user ? (
+                <EmptyState
+                  title="Sign in to see your portfolio"
+                  body="Follow an analyst and Tessera tracks a $100K paper book for you."
+                  action={<Button size="md" onClick={() => void signInWithGoogle()}><LogIn className="h-4 w-4" /> Sign in</Button>}
+                />
+              ) : portfolios === null ? (
+                <div className="h-[320px] w-full animate-pulse rounded-3xl bg-ink-900/[0.04]" />
+              ) : portfolios.length === 0 ? (
+                <EmptyState
+                  title="You're not following anyone yet"
+                  body="Open an analyst and hit Follow — Tessera seeds a $100K paper book that mirrors their moves."
+                  action={<Link href="/"><Button size="md">Meet the analysts</Button></Link>}
+                />
+              ) : (
+                <>
+                  {portfolios.length > 1 && (
+                    <div className="mb-4 flex flex-wrap gap-2">
+                      {portfolios.map((p) => {
+                        const per = PERSONA_BY_ID[p.personaId];
+                        const active = selected?.personaId === p.personaId;
+                        return (
+                          <button
+                            key={p.personaId}
+                            onClick={() => setFocusId(p.personaId)}
+                            className={cn(
+                              "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm ring-focus",
+                              active ? "border-ink-900/20 bg-cream-50 text-ink-900" : "border-ink-900/[0.06] text-ink-600 hover:bg-ink-900/[0.04]",
+                            )}
+                          >
+                            <span className={cn("h-1.5 w-1.5 rounded-full", ACCENT_CLASS[per.accent].dot)} />
+                            {per.name}
+                          </button>
+                        );
+                      })}
                     </div>
-                  </div>
-                  {series.length > 1 ? (
-                    <CumulativeChart
-                      height={280}
-                      series={[
-                        { id: followed.id, name: "You", color: ACCENT_HEX[followed.accent], data: series },
-                        ...(bench180
-                          ? [{ id: "sp500", name: "S&P 500", color: "#A8A39A", data: bench180, dashed: true }]
-                          : []),
-                      ]}
-                    />
-                  ) : (
-                    <div className="h-[280px] w-full animate-pulse rounded-2xl bg-ink-900/[0.04]" />
                   )}
-                  <p className="mt-2 text-[11px] text-ink-500">
-                    Live paper track — real fills since Jun 11, 2026. Positions
-                    below are Phase-D demo data.
-                  </p>
-                </div>
 
-                <div className="space-y-4">
-                  <Tile label="Starting capital" value={`$${MY.startingCapital.toLocaleString()}`} />
-                  <Tile label="Following" value={followed.name} sub={followed.archetype} />
-                  <Tile label="Open positions" value={`${MY.positions.length}`} />
-                  <Tile label="Cash" value="$8,000" sub="8% allocation" />
-                </div>
-              </div>
+                  <div className="grid gap-4 lg:grid-cols-[1.5fr_1fr]">
+                    <div className="rounded-3xl border border-ink-900/[0.06] bg-cream-50 p-6">
+                      <div className="mb-4">
+                        <div className="text-xs uppercase tracking-[0.16em] text-ink-500">Since you followed · paper</div>
+                        <h2 className="display-serif mt-1 text-2xl text-ink-900">
+                          {selectedPersona?.name} vs benchmark
+                        </h2>
+                      </div>
+                      {series.length > 1 && selectedPersona ? (
+                        <CumulativeChart
+                          height={280}
+                          series={[
+                            { id: selectedPersona.id, name: "You", color: ACCENT_HEX[selectedPersona.accent], data: series },
+                            ...(bench180
+                              ? [{ id: "sp500", name: "S&P 500", color: "#A8A39A", data: bench180, dashed: true }]
+                              : []),
+                          ]}
+                        />
+                      ) : (
+                        <div className="grid h-[280px] w-full place-items-center rounded-2xl bg-ink-900/[0.03] text-sm text-ink-500">
+                          Curve starts building from your follow date.
+                        </div>
+                      )}
+                      <p className="mt-2 text-[11px] text-ink-500">
+                        You mirror {selectedPersona?.name}&apos;s book by weight from your follow date. Real paper track — no real money.
+                      </p>
+                    </div>
 
-              <div className="mt-4 overflow-hidden rounded-3xl border border-ink-900/[0.06] bg-cream-50">
-                <div className="grid grid-cols-[1fr_1fr_1fr_1fr] border-b border-ink-900/[0.06] bg-ink-900/[0.025] px-5 py-3 text-[10px] uppercase tracking-[0.14em] text-ink-500">
-                  <div>Ticker</div>
-                  <div>Weight</div>
-                  <div>Position P&L</div>
-                  <div className="text-right">Contribution</div>
-                </div>
-                {MY.positions.map((p) => (
-                  <div key={p.ticker} className="grid grid-cols-[1fr_1fr_1fr_1fr] border-b border-ink-900/[0.05] px-5 py-3.5 last:border-b-0 hover:bg-ink-900/[0.02]">
-                    <div className="num text-sm font-medium text-ink-900">{p.ticker}</div>
-                    <div className="num text-sm text-ink-700">{fmt.pctAbs(p.weight)}</div>
-                    <div className={cn("num text-sm", signClass(p.pnl))}>{fmt.pct(p.pnl)}</div>
-                    <div className={cn("num text-right text-sm", signClass(p.weight * p.pnl))}>
-                      {fmt.pct(p.weight * p.pnl, 2)}
+                    <div className="space-y-4">
+                      <Tile label="Starting capital" value={`$${selected!.startingCapital.toLocaleString("en-US", { maximumFractionDigits: 0 })}`} />
+                      <Tile label="Total value" value={`$${selected!.totalValue.toLocaleString("en-US", { maximumFractionDigits: 0 })}`}
+                        sub={`${fmt.pct(selected!.startingCapital > 0 ? selected!.totalValue / selected!.startingCapital - 1 : 0)} since follow`} />
+                      <Tile label="Cash" value={`$${selected!.currentCash.toLocaleString("en-US", { maximumFractionDigits: 0 })}`}
+                        sub={`${fmt.pctAbs(selected!.totalValue > 0 ? selected!.currentCash / selected!.totalValue : 0)} allocation`} />
+                      <Tile label="Open positions" value={`${selectedPositions.length}`} sub={`Following ${selectedPersona?.name}`} />
                     </div>
                   </div>
-                ))}
-              </div>
+
+                  <div className="mt-4 overflow-hidden rounded-3xl border border-ink-900/[0.06] bg-cream-50">
+                    <div className="grid grid-cols-[1.5fr_1fr_1fr] border-b border-ink-900/[0.06] bg-ink-900/[0.025] px-5 py-3 text-[10px] uppercase tracking-[0.14em] text-ink-500">
+                      <div>Ticker</div>
+                      <div>Weight</div>
+                      <div className="text-right">Market value</div>
+                    </div>
+                    {selectedPositions.length === 0 ? (
+                      <div className="px-5 py-8 text-center text-sm text-ink-500">
+                        Positions populate after the next nightly sync (the mirror engine runs after market close).
+                      </div>
+                    ) : (
+                      selectedPositions.map((p) => (
+                        <div key={p.ticker} className="grid grid-cols-[1.5fr_1fr_1fr] border-b border-ink-900/[0.05] px-5 py-3.5 last:border-b-0 hover:bg-ink-900/[0.02]">
+                          <div className="num text-sm font-medium text-ink-900">{p.ticker}</div>
+                          <div className="num text-sm text-ink-700">{fmt.pctAbs(p.weight)}</div>
+                          <div className="num text-right text-sm text-ink-800">
+                            ${p.value.toLocaleString("en-US", { maximumFractionDigits: 0 })}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </>
+              )}
             </TabsContent>
 
             {/* ───── LEADERBOARD ───── */}
@@ -227,7 +324,7 @@ function DashboardInner() {
               </p>
             </TabsContent>
 
-            {/* ───── SOCIAL ───── */}
+            {/* ───── SOCIAL (Phase-D demo) ───── */}
             <TabsContent value="social">
               <div className="grid gap-4 md:grid-cols-2">
                 {SOCIAL.map((post) => {
@@ -264,6 +361,7 @@ function DashboardInner() {
                   );
                 })}
               </div>
+              <p className="mt-3 text-[11px] text-ink-500">Social feed is a Phase-D demo — not real users yet.</p>
             </TabsContent>
           </Tabs>
         </div>
@@ -278,6 +376,16 @@ function Tile({ label, value, sub }: { label: string; value: string; sub?: strin
       <div className="text-[10px] uppercase tracking-[0.16em] text-ink-500">{label}</div>
       <div className="num mt-1 text-xl font-medium text-ink-900">{value}</div>
       {sub && <div className="mt-0.5 text-xs text-ink-500">{sub}</div>}
+    </div>
+  );
+}
+
+function EmptyState({ title, body, action }: { title: string; body: string; action: React.ReactNode }) {
+  return (
+    <div className="grid place-items-center rounded-3xl border border-dashed border-ink-900/15 bg-cream-50 px-6 py-16 text-center">
+      <h3 className="display-serif text-2xl text-ink-900">{title}</h3>
+      <p className="mt-2 max-w-md text-sm text-ink-600">{body}</p>
+      <div className="mt-5">{action}</div>
     </div>
   );
 }

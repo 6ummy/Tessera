@@ -81,20 +81,26 @@ Runs alongside Phase E (lawyer consult).
     holdings carry the persona's current weights scaled to that NAV. No
     per-follower fill sim (deterministic, cheap, reconciles to the
     persona track); `started_at` anchors the baseline (no look-ahead).
-  - **NOT yet wired**: dashboard real positions (still mock `peter`; needs
-    a route reading `user_portfolios` + frontend swap) + FCM push.
+  - **Dashboard wired to real follows** (2026-06-16): `GET
+    /api/me/portfolios` (Edge, token-verified) reads `user_portfolios`;
+    `/dashboard` portfolio tab renders real follows (multi-follow persona
+    selector, curve rebased to follow date, positions table, tiles) with
+    sign-in / no-follows empty states. Hardcoded `peter` mock gone. Social
+    feed stays a labelled Phase-D demo.
+  - **NOT yet wired**: FCM push on rebalance + onboard 3 F&F users (ops).
 
 Prior state snapshot (pre-closure):
 
 Everything below is LIVE in prod unless marked otherwise:
 
-- **Daily 14-step ingest**, weekdays 21:30 UTC: Vercel cron →
+- **Daily 16-step ingest**, weekdays 21:30 UTC: Vercel cron →
   `/api/cron/daily` → Cloud Run `/jobs/ingest-daily` → ohlcv (Alpaca +
   Coinbase) → FRED → fundamentals 3-tier (FMP → SEC XBRL → FMP
   key-metrics → yfinance shares daily / history Fri) → news → SEC
   filings → features → coverage audit → **SPY canary** (>100bps vs
-  Yahoo fails the run; baseline 2.62bps) → **paper engine**
-  (`FEATURE_PAPER_EXECUTION=true`). Advisory-locked (dup trigger no-ops).
+  Yahoo fails the run; baseline 2.62bps) → **paper engine** → **mirror
+  engine** (followers) (both `FEATURE_PAPER_EXECUTION=true`).
+  Advisory-locked (dup trigger no-ops).
 - **Weekly persona batch**, Fri 22:00 UTC: v2 two-pass — research call
   per shortlist ticker, then ONE construction call per persona →
   `normalize_book` (deterministic sum=1.0) → **risk gateway** →
@@ -108,11 +114,12 @@ Everything below is LIVE in prod unless marked otherwise:
   state "real fills since Jun 11, 2026"; the hypothetical flag stays in
   the data and `/api/performance` for any future use.**
 - **Frontend**: all real — reports/proposals/chat (since 06-05),
-  performance/portfolio (since 06-12, mock deleted). Remaining mocks:
-  dashboard "My portfolio" positions + Social tab (Phase-D demos,
-  labelled). Auth is now real-capable (Firebase scaffolding 06-16) but
-  falls back to the "jshin" pilot chip until `NEXT_PUBLIC_FIREBASE_*` is
-  configured.
+  performance/portfolio (since 06-12, mock deleted). Dashboard "My
+  portfolio" is now real (follows via `/api/me/portfolios`, 06-16).
+  Remaining mock: the Social tab only (Phase-D demo, labelled). Auth is
+  LIVE in prod (Firebase project `tessera-641a5`, Google SSO, 06-16);
+  the "jshin" pilot chip is the fallback only when `NEXT_PUBLIC_FIREBASE_*`
+  is unset (local/unconfigured).
 - **Observability**: Grafana Cloud dashboard over `llm_call_log`
   (`docs/grafana/llm-cost-dashboard.json`); cross-source disagreement
   audit panel over `cross_source_disagreements` (#125,
