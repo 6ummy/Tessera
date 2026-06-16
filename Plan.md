@@ -996,8 +996,17 @@ distilled rules:
   `012_users.sql` applied 2026-06-16 (additive ALTER — users predates it
   from 001; CS-16). `/api/auth/sync` is the writer (web→Neon direct via
   `@neondatabase/serverless` for the user layer).
-- [ ] **"Follow this persona" CTA** on persona detail sheet
-- [ ] **user_portfolios table**: (user_id, persona_id, started_at, starting_capital, current_positions)
+- [x] **"Follow this persona" CTA** on persona detail sheet. **Live
+  2026-06-16** — `FollowButton` (sign-in-aware) + `/api/follow` (Edge:
+  GET status / POST seed / DELETE unfollow). A follow seeds the user's
+  $100K paper portfolio; unfollow drops it. Verified-token-derived user
+  only.
+- [x] **user_portfolios table**: already exists from 001 §5. `/api/follow`
+  is its user-driven writer — POST inserts `(user_id, persona_id,
+  starting_capital=$100K, current_cash, total_value)` `ON CONFLICT DO
+  NOTHING`. (A separate `follows` table was unnecessary — the portfolio
+  row IS the follow.) Engine-side population (positions/cash) comes with
+  the mirror engine.
 - [ ] **Mirror engine**: when persona trades, mirror in every follower's account
 - [ ] **Dashboard reads real positions**: delete mock in `/dashboard`
 - [ ] **Personal P&L diverges** from persona P&L based on follow start + capital

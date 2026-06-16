@@ -69,8 +69,13 @@ Runs alongside Phase E (lawyer consult).
     direct for the USER layer; worker still owns the market-data plane).
     Client posts the token on sign-in + session restore. Needs
     `DATABASE_URL` set on Vercel.
-  - **NOT yet wired**: Follow CTA / `user_portfolios` writes / mirror
-    engine — build on the verified `users.id` that auth-sync persists.
+  - **Follow shipped** (2026-06-16): `FollowButton` (sign-in-aware) on the
+    persona detail sheet + `/api/follow` (Edge: GET status / POST / DELETE).
+    A follow seeds the user's $100K paper `user_portfolios` row (exists
+    from 001; the row IS the follow — no separate `follows` table);
+    unfollow drops it. User derived from the verified token only.
+  - **NOT yet wired**: mirror engine (populate follower positions/cash when
+    a persona rebalances) + dashboard real positions + FCM push.
 
 Prior state snapshot (pre-closure):
 
