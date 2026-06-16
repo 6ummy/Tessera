@@ -62,10 +62,15 @@ Runs alongside Phase E (lawyer consult).
     pilot chip when `NEXT_PUBLIC_FIREBASE_*` is unset (so prod is never
     broken pre-config). Migration `012_users.sql` created. Operator
     setup: `docs/runbooks/firebase-auth.md`.
-  - **NOT yet wired**: server-side ID-token verification (`firebase-admin`
-    + `/api/auth/sync`) that upserts the `users` row on login — so `users`
-    is empty until that PR. Follow CTA / `user_portfolios` / mirror engine
-    build on the verified `users.id` after it.
+  - **Auth-sync shipped** (2026-06-16): `/api/auth/sync` (Edge) verifies
+    the Firebase ID token with `jose` against Google's public JWKS (NO
+    firebase-admin / service-account secret — only the public project id)
+    and upserts the `users` row (`@neondatabase/serverless`, web→Neon
+    direct for the USER layer; worker still owns the market-data plane).
+    Client posts the token on sign-in + session restore. Needs
+    `DATABASE_URL` set on Vercel.
+  - **NOT yet wired**: Follow CTA / `user_portfolios` writes / mirror
+    engine — build on the verified `users.id` that auth-sync persists.
 
 Prior state snapshot (pre-closure):
 

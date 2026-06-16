@@ -985,16 +985,17 @@ distilled rules:
 **Goal**: 3 friends-and-family users sign up, each follows a persona on their own paper account.
 
 ### Tasks
-- [~] **Firebase Auth**: Google SSO. **Client scaffolding shipped
-  2026-06-16** — `firebase` SDK + `lib/firebase/client.ts` (lazy,
-  env-gated) + `auth-context.tsx` (`AuthProvider`/`useAuth`) in the root
-  layout; header does Sign-in / user / Sign-out with a pilot fallback
-  when unconfigured. Operator setup: `docs/runbooks/firebase-auth.md`.
-  **Remaining**: server-side ID-token verification (`firebase-admin` +
-  `/api/auth/sync`) so login upserts the user row.
-- [~] **Users table** in Neon: `firebase_uid` ↔ Tessera user, preferences.
-  **`012_users.sql` created 2026-06-16** (pending operator apply); writer
-  lands with the auth-sync route above.
+- [x] **Firebase Auth**: Google SSO. **Live 2026-06-16.** Client
+  scaffolding (`firebase` SDK + `lib/firebase/client.ts` + `auth-context`)
+  + server-side **auth-sync**: `/api/auth/sync` (Edge) verifies the ID
+  token with `jose` vs Google's public JWKS (no firebase-admin / SA
+  secret) and upserts the user. Header does Sign-in / user / Sign-out with
+  a pilot fallback when unconfigured. Operator setup + Firebase project
+  `tessera-641a5`: `docs/runbooks/firebase-auth.md`.
+- [x] **Users table** in Neon: `firebase_uid` ↔ Tessera user, preferences.
+  `012_users.sql` applied 2026-06-16 (additive ALTER — users predates it
+  from 001; CS-16). `/api/auth/sync` is the writer (web→Neon direct via
+  `@neondatabase/serverless` for the user layer).
 - [ ] **"Follow this persona" CTA** on persona detail sheet
 - [ ] **user_portfolios table**: (user_id, persona_id, started_at, starting_capital, current_positions)
 - [ ] **Mirror engine**: when persona trades, mirror in every follower's account

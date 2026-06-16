@@ -51,10 +51,22 @@ NEXT_PUBLIC_FIREBASE_PROJECT_ID=tessera
 NEXT_PUBLIC_FIREBASE_APP_ID=1:...:web:...
 ```
 
-These are PUBLIC values (they ship in the browser bundle by design —
-`NEXT_PUBLIC_` prefix). Firebase web security comes from the Auth
-provider config + authorized domains, NOT from hiding the key. Redeploy
-Vercel after setting them (env changes need a fresh build).
+The four above are PUBLIC values (they ship in the browser bundle by
+design — `NEXT_PUBLIC_` prefix). Firebase web security comes from the
+Auth provider config + authorized domains, NOT from hiding the key.
+
+**Also add `DATABASE_URL`** (server-only, NO `NEXT_PUBLIC_` prefix) — the
+same Neon connection string the worker uses. The `/api/auth/sync` route
+needs it to upsert the `users` row on login:
+
+```
+DATABASE_URL=postgresql://...neon.tech/neondb?sslmode=require
+```
+
+No firebase-admin / service-account secret is required: the route
+verifies ID tokens with `jose` against Google's public JWKS, using only
+the public project id. Redeploy Vercel after setting the vars (env
+changes need a fresh build).
 
 ## 4. Verify
 
@@ -62,16 +74,20 @@ Vercel after setting them (env changes need a fresh build).
 - Click it → Google popup → pick an account → the chip shows your name
   + photo, and the account menu gains **Sign out**.
 - Sign out returns to the Sign in button.
+- **Sign-in now upserts a `users` row** (via `/api/auth/sync`). Verify in
+  Neon: `SELECT firebase_uid, email, last_login_at FROM users;` — your
+  account should appear, `last_login_at` refreshed on each sign-in.
 
-If you still see the "jshin" pilot chip, the vars aren't taking — confirm
-all four are set in the right Vercel environment and the deploy is fresh.
+If you still see the "jshin" pilot chip, the four `NEXT_PUBLIC_FIREBASE_*`
+vars aren't taking — confirm they're set in the right Vercel environment
+and the deploy is fresh. If sign-in works but `users` stays empty, check
+`DATABASE_URL` is set on Vercel and look for `auth_sync.*` errors in the
+Vercel function logs.
 
 ---
 
-## Not yet wired (next PR — auth-sync + mirror engine)
+## Not yet wired (next — follow + mirror engine)
 
-- **Server-side token verification** (`firebase-admin` + a service-account
-  secret) and the `/api/auth/sync` route that upserts the `users` row on
-  login. Until then, sign-in is client-only and `users` stays empty.
-- **"Follow this persona"**, `user_portfolios`, and the mirror engine
-  (Plan §6) build on top of the verified `users.id`.
+- **"Follow this persona"**, `user_portfolios` writes, and the mirror
+  engine (Plan §6) build on top of the verified `users.id` that
+  `/api/auth/sync` now persists.
