@@ -11,7 +11,10 @@ from __future__ import annotations
 
 import pytest
 
-from tessera_worker.agents.persona_constraints import constraints_for
+from tessera_worker.agents.persona_constraints import (
+    constraints_for,
+    constraints_prompt_block,
+)
 from tessera_worker.agents.portfolio_construction import (
     normalize_book,
     position_count_violation,
@@ -156,6 +159,19 @@ def test_position_count_above_ceiling_flagged():
 def test_cathie_max_positions_capped_at_12():
     # The product decision (2026-06-15): focused book, not a 20-name spray.
     assert constraints_for("cathie").target_position_count_max == 12
+
+
+def test_cathie_has_no_sector_cap():
+    # max_sector 1.0 = no operational cap; concentration is her mandate.
+    assert constraints_for("cathie").max_sector >= 1.0
+    block = constraints_prompt_block("cathie")
+    assert "no cap" in block.lower()
+    assert "Sector cap:" not in block  # the capped-persona phrasing is gone
+
+
+def test_capped_persona_still_prints_sector_cap():
+    block = constraints_prompt_block("warren")
+    assert "Sector cap: 50% of NAV" in block
 
 
 # ── research_to_payload_dict ─────────────────────────────────────────────

@@ -145,10 +145,19 @@ Everything below is LIVE in prod unless marked otherwise:
   caps (3.5/8.5/4.5/2.5%), drawdown floor on the LIVE track
   (20/35/25/15%). Rejection reasons feed the construction retry.
   "VaR unmeasurable" (<60 aligned obs) is soft — never rejects.
+  Active position COUNT is also hard-gated in construction (each
+  persona's [min,max]; Cathie's max is 12 since 2026-06-15).
   **Why hard-gate even when the prompt already states the caps**:
   CS-11 documents Cathie repeatedly busting the sector cap after
   explicit error feedback — LLM role-immersion can outweigh stated
-  rules, so the system-level stop is non-negotiable.
+  rules, so the system-level stop is non-negotiable for the limits that
+  matter. **Cathie is the deliberate exception on SECTOR specifically:
+  her sector cap was removed (2026-06-15) — tech/S-curve concentration
+  is her mandate, not a risk to fence. `max_sector >= 1.0` means "no
+  cap" and the gateway skips the sector check for her; her risk stays
+  bounded by single-name 16% + VaR99 8.5% + the 35% drawdown floor.**
+  The CS-11 lesson holds: drop a cap because it's the wrong tool, never
+  because the LLM keeps busting it.
 - **Paper engine**: NAV conservation exact (no fees v1), execution
   idempotent via `report_id` on `persona_trades`, fills at next bar
   OPEN, MTM at CLOSE. Hypothetical rows are write-guarded

@@ -91,6 +91,21 @@ def test_gate_rejects_sector_cap():
     assert "sector 'Technology'" in result.reasons[0]
 
 
+def test_gate_no_sector_cap_for_cathie():
+    # Cathie has no operational sector cap (max_sector 1.0) — tech
+    # concentration is her mandate. A book that is 96% Technology must
+    # PASS her gate, even though the identical sector weight would bust
+    # any capped persona. Every name is inside her 0.16 single-name cap.
+    report = _report("cathie", [
+        _proposal("AAPL", 0.16), _proposal("MSFT", 0.16),
+        _proposal("NVDA", 0.16), _proposal("AVGO", 0.16),
+        _proposal("AMD", 0.16), _proposal("ASML", 0.16),
+    ], cash=0.04)
+    result = gate(report)
+    assert result.ok, result.reasons
+    assert result.reasons == []
+
+
 def test_gate_accumulates_all_reasons():
     """Retry feedback should fix the whole book in one pass — the gate
     must report every violation, not short-circuit on the first."""
