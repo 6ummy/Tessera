@@ -134,7 +134,10 @@ PERSONA_CONSTRAINTS: dict[PersonaId, PortfolioConstraints] = {
         min_active_conviction=0.50,
         min_strong_conviction=0.75,
         target_position_count_min=10,
-        target_position_count_max=20,
+        target_position_count_max=12,  # 20 → 12 (2026-06-15): keep the book
+        # readable — a focused 10–12 disruptive-growth basket, not a 20-name
+        # spray. Enforced as a HARD cap in construction (CS-11: Cathie busts
+        # soft caps), candidate shortlist stays 14 so she still gets choice.
         max_var99_1d=0.085,   # measured 5.1% (crypto sleeve) — high-risk mandate
         max_drawdown=0.35,
     ),

@@ -11,8 +11,10 @@ from __future__ import annotations
 
 import pytest
 
+from tessera_worker.agents.persona_constraints import constraints_for
 from tessera_worker.agents.portfolio_construction import (
     normalize_book,
+    position_count_violation,
     research_to_payload_dict,
 )
 
@@ -129,6 +131,31 @@ def test_dust_positions_dropped():
         max_single_name=0.25, cash_min=0.0, cash_max=1.0,
     )
     assert "A" not in weights
+
+
+# ── position_count_violation (hard count band, CS-11) ────────────────────
+
+def test_position_count_within_band_passes():
+    c = constraints_for("cathie")  # band is 10–12 since 2026-06-15
+    assert position_count_violation(10, c) is None
+    assert position_count_violation(12, c) is None
+
+
+def test_position_count_below_floor_flagged():
+    c = constraints_for("cathie")
+    msg = position_count_violation(9, c)
+    assert msg is not None and "≥10" in msg
+
+
+def test_position_count_above_ceiling_flagged():
+    c = constraints_for("cathie")
+    msg = position_count_violation(13, c)
+    assert msg is not None and "≤12" in msg
+
+
+def test_cathie_max_positions_capped_at_12():
+    # The product decision (2026-06-15): focused book, not a 20-name spray.
+    assert constraints_for("cathie").target_position_count_max == 12
 
 
 # ── research_to_payload_dict ─────────────────────────────────────────────

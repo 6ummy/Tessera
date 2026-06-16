@@ -35,6 +35,7 @@ from anthropic import Anthropic
 
 from tessera_worker.agents.models import AnalystReport, PersonaId
 from tessera_worker.agents.persona_constraints import (
+    PortfolioConstraints,
     constraints_for,
     constraints_prompt_block,
 )
@@ -42,6 +43,34 @@ from tessera_worker.agents.persona_loader import load_persona_specs
 from tessera_worker.config import get_settings
 
 log = structlog.get_logger(__name__)
+
+
+def position_count_violation(
+    n_active: int, constraints: PortfolioConstraints
+) -> str | None:
+    """Return retry-feedback text if the active book size is outside the
+    persona's [min, max] count band, else None.
+
+    Both bounds are HARD: prompt-only count guidance gets ignored under
+    role immersion (CS-11), so construction enforces them and feeds the
+    reason back to the next attempt. The floor stops a 1-name book from a
+    too-strict conviction read; the ceiling keeps a focused book (e.g.
+    Cathie ≤12) instead of a thin 20-name spray."""
+    if n_active < constraints.target_position_count_min:
+        return (
+            f"only {n_active} active positions, persona requires "
+            f"≥{constraints.target_position_count_min}. Either size more "
+            f"of the research candidates or revisit which ones cleared "
+            f"the conviction floor."
+        )
+    if n_active > constraints.target_position_count_max:
+        return (
+            f"{n_active} active positions, persona caps at "
+            f"≤{constraints.target_position_count_max}. Drop the "
+            f"lowest-conviction names to the watchlist (target_weight=0) "
+            f"and concentrate weight into the strongest theses."
+        )
+    return None
 
 
 def build_construction_prompt(
@@ -453,19 +482,13 @@ def construct_portfolio(
                         "risk gateway rejected the book: "
                         + "; ".join(gate_result.reasons)
                     )
-                # Position count floor — only check now that all sizing
-                # is done. If the LLM dropped to 1-2 positions it's
-                # almost always because it parsed "qualify for sizing"
-                # too strictly. Surface the conflict instead of
-                # persisting a 1-position book.
+                # Position count band — only check now that all sizing is
+                # done. Both bounds are hard and feed retry guidance back
+                # to the LLM (see position_count_violation / CS-11).
                 n_active = sum(1 for p in report.proposals if p.target_weight > 1e-4)
-                if n_active < constraints.target_position_count_min:
-                    raise ValueError(
-                        f"only {n_active} active positions, persona requires "
-                        f"≥{constraints.target_position_count_min}. Either size more "
-                        f"of the research candidates or revisit which ones cleared "
-                        f"the conviction floor."
-                    )
+                count_problem = position_count_violation(n_active, constraints)
+                if count_problem is not None:
+                    raise ValueError(count_problem)
                 log_llm_call(
                     session,
                     persona_id=persona,
