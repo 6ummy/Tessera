@@ -129,7 +129,35 @@ when the flag is off).
 
 ---
 
+## 6. Email notifications (parallel to FCM)
+
+Web push misses iOS (no PWA) and anyone who didn't enable it, so email is
+the reliable second channel. Sent from the worker via **Resend**. Ships
+dark: no key → worker logs "would email N" and sends nothing.
+
+1. **Resend account** → https://resend.com → create an API key.
+2. **Verify a sending domain** (Resend → Domains) and use a from-address
+   on it, e.g. `Tessera <notifications@yourdomain>`. (The default
+   `onboarding@resend.dev` only delivers to the Resend account owner —
+   fine for a first self-test, not for F&F.)
+3. Store the key + flip the flags on the worker (deploy scripts):
+   ```
+   FEATURE_EMAIL_NOTIFY=true
+   EMAIL_FROM=Tessera <notifications@yourdomain>
+   ```
+   `RESEND_API_KEY` as a Secret Manager secret (same pattern as
+   VOYAGE_API_KEY — create the secret, grant the worker SA accessor, add
+   it to the `--set-secrets` line, redeploy).
+
+### Verify
+On the next Friday batch (or a manual `persona-batch` run), followers
+with a `users.email` get a "X rebalanced" email; worker logs
+`email.notified` (or `email.would_email` when off). FCM + email fire
+independently — one failing never blocks the other or the batch.
+
+---
+
 ## Done (no longer pending)
 
-`/api/follow` + mirror engine + dashboard + account curve are all live;
-this runbook now also covers FCM. Remaining Phase D: onboard F&F users.
+`/api/follow` + mirror engine + dashboard + account curve + FCM + email
+are all wired. Remaining Phase D: onboard F&F users.

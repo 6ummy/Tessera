@@ -167,17 +167,24 @@ def run_one(
 
 
 def _notify_followers(persona: str) -> None:
-    """Best-effort FCM push to a persona's followers after it rebalances.
-    A notification failure must NEVER affect the batch — fully swallowed."""
+    """Best-effort follower notifications after a rebalance — FCM push AND
+    email, in parallel. A notification failure must NEVER affect the batch,
+    and one channel failing must not block the other; each is isolated."""
+    from tessera_worker.db import session_scope
+    title = f"{persona.title()} rebalanced"
+    body = f"{persona.title()} published a new book — your paper portfolio is updating."
     try:
-        from tessera_worker.db import session_scope
         from tessera_worker.notify.fcm import notify_persona_followers
-        title = f"{persona.title()} rebalanced"
-        body = f"{persona.title()} published a new book — your paper portfolio is updating."
         with session_scope() as session:
             notify_persona_followers(session, persona, title=title, body=body, link="/dashboard")
     except Exception as e:
-        log.warning("persona_batch_v2.notify_failed", persona=persona, error=str(e))
+        log.warning("persona_batch_v2.fcm_notify_failed", persona=persona, error=str(e))
+    try:
+        from tessera_worker.notify.email import email_persona_followers
+        with session_scope() as session:
+            email_persona_followers(session, persona)
+    except Exception as e:
+        log.warning("persona_batch_v2.email_notify_failed", persona=persona, error=str(e))
 
 
 def run_batch_v2(

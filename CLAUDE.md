@@ -102,6 +102,12 @@ Runs alongside Phase E (lawyer consult).
     `roles/firebasecloudmessaging.admin` on `tessera-641a5` + flags
     `FEATURE_FCM_PUSH=true` (worker) + `NEXT_PUBLIC_FIREBASE_VAPID_KEY` /
     `_MESSAGING_SENDER_ID` (Vercel). Ships dark until then. Runbook §5.
+  - **Email notify shipped** (2026-06-16): `notify/email.py` emails a
+    persona's followers (via `users.email`) on rebalance, in PARALLEL with
+    FCM — `persona_batch._notify_followers` fires both, each isolated.
+    Resend HTTP API; gated on `FEATURE_EMAIL_NOTIFY` + `RESEND_API_KEY`
+    (+ `EMAIL_FROM`). Ships dark. Runbook §6. (Email is the iOS / opt-out
+    fallback web push can't reach.)
   - **NOT yet wired**: onboard 3 F&F users (ops).
 
 Prior state snapshot (pre-closure):

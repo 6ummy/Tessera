@@ -85,6 +85,17 @@ class Settings(BaseSettings):
     fcm_project_id: str = Field(
         "tessera-641a5",
         description="Firebase project id that owns FCM (target of the v1 send).")
+    feature_email_notify: bool = Field(
+        False,
+        description="On → also email followers on rebalance (parallel to FCM). "
+                    "Needs resend_api_key.")
+    resend_api_key: str = Field(
+        "", description="Resend API key for transactional email. Blank → email off.")
+    email_from: str = Field(
+        "Tessera <onboarding@resend.dev>",
+        description="From header for notification email. Use a verified-domain "
+                    "address in prod (resend.dev sandbox only delivers to the "
+                    "Resend account owner).")
 
     # ── Observability ──
     sentry_dsn: str = Field(
