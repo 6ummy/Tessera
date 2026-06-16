@@ -14,7 +14,16 @@ import { Check, Plus } from "lucide-react";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { Button } from "./ui/button";
 
-export function FollowButton({ personaId, personaName }: { personaId: string; personaName: string }) {
+export function FollowButton({
+  personaId,
+  personaName,
+  onChange,
+}: {
+  personaId: string;
+  personaName: string;
+  /** Called after a successful follow/unfollow so parents can refetch. */
+  onChange?: (following: boolean) => void;
+}) {
   const { configured, user, signInWithGoogle } = useAuth();
   const [following, setFollowing] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
@@ -56,14 +65,16 @@ export function FollowButton({ personaId, personaName }: { personaId: string; pe
         headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
         body: JSON.stringify({ personaId }),
       });
-      if (res.ok) setFollowing(!following);
-      else console.error("follow.toggle_non_ok", res.status);
+      if (res.ok) {
+        setFollowing(!following);
+        onChange?.(!following);
+      } else console.error("follow.toggle_non_ok", res.status);
     } catch (err) {
       console.error("follow.toggle_failed", err);
     } finally {
       setBusy(false);
     }
-  }, [user, following, personaId, signInWithGoogle]);
+  }, [user, following, personaId, signInWithGoogle, onChange]);
 
   // No follow affordance until Firebase is wired (pilot mode).
   if (!configured) return null;

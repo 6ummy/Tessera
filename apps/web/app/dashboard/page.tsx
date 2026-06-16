@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { PersonaAvatar } from "@/components/persona-avatar";
+import { FollowButton } from "@/components/follow-button";
 import { cn, fmt, signClass } from "@/lib/utils";
 
 const ACCENT_HEX: Record<Persona["accent"], string> = {
@@ -36,8 +37,9 @@ const SOCIAL = [
   { user: "alex.r", persona: "peter",  fork: "Peter · Industrials focus", note: "Concentrated GARP in re-shoring beneficiaries.", likes: 211, replies: 24, ret: 0.22 },
 ];
 
-/** Fetch the signed-in user's real paper portfolios (their follows). */
-function useMyPortfolios() {
+/** Fetch the signed-in user's real paper portfolios (their follows).
+ *  `nonce` bumps force a refetch after a follow/unfollow. */
+function useMyPortfolios(nonce: number) {
   const { user } = useAuth();
   const [portfolios, setPortfolios] = useState<Portfolio[] | null>(null);
   useEffect(() => {
@@ -55,12 +57,12 @@ function useMyPortfolios() {
       }
     })();
     return () => { cancelled = true; };
-  }, [user]);
+  }, [user, nonce]);
   return portfolios;
 }
 
 /** Fetch the user's follow/unfollow history for the account curve. */
-function useMyTimeline() {
+function useMyTimeline(nonce: number) {
   const { user } = useAuth();
   const [events, setEvents] = useState<FollowEvent[]>([]);
   useEffect(() => {
@@ -76,7 +78,7 @@ function useMyTimeline() {
       } catch { /* leave empty — curve falls back to all-cash */ }
     })();
     return () => { cancelled = true; };
-  }, [user]);
+  }, [user, nonce]);
   return events;
 }
 
@@ -101,7 +103,10 @@ function DashboardInner() {
   };
 
   const { configured, user, signInWithGoogle } = useAuth();
-  const portfolios = useMyPortfolios();
+  // Bumped on any follow/unfollow to refetch portfolios + timeline.
+  const [reloadNonce, setReloadNonce] = useState(0);
+  const reload = () => setReloadNonce((n) => n + 1);
+  const portfolios = useMyPortfolios(reloadNonce);
   const hasFollows = !!portfolios && portfolios.length > 0;
 
   // Which followed persona is in focus (default: first follow).
@@ -127,7 +132,7 @@ function DashboardInner() {
   // before/after follows, tracking each persona while followed, recoloured at
   // every follow/unfollow. The S&P 500 reference is ALWAYS drawn over the
   // full window, even before your first follow.
-  const events = useMyTimeline();
+  const events = useMyTimeline(reloadNonce);
   const accountChart = useMemo(() => {
     if (!benchmark || benchmark.length < 2) return null;
     const axis = benchmark.map((p) => p.date);
@@ -229,14 +234,30 @@ function DashboardInner() {
                 />
               ) : portfolios === null ? (
                 <div className="h-[320px] w-full animate-pulse rounded-3xl bg-ink-900/[0.04]" />
-              ) : portfolios.length === 0 ? (
-                <EmptyState
-                  title="You're not following anyone yet"
-                  body="Open an analyst and hit Follow — Tessera seeds a $100K paper book that mirrors their moves."
-                  action={<Link href="/"><Button size="md">Meet the analysts</Button></Link>}
-                />
               ) : (
                 <>
+                  {/* Manage follows right here — follow/unfollow any analyst. */}
+                  <div className="mb-4 rounded-2xl border border-ink-900/[0.06] bg-cream-50 p-4">
+                    <div className="mb-3 text-[10px] uppercase tracking-[0.16em] text-ink-500">Your analysts</div>
+                    <div className="flex flex-wrap gap-2">
+                      {PERSONAS.map((p) => (
+                        <div key={p.id} className="inline-flex items-center gap-2 rounded-full border border-ink-900/[0.06] py-1 pl-2.5 pr-1">
+                          <span className={cn("h-1.5 w-1.5 rounded-full", ACCENT_CLASS[p.accent].dot)} />
+                          <span className="text-sm text-ink-800">{p.name}</span>
+                          <FollowButton personaId={p.id} personaName={p.name} onChange={reload} />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {portfolios.length === 0 ? (
+                    <EmptyState
+                      title="You're not following anyone yet"
+                      body="Hit Follow on an analyst above — Tessera seeds a $100K paper book that mirrors their moves."
+                      action={<Link href="/"><Button size="md">Meet the analysts</Button></Link>}
+                    />
+                  ) : (
+                  <>
                   {portfolios.length > 1 && (
                     <div className="mb-4 flex flex-wrap gap-2">
                       {portfolios.map((p) => {
@@ -268,7 +289,7 @@ function DashboardInner() {
                         </h2>
                       </div>
                       {accountChart ? (
-                        <CumulativeChart height={280} series={accountChart} />
+                        <CumulativeChart height={280} series={accountChart} zoomable />
                       ) : (
                         <div className="h-[280px] w-full animate-pulse rounded-2xl bg-ink-900/[0.04]" />
                       )}
@@ -310,6 +331,8 @@ function DashboardInner() {
                       ))
                     )}
                   </div>
+                </>
+                  )}
                 </>
               )}
             </TabsContent>
