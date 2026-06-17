@@ -1037,6 +1037,11 @@ distilled rules:
   on rebalance (best-effort). Keyless send (worker SA metadata token →
   FCM v1; `roles/firebasecloudmessaging.admin` on `tessera-641a5`).
   Gated on `FEATURE_FCM_PUSH` + VAPID env. Runbook §5.
+- [x] **Email notifications** (2026-06-16, parallel to FCM, dark until key):
+  `notify/email.py` emails followers (`users.email`) on rebalance via Resend;
+  `persona_batch` fires FCM + email independently (the iOS / opt-out fallback
+  web push can't reach). Gated on `FEATURE_EMAIL_NOTIFY` + `RESEND_API_KEY`.
+  Runbook §6.
 - [ ] **Onboard 3 F&F users**: self + 2 family/friends, each on a different persona
 
 **Compression note**: previously two weeks. The social feed feature is
