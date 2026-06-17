@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { PersonaAvatar } from "@/components/persona-avatar";
 import { FollowButton } from "@/components/follow-button";
+import { EmailNotifyToggle } from "@/components/email-notify-toggle";
 import { cn, fmt, signClass } from "@/lib/utils";
 
 const ACCENT_HEX: Record<Persona["accent"], string> = {
@@ -251,6 +252,10 @@ function DashboardInner() {
                         </div>
                       ))}
                     </div>
+                  </div>
+
+                  <div className="mb-4">
+                    <EmailNotifyToggle />
                   </div>
 
                   {portfolios.length === 0 ? (
