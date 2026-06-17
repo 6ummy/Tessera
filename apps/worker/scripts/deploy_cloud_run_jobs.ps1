@@ -42,8 +42,13 @@ $SA      = "tessera-worker@$PROJECT.iam.gserviceaccount.com"
 $REPO_ROOT = "C:\Users\jshin\Documents\Project\PennyMaker"
 
 # Jobs share the Service's env + secrets exactly (same code, same config).
-$ENV_VARS = "ENV=production,LOG_LEVEL=INFO,SENTRY_ENVIRONMENT=production,FEATURE_REAL_LLM=true,FEATURE_PAPER_EXECUTION=true,FEATURE_LIVE_TRADING=false,GCS_BUCKET_RAW=tessera-raw,LLM_MAX_DAILY_COST_USD=5.0,LLM_MAX_DAILY_COST_CHAT_USD=2.0,ALPACA_BASE_URL=https://paper-api.alpaca.markets"
-$SECRETS = "DATABASE_URL=DATABASE_URL:latest,ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest,ALPACA_API_KEY=ALPACA_API_KEY:latest,ALPACA_API_SECRET=ALPACA_API_SECRET:latest,FMP_API_KEY=FMP_API_KEY:latest,FRED_API_KEY=FRED_API_KEY:latest,NEWSAPI_API_KEY=NEWSAPI_API_KEY:latest,SENTRY_DSN=SENTRY_DSN:latest,SEC_USER_AGENT=SEC_USER_AGENT:latest,VOYAGE_API_KEY=VOYAGE_API_KEY:latest"
+# RESEND_API_KEY must exist in Secret Manager before deploying (runbook
+# firebase-auth.md §6) or this fails on the missing secret. FEATURE_FCM_PUSH
+# needs the worker SA granted firebasecloudmessaging on tessera-641a5.
+# EMAIL_FROM defaults to the resend.dev sandbox (owner-only); override via
+# --update-env-vars once a domain is verified.
+$ENV_VARS = "ENV=production,LOG_LEVEL=INFO,SENTRY_ENVIRONMENT=production,FEATURE_REAL_LLM=true,FEATURE_PAPER_EXECUTION=true,FEATURE_LIVE_TRADING=false,FEATURE_FCM_PUSH=true,FEATURE_EMAIL_NOTIFY=true,GCS_BUCKET_RAW=tessera-raw,LLM_MAX_DAILY_COST_USD=5.0,LLM_MAX_DAILY_COST_CHAT_USD=2.0,ALPACA_BASE_URL=https://paper-api.alpaca.markets"
+$SECRETS = "DATABASE_URL=DATABASE_URL:latest,ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest,ALPACA_API_KEY=ALPACA_API_KEY:latest,ALPACA_API_SECRET=ALPACA_API_SECRET:latest,FMP_API_KEY=FMP_API_KEY:latest,FRED_API_KEY=FRED_API_KEY:latest,NEWSAPI_API_KEY=NEWSAPI_API_KEY:latest,SENTRY_DSN=SENTRY_DSN:latest,SEC_USER_AGENT=SEC_USER_AGENT:latest,VOYAGE_API_KEY=VOYAGE_API_KEY:latest,RESEND_API_KEY=RESEND_API_KEY:latest"
 # Note: no WORKER_WEBHOOK_SECRET / RELY_ON_IAM — Jobs have no HTTP surface,
 # so the inter-service auth knobs are irrelevant here.
 
