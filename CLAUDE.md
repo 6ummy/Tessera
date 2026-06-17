@@ -107,7 +107,10 @@ Runs alongside Phase E (lawyer consult).
     FCM — `persona_batch._notify_followers` fires both, each isolated.
     Resend HTTP API; gated on `FEATURE_EMAIL_NOTIFY` + `RESEND_API_KEY`
     (+ `EMAIL_FROM`). Ships dark. Runbook §6. (Email is the iOS / opt-out
-    fallback web push can't reach.)
+    fallback web push can't reach.) **Per-user opt-out**: dashboard
+    "Email alerts" switch → `/api/me/preferences` writes
+    `users.preferences.email_notify`; the worker query skips users with
+    it set `false` (default ON).
   - **NOT yet wired**: onboard 3 F&F users (ops).
 
 Prior state snapshot (pre-closure):

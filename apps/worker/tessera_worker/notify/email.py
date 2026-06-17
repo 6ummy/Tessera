@@ -45,11 +45,14 @@ def build_email(persona: str, link_path: str = "/dashboard") -> tuple[str, str]:
 
 
 def _follower_emails(session: Session, persona: str) -> list[str]:
+    # Opt-out model: email unless the user set preferences.email_notify=false.
     rows = session.execute(text("""
         SELECT DISTINCT u.email
         FROM user_portfolios up
         JOIN users u ON u.id = up.user_id
-        WHERE up.persona_id = :p AND u.email IS NOT NULL AND u.email <> ''
+        WHERE up.persona_id = :p
+          AND u.email IS NOT NULL AND u.email <> ''
+          AND (u.preferences ->> 'email_notify') IS DISTINCT FROM 'false'
     """), {"p": persona}).all()
     return [r.email for r in rows]
 
