@@ -16,7 +16,7 @@ import { NotificationsToggle } from "./notifications-toggle";
 import { cn } from "@/lib/utils";
 
 const NAV_LINKS = [
-  { href: "/", label: "Analysts" },
+  { href: "/", label: "Desk" },
   { href: "/proposals", label: "Proposals" },
   { href: "/how-it-works", label: "How it works" },
 ] as const;
