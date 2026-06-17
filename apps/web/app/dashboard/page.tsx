@@ -339,18 +339,32 @@ function DashboardInner() {
 
             {/* ───── LEADERBOARD ───── */}
             <TabsContent value="leaderboard">
-              <div className="overflow-hidden rounded-3xl border border-ink-900/[0.06] bg-cream-50">
-                <div className="grid grid-cols-[40px_1.4fr_1fr_1fr_1fr_1fr_1fr] border-b border-ink-900/[0.06] bg-ink-900/[0.025] px-5 py-3 text-[10px] uppercase tracking-[0.14em] text-ink-500">
-                  <div>#</div><div>Analyst</div><div>1y</div><div>90d</div><div>Sharpe 30d</div><div>MDD 30d</div><div className="text-right">Value</div>
+              <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between">
+                <h2 className="display-serif text-2xl text-ink-900">Leaderboard</h2>
+                <div className="text-xs text-ink-500">
+                  Ranked by return <span className="font-medium text-ink-700">since inception</span> ·
+                  real fills from <span className="num text-ink-700">Jun 11, 2026</span>
                 </div>
-                {[...PERSONAS]
-                  .sort((a, b) =>
-                    (perf[b.id]?.metrics?.return1y ?? -Infinity) -
-                    (perf[a.id]?.metrics?.return1y ?? -Infinity))
-                  .map((p, i) => {
-                    const pm = perf[p.id]?.metrics ?? null;
-                    return (
-                      <div key={p.id} className="grid grid-cols-[40px_1.4fr_1fr_1fr_1fr_1fr_1fr] items-center border-b border-ink-900/[0.05] px-5 py-4 last:border-b-0 hover:bg-ink-900/[0.02]">
+              </div>
+              <div className="overflow-hidden rounded-3xl border border-ink-900/[0.06] bg-cream-50">
+                <div className="grid grid-cols-[40px_1.4fr_1.1fr_0.9fr_0.9fr_1fr_1fr_1fr] border-b border-ink-900/[0.06] bg-ink-900/[0.025] px-5 py-3 text-[10px] uppercase tracking-[0.14em] text-ink-500">
+                  <div>#</div><div>Analyst</div><div>Since inception</div><div>1y*</div><div>90d</div><div>Sharpe 30d</div><div>MDD 30d</div><div className="text-right">Value</div>
+                </div>
+                {(() => {
+                  // Rank by return SINCE INCEPTION (real paper track) =
+                  // total_value / $100K bootstrap − 1. 1y is hypothetical-
+                  // backfilled (look-ahead) so it's context, not the rank key.
+                  const inception = (id: string) => {
+                    const tv = perf[id]?.metrics?.totalValue;
+                    return tv != null ? tv / 100_000 - 1 : null;
+                  };
+                  return [...PERSONAS]
+                    .sort((a, b) => (inception(b.id) ?? -Infinity) - (inception(a.id) ?? -Infinity))
+                    .map((p, i) => {
+                      const pm = perf[p.id]?.metrics ?? null;
+                      const inc = inception(p.id);
+                      return (
+                      <div key={p.id} className="grid grid-cols-[40px_1.4fr_1.1fr_0.9fr_0.9fr_1fr_1fr_1fr] items-center border-b border-ink-900/[0.05] px-5 py-4 last:border-b-0 hover:bg-ink-900/[0.02]">
                         <div className="num text-xs text-ink-400">{(i + 1).toString().padStart(2, "0")}</div>
                         <div className="flex items-center gap-3">
                           <PersonaAvatar persona={p} size="xs" />
@@ -358,6 +372,9 @@ function DashboardInner() {
                             <div className="text-sm font-medium text-ink-900">{p.name}</div>
                             <div className="text-[11px] text-ink-500">{p.archetype}</div>
                           </div>
+                        </div>
+                        <div className={cn("num text-sm font-medium", inc != null ? signClass(inc) : "text-ink-400")}>
+                          {inc != null ? fmt.pct(inc) : "—"}
                         </div>
                         <div className={cn("num text-sm", pm?.return1y != null ? signClass(pm.return1y) : "text-ink-400")}>
                           {pm?.return1y != null ? fmt.pct(pm.return1y) : "—"}
@@ -377,13 +394,15 @@ function DashboardInner() {
                             : "—"}
                         </div>
                       </div>
-                    );
-                  })}
+                      );
+                    });
+                })()}
               </div>
               <p className="mt-3 text-[11px] text-ink-500">
-                Paper track — real fills since Jun 11, 2026. Sharpe/MDD are
-                30-day trailing on paper NAV. Hit rate lands once closed-lot
-                tracking ships.
+                Ranked by <span className="text-ink-700">return since inception</span> — each persona
+                started at $100K on Jun 11, 2026 (real fills). *1y is a hypothetical
+                frozen-book backfill (look-ahead bias), shown for context only.
+                Sharpe/MDD are 30-day trailing on paper NAV.
               </p>
             </TabsContent>
 
