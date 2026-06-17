@@ -70,10 +70,13 @@ Runs alongside Phase E (lawyer consult).
     Client posts the token on sign-in + session restore. Needs
     `DATABASE_URL` set on Vercel.
   - **Follow shipped** (2026-06-16): `FollowButton` (sign-in-aware) on the
-    persona detail sheet + `/api/follow` (Edge: GET status / POST / DELETE).
-    A follow seeds the user's $100K paper `user_portfolios` row (exists
-    from 001; the row IS the follow — no separate `follows` table);
-    unfollow drops it. User derived from the verified token only.
+    persona detail sheet + dashboard + `/api/follow` (Edge: GET status /
+    POST / DELETE). A follow seeds the user's $100K paper `user_portfolios`
+    row (exists from 001; the row IS the follow — no separate `follows`
+    table); unfollow drops it. **SINGLE-FOLLOW (product decision
+    2026-06-16): one analyst at a time — POST drops any other follow first
+    (logged as unfollow→follow in `follow_events`, so the account curve
+    shows the switch).** User derived from the verified token only.
   - **Mirror engine shipped** (2026-06-16): nightly `mirror` step
     (`risk/mirror.py`, after `paper`, same flag) projects each persona's
     paper book onto its followers' `user_portfolios` by WEIGHT —

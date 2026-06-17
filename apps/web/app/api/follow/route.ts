@@ -64,29 +64,43 @@ export async function POST(req: Request) {
 
   try {
     const sql = getSql();
-    // Authoritative step: ensure the user row exists AND seed the paper
-    // portfolio. ON CONFLICT makes a repeat follow a no-op; `inserted` is
-    // truthy only when a NEW portfolio row was created.
-    const rows = await sql`
-      WITH u AS (
-        INSERT INTO users (firebase_uid, email, display_name, photo_url, last_login_at)
-        VALUES (${user.uid}, ${user.email}, ${user.displayName}, ${user.photoUrl}, now())
-        ON CONFLICT (firebase_uid) DO UPDATE SET last_login_at = now()
-        RETURNING id
-      )
+    // Ensure the user row exists.
+    const urows = await sql`
+      INSERT INTO users (firebase_uid, email, display_name, photo_url, last_login_at)
+      VALUES (${user.uid}, ${user.email}, ${user.displayName}, ${user.photoUrl}, now())
+      ON CONFLICT (firebase_uid) DO UPDATE SET last_login_at = now()
+      RETURNING id
+    `;
+    const userId = urows[0].id as string;
+
+    // SINGLE-FOLLOW: following an analyst switches your paper book — drop any
+    // OTHER follow first (product decision 2026-06-16). The follow_events log
+    // keeps the history so the account curve shows the switch.
+    const removed = await sql`
+      DELETE FROM user_portfolios
+      WHERE user_id = ${userId} AND persona_id <> ${personaId}
+      RETURNING persona_id
+    `;
+    // Seed the new paper book (no-op if already following this one).
+    const added = await sql`
       INSERT INTO user_portfolios
         (user_id, persona_id, starting_capital, current_cash, total_value, current_positions)
-      SELECT u.id, ${personaId}, ${STARTING_CAPITAL}, ${STARTING_CAPITAL}, ${STARTING_CAPITAL}, '{}'::jsonb
-      FROM u
+      VALUES (${userId}, ${personaId}, ${STARTING_CAPITAL}, ${STARTING_CAPITAL}, ${STARTING_CAPITAL}, '{}'::jsonb)
       ON CONFLICT (user_id, persona_id) DO NOTHING
-      RETURNING user_id
+      RETURNING persona_id
     `;
-    // Best-effort audit event — never fail a follow if follow_events is
-    // missing (e.g. migration 013 not yet applied) or errors.
-    if (rows.length > 0) {
-      await logEvent(sql, rows[0].user_id as string, personaId, "follow");
+    // Best-effort audit events (never fail the follow over logging).
+    for (const r of removed) {
+      await logEvent(sql, userId, r.persona_id as string, "unfollow");
     }
-    return NextResponse.json({ following: true, personaId });
+    if (added.length > 0) {
+      await logEvent(sql, userId, personaId, "follow");
+    }
+    return NextResponse.json({
+      following: true,
+      personaId,
+      switchedFrom: removed.map((r) => r.persona_id as string),
+    });
   } catch (err) {
     console.error("follow.create_failed", err);
     return NextResponse.json({ error: "follow failed" }, { status: 500 });

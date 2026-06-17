@@ -18,11 +18,16 @@ export function FollowButton({
   personaId,
   personaName,
   onChange,
+  refreshKey,
 }: {
   personaId: string;
   personaName: string;
   /** Called after a successful follow/unfollow so parents can refetch. */
   onChange?: (following: boolean) => void;
+  /** Bump to force a status re-fetch — used by the dashboard strip so that
+   *  switching follows (single-follow) flips every button, not just the one
+   *  clicked. */
+  refreshKey?: number;
 }) {
   const { configured, user, signInWithGoogle } = useAuth();
   const [following, setFollowing] = useState<boolean | null>(null);
@@ -49,7 +54,7 @@ export function FollowButton({
     return () => {
       cancelled = true;
     };
-  }, [user, personaId]);
+  }, [user, personaId, refreshKey]);
 
   const toggle = useCallback(async () => {
     if (!user) {

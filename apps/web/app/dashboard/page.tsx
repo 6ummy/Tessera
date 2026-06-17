@@ -236,15 +236,18 @@ function DashboardInner() {
                 <div className="h-[320px] w-full animate-pulse rounded-3xl bg-ink-900/[0.04]" />
               ) : (
                 <>
-                  {/* Manage follows right here — follow/unfollow any analyst. */}
+                  {/* Manage follows right here — one analyst at a time. */}
                   <div className="mb-4 rounded-2xl border border-ink-900/[0.06] bg-cream-50 p-4">
-                    <div className="mb-3 text-[10px] uppercase tracking-[0.16em] text-ink-500">Your analysts</div>
+                    <div className="mb-1 text-[10px] uppercase tracking-[0.16em] text-ink-500">Your analyst</div>
+                    <div className="mb-3 text-xs text-ink-500">
+                      You follow one analyst at a time — following another switches your $100K paper book.
+                    </div>
                     <div className="flex flex-wrap gap-2">
                       {PERSONAS.map((p) => (
                         <div key={p.id} className="inline-flex items-center gap-2 rounded-full border border-ink-900/[0.06] py-1 pl-2.5 pr-1">
                           <span className={cn("h-1.5 w-1.5 rounded-full", ACCENT_CLASS[p.accent].dot)} />
                           <span className="text-sm text-ink-800">{p.name}</span>
-                          <FollowButton personaId={p.id} personaName={p.name} onChange={reload} />
+                          <FollowButton personaId={p.id} personaName={p.name} onChange={reload} refreshKey={reloadNonce} />
                         </div>
                       ))}
                     </div>
