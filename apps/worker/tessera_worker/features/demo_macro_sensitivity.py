@@ -36,6 +36,7 @@ from __future__ import annotations
 import contextlib
 import sys
 import warnings
+from typing import Any, cast
 
 import pandas as pd
 from sqlalchemy import text
@@ -71,7 +72,7 @@ def load_data() -> tuple[pd.DataFrame, pd.DataFrame]:
             ORDER BY ticker, ts::date,
                      CASE source WHEN 'yahoo' THEN 1 WHEN 'alpaca' THEN 2 ELSE 9 END
         """.replace("%d", str(int(WINDOW_DAYS * 1.5)))),
-            s.connection(), params={"t": tickers})  # type: ignore[arg-type]
+            s.connection(), params=cast("Any", {"t": tickers}))
         macros = pd.read_sql(text("""
             SELECT series_id, ts AS d, value
             FROM macro_series
