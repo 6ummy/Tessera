@@ -19,11 +19,11 @@ Monorepo: `apps/web` (Next.js 14 App Router, Vercel) · `apps/worker`
 (Python 3.11 FastAPI on Cloud Run `tessera-worker`, us-east1, project
 `tessera-498200`) · `packages/shared` (Pydantic schemas) ·
 `migrations/` (plain SQL → Neon Postgres + Timescale + pgvector,
-**001–013 applied to prod (012 = additive `users` ALTER; 013 =
-`follow_events`); 014 (`fcm_tokens`) pending operator apply. users/
-user_portfolios already exist from 001 §5**).
+**001–014 applied to prod (012 = additive `users` ALTER; 013 =
+`follow_events`; 014 = `fcm_tokens`). users/user_portfolios already
+exist from 001 §5**).
 
-## 2. State as of 2026-06-15 — 🏁 **Phase C CLOSED, Phase D ready to start**
+## 2. State as of 2026-06-16 — 🏁 **Phase C CLOSED · Phase D feature-complete (F&F onboarding left)**
 
 Phase C acceptance 4/4 green (see Plan.md §5). 90-day baseline ran
 2026-06-14: Warren Sharpe 1.28 (matches expected ~1.3), Cathie 3.21,
@@ -50,10 +50,12 @@ all closed before Phase D opens:
     2026-06-14 baseline's 6-of-9-cells Tech-cap failures were the
     proximate trigger.
 
-**Phase D (§6) IN PROGRESS**: Firebase Auth + Google SSO; `users`
-table; "Follow this persona" CTA; `user_portfolios` + mirror engine;
-real dashboard positions; FCM push on rebalance; onboard 3 F&F users.
-Runs alongside Phase E (lawyer consult).
+**Phase D (§6) FEATURE-COMPLETE**: Firebase Auth + Google SSO, `users`
+table, single-follow CTA, `user_portfolios` + mirror engine, real
+dashboard + account curve, FCM + email rebalance notify, chat memory
+recall — all shipped (bullets below). **Only F&F onboarding (ops) and
+turning the notification channels on (operator: VAPID/IAM/RESEND, runbook
+§5/§6) remain.** Runs alongside Phase E (lawyer consult).
 
   - **Auth scaffolding shipped** (2026-06-16): `firebase` client SDK +
     `lib/firebase/client.ts` (lazy, env-gated) + `auth-context.tsx`
@@ -114,7 +116,14 @@ Runs alongside Phase E (lawyer consult).
     "Email alerts" switch → `/api/me/preferences` writes
     `users.preferences.email_notify`; the worker query skips users with
     it set `false` (default ON).
-  - **NOT yet wired**: onboard 3 F&F users (ops).
+  - **Chat memory recall shipped** (2026-06-16, #168): `agents/chat.py`
+    `_build_memory_block` recalls the persona's OWN past theses from
+    `persona_memory` (pgvector cosine to the user message, cross-ticker;
+    recency fallback), injected as a "things you've written before —
+    reference, don't fabricate" block. Logs `chat.memory_recall
+    strategy=similarity|recency`. (Was the last deferred Phase-D item.)
+  - **NOT yet wired**: onboard 3 F&F users (ops); FCM/email channels need
+    the operator to set VAPID/IAM/RESEND + redeploy (runbook §5/§6).
 
 Prior state snapshot (pre-closure):
 
@@ -281,6 +290,14 @@ Everything below is LIVE in prod unless marked otherwise:
   batch (CS-12, hidden for 9 days because the Service ignored exit
   codes). When you fix a nontrivial bug, ADD A CS ENTRY to
   case-studies.md (presentation material) in the same PR.
+- **Tailwind only emits classes whose literal string it SCANS** (CS-17).
+  `apps/web/tailwind.config.ts` `content` must include EVERY dir holding
+  class-name literals — `lib/` included (it has `ACCENT_CLASS` with the
+  persona accent classes like `bg-plum-500`). A dynamic class registry in
+  an unscanned dir only "works" by accidental duplication elsewhere; a
+  refactor that removes the duplicate silently drops the class for the
+  rarest value (Ray/plum). Prefer inline `style={{background: hex}}` for
+  per-value colors.
 
 ## 4. Commands (Windows / PowerShell)
 
@@ -412,17 +429,18 @@ for baseline isolation), `persona_memory` (pgvector),
 
 1. **90-day point-in-time backtest baseline** — credibility anchor;
    harness exists (`jobs/backtest_harness.py`), ~$10–20 LLM. Plan §5 Week 5.
-2. **mypy ledger burn-down** — 9 modules left. Burned: `features/compute.py`
+2. **mypy ledger burn-down** — 5 modules left. Burned: `features/compute.py`
    + `agents/anthropic_runner.py` + `agents/prompt_assembler.py`
    (2026-06-14); `agents.portfolio_construction` + `agents.ticker_resolver`
-   + `agents.chat` (2026-06-16, 29 errs — Anthropic block-union `.text` via
-   getattr, `session: Any`, `list[MessageParam]` cast). Remaining: 4 demo
-   modules, the ingestors.* glob, and the 4 jobs (hallucination_canary,
+   + `agents.chat` (2026-06-16, #148); the 4 demo modules (2026-06-16, #169
+   — stdout.reconfigure stub gap, read_sql params cast, PERSONA: PersonaId).
+   Remaining: the ingestors.* glob + the 4 jobs (hallucination_canary,
    persona_batch, backtest_harness, backfill_history).
 3. **hit_rate** (needs closed-lot tracking) · quarterly margin series
    ingest (low) · §10 weight-authority decision once a few weeks of
-   `canary.weight_telemetry` accumulate · Phase D (auth, follow, chat
-   memory) per Plan §6.
+   `canary.weight_telemetry` accumulate. Phase D feature-complete (auth /
+   follow / mirror / dashboard / notify / chat memory all shipped) —
+   remaining is F&F onboarding + the operator notification enable.
 
 Done 2026-06-12/13: Gateway VaR/DD/Ray + attribution endpoint + weight
 telemetry (#105–#108); **Cloud Run Jobs migration** (#116,
