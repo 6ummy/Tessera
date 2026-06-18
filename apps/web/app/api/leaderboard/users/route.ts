@@ -25,7 +25,7 @@ export async function GET() {
     const sql = getSql();
 
     // Public users + their handles.
-    const users = await sql`SELECT id, nickname FROM users WHERE is_public = true`;
+    const users = await sql`SELECT id::text, nickname FROM users WHERE is_public = true`;
     if (users.length === 0) return noStore({ investors: [] });
     const nickById = new Map(
       users.map((u) => [u.id as string, ((u.nickname as string | null) ?? "").trim()]),
@@ -33,7 +33,7 @@ export async function GET() {
 
     // Their full follow/unfollow history (account-curve source of truth).
     const evRows = await sql`
-      SELECT fe.user_id, fe.persona_id, fe.action, fe.ts
+      SELECT fe.user_id::text, fe.persona_id, fe.action, fe.ts::text AS ts
       FROM follow_events fe
       JOIN users u ON u.id = fe.user_id
       WHERE u.is_public = true
@@ -55,7 +55,8 @@ export async function GET() {
     // Persona daily NAV series (one row per persona-day, real snapshot
     // preferred over the hypothetical backfill on overlapping days).
     const perfRows = await sql`
-      SELECT DISTINCT ON (persona_id, ts::date) persona_id, ts::date AS d, total_value
+      SELECT DISTINCT ON (persona_id, ts::date)
+             persona_id, (ts::date)::text AS d, total_value
       FROM persona_portfolios
       ORDER BY persona_id, ts::date, hypothetical ASC
     `;
