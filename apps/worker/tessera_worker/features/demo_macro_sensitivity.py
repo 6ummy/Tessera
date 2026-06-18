@@ -36,6 +36,7 @@ from __future__ import annotations
 import contextlib
 import sys
 import warnings
+from typing import Any, cast
 
 import pandas as pd
 from sqlalchemy import text
@@ -49,7 +50,7 @@ from tessera_worker.universe import by_asset_class
 warnings.filterwarnings("ignore", category=RuntimeWarning, module="numpy")
 
 with contextlib.suppress(AttributeError):
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
 
 # ── Config ───────────────────────────────────────────────────────────
 WINDOW_DAYS = 252  # 1 year of trading days
@@ -71,7 +72,7 @@ def load_data() -> tuple[pd.DataFrame, pd.DataFrame]:
             ORDER BY ticker, ts::date,
                      CASE source WHEN 'yahoo' THEN 1 WHEN 'alpaca' THEN 2 ELSE 9 END
         """.replace("%d", str(int(WINDOW_DAYS * 1.5)))),
-            s.connection(), params={"t": tickers})
+            s.connection(), params=cast("Any", {"t": tickers}))
         macros = pd.read_sql(text("""
             SELECT series_id, ts AS d, value
             FROM macro_series

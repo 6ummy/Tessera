@@ -122,13 +122,13 @@ ignore_missing_imports = true
 #     (2026-06-16 — 29 errors: getattr() past the Anthropic content-block
 #     union for `.text`, `session: Any` params, a list[MessageParam] cast,
 #     and a getattr() form of sys.stdout.reconfigure).
-# 9 modules remain.
+#   - the 4 demo modules (features.demo_*, agents.demo_warren_aapl)
+#     (2026-06-16 — 9 errors: targeted `# type: ignore[union-attr]` on the
+#     stdout.reconfigure stdlib-stub gap, a read_sql params arg-type ignore,
+#     PERSONA annotated PersonaId).
+# 5 modules remain (ingestors.* glob + the 4 jobs).
 [[tool.mypy.overrides]]
 module = [
-    "tessera_worker.features.demo_data_explorer",
-    "tessera_worker.features.demo_fcf_yield",
-    "tessera_worker.features.demo_macro_sensitivity",
-    "tessera_worker.agents.demo_warren_aapl",
     "tessera_worker.ingestors.*",
     "tessera_worker.jobs.hallucination_canary",
     "tessera_worker.jobs.persona_batch",

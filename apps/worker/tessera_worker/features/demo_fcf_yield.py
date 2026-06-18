@@ -42,7 +42,7 @@ from tessera_worker.universe import by_asset_class
 
 # Force UTF-8 stdout so non-ASCII chars don't crash on Windows cp1252.
 with contextlib.suppress(AttributeError):
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
 
 
 # ─────────────────────────────────────────────────────────────────────────
