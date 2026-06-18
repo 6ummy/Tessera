@@ -165,25 +165,37 @@ function DashboardInner() {
   const { perf, benchmark } = usePerformance(personaIds);
   const events = useMyTimeline(reloadNonce);
 
+  // Persona NAV series + the date axis the account is walked over. The axis is
+  // the UNION of the S&P window and the persona snapshot dates — so the curve
+  // and the compounded value extend through the latest persona data even when
+  // the S&P feed lags a day. (Otherwise a follow/switch made "today" wouldn't
+  // appear until SPY catches up: the axis would end before the switch date and
+  // the chart would still show the previous analyst.)
+  const seriesAndAxis = useMemo(() => {
+    if (!benchmark || benchmark.length < 2) return null;
+    const seriesByPersona: Record<string, ReturnType<typeof toPoints>> = {};
+    for (const p of PERSONAS) {
+      const pf = perf[p.id];
+      if (pf) seriesByPersona[p.id] = toPoints(pf);
+    }
+    const axisSet = new Set(benchmark.map((p) => p.date));
+    for (const pts of Object.values(seriesByPersona)) for (const pt of pts) axisSet.add(pt.date);
+    return { seriesByPersona, axis: [...axisSet].sort() };
+  }, [benchmark, perf]);
+
   // The account is ONE $100K paper book over time. Its value/return are the
   // COMPOUNDED result across every follow + analyst switch — reconstructed
   // from follow_events (same engine as the chart + investor leaderboard), NOT
   // the current user_portfolios row, which reseeds to $100K on each switch and
   // would drop the prior analyst's P&L (showing the new analyst at ~0%).
   const account = useMemo(() => {
-    if (!benchmark || benchmark.length < 2) return null;
-    const axis = benchmark.map((p) => p.date);
-    const seriesByPersona: Record<string, ReturnType<typeof toPoints>> = {};
-    for (const p of PERSONAS) {
-      const pf = perf[p.id];
-      if (pf) seriesByPersona[p.id] = toPoints(pf);
-    }
-    const nodes = buildAccountIndex(events, seriesByPersona, axis);
+    if (!seriesAndAxis) return null;
+    const nodes = buildAccountIndex(events, seriesAndAxis.seriesByPersona, seriesAndAxis.axis);
     if (nodes.length === 0) return null;
     const idx = nodes[nodes.length - 1].value;
     const started = [...events].filter((e) => e.action === "follow").map((e) => e.ts).sort()[0] ?? null;
     return { value: 100_000 * idx, ret: idx - 1, started };
-  }, [benchmark, perf, events]);
+  }, [seriesAndAxis, events]);
 
   // Headline value/return: the compounded account when reconstructable, else
   // the row sum (loading / no perf yet).
@@ -201,18 +213,12 @@ function DashboardInner() {
   // every follow/unfollow. The S&P 500 reference is ALWAYS drawn over the
   // full window, even before your first follow.
   const accountChart = useMemo(() => {
-    if (!benchmark || benchmark.length < 2) return null;
-    const axis = benchmark.map((p) => p.date);
-    const seriesByPersona: Record<string, ReturnType<typeof toPoints>> = {};
-    for (const p of PERSONAS) {
-      const pf = perf[p.id];
-      if (pf) seriesByPersona[p.id] = toPoints(pf);
-    }
+    if (!seriesAndAxis || !benchmark) return null;
     const colorFor = (key: string) =>
       key === ACCOUNT_CASH_KEY ? "#C9C5BC"
       : key === ACCOUNT_MIXED_KEY ? "#1F1E1B"
       : ACCENT_HEX[PERSONA_BY_ID[key].accent];
-    const segments = buildAccountSegments(events, seriesByPersona, axis, colorFor);
+    const segments = buildAccountSegments(events, seriesAndAxis.seriesByPersona, seriesAndAxis.axis, colorFor);
     const label = (key: string) =>
       key === ACCOUNT_CASH_KEY ? "Cash"
       : key === ACCOUNT_MIXED_KEY ? "You · mixed"
@@ -224,7 +230,7 @@ function DashboardInner() {
       ...youSeries,
       { id: "sp500", name: "S&P 500", color: "#A8A39A", data: rebase(benchmark), dashed: true },
     ];
-  }, [benchmark, perf, events]);
+  }, [seriesAndAxis, benchmark, events]);
 
   const selectedPositions = useMemo(() => {
     if (!selected) return [];
