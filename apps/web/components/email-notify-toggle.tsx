@@ -47,19 +47,15 @@ export function EmailNotifyToggle() {
   };
 
   return (
-    <div className="flex items-center justify-between rounded-2xl border border-ink-900/[0.06] bg-cream-50 px-4 py-3">
-      <div className="flex items-center gap-2.5">
-        <Mail className="h-4 w-4 text-ink-500" />
-        <div>
-          <div className="text-sm font-medium text-ink-900">Email alerts</div>
-          <div className="text-xs text-ink-500">Email me when my analyst rebalances</div>
-        </div>
-      </div>
+    <div className="inline-flex items-center gap-2">
+      <Mail className="h-4 w-4 text-ink-500" />
+      <span className="text-sm text-ink-700">Email alerts</span>
       <button
         type="button"
         role="switch"
         aria-checked={on}
         aria-label="Toggle email alerts"
+        title="Email me when my analyst rebalances"
         disabled={busy}
         onClick={toggle}
         className={cn(
@@ -69,8 +65,8 @@ export function EmailNotifyToggle() {
       >
         <span
           className={cn(
-            "absolute top-0.5 h-5 w-5 rounded-full bg-cream-50 shadow transition-transform",
-            on ? "translate-x-[22px]" : "translate-x-0.5",
+            "absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-cream-50 shadow transition-transform",
+            on ? "translate-x-5" : "translate-x-0",
           )}
         />
       </button>

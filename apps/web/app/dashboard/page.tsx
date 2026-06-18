@@ -2,7 +2,7 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, Heart, LogIn, MessageCircle, Repeat2, TrendingUp } from "lucide-react";
+import { ArrowLeft, Check, Heart, LogIn, MessageCircle, Repeat2, TrendingUp } from "lucide-react";
 import { ACCENT_CLASS, PERSONAS, PERSONA_BY_ID, type Persona } from "@/lib/mock/personas";
 import { rebase, usePerformance, toPoints } from "@/lib/performance-data";
 import { buildAccountSegments, type FollowEvent, ACCOUNT_CASH_KEY, ACCOUNT_MIXED_KEY } from "@/lib/account-curve";
@@ -13,7 +13,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { PersonaAvatar } from "@/components/persona-avatar";
-import { FollowButton } from "@/components/follow-button";
 import { EmailNotifyToggle } from "@/components/email-notify-toggle";
 import { cn, fmt, signClass } from "@/lib/utils";
 
@@ -109,6 +108,29 @@ function DashboardInner() {
   const reload = () => setReloadNonce((n) => n + 1);
   const portfolios = useMyPortfolios(reloadNonce);
   const hasFollows = !!portfolios && portfolios.length > 0;
+
+  // Single-follow: at most one analyst. Clicking a name follows/switches;
+  // clicking the followed one unfollows (back to cash).
+  const followedId = portfolios?.[0]?.personaId ?? null;
+  const [busyFollowId, setBusyFollowId] = useState<string | null>(null);
+  const switchFollow = async (id: string) => {
+    if (!user) { void signInWithGoogle(); return; }
+    setBusyFollowId(id);
+    try {
+      const token = await user.getIdToken();
+      const method = followedId === id ? "DELETE" : "POST";
+      await fetch("/api/follow", {
+        method,
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+        body: JSON.stringify({ personaId: id }),
+      });
+      reload();
+    } catch (err) {
+      console.error("dashboard.follow_toggle_failed", err);
+    } finally {
+      setBusyFollowId(null);
+    }
+  };
 
   // Which followed persona is in focus (default: first follow).
   const [focusId, setFocusId] = useState<string | null>(null);
@@ -237,24 +259,39 @@ function DashboardInner() {
                 <div className="h-[320px] w-full animate-pulse rounded-3xl bg-ink-900/[0.04]" />
               ) : (
                 <>
-                  {/* Manage follows right here — one analyst at a time. */}
-                  <div className="mb-4 rounded-2xl border border-ink-900/[0.06] bg-cream-50 p-4">
-                    <div className="mb-1 text-[10px] uppercase tracking-[0.16em] text-ink-500">Your analyst</div>
-                    <div className="mb-3 text-xs text-ink-500">
-                      You follow one analyst at a time — following another switches your $100K paper book.
+                  {/* Compact: pick one analyst (click to follow / switch;
+                      click the followed one to unfollow) + email alerts inline. */}
+                  <div className="mb-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-2xl border border-ink-900/[0.06] bg-cream-50 px-4 py-2.5">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="mr-1 text-[10px] uppercase tracking-[0.16em] text-ink-500">Analyst</span>
+                      {PERSONAS.map((p) => {
+                        const followed = followedId === p.id;
+                        return (
+                          <button
+                            key={p.id}
+                            type="button"
+                            onClick={() => switchFollow(p.id)}
+                            disabled={busyFollowId === p.id}
+                            aria-pressed={followed}
+                            title={followed ? `Unfollow ${p.name}` : `Follow ${p.name}`}
+                            className={cn(
+                              "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm transition-colors ring-focus disabled:opacity-50",
+                              followed
+                                ? "border-sage-500/40 bg-sage-500/10 text-ink-900"
+                                : "border-ink-900/[0.06] text-ink-700 hover:bg-ink-900/[0.04]",
+                            )}
+                          >
+                            <span className={cn("h-1.5 w-1.5 rounded-full", ACCENT_CLASS[p.accent].dot)} />
+                            {p.name}
+                            {followed && (
+                              <span className="inline-flex items-center gap-0.5 text-xs font-medium text-sage-600">
+                                <Check className="h-3 w-3" /> Following
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
                     </div>
-                    <div className="flex flex-wrap gap-2">
-                      {PERSONAS.map((p) => (
-                        <div key={p.id} className="inline-flex items-center gap-2 rounded-full border border-ink-900/[0.06] py-1 pl-2.5 pr-1">
-                          <span className={cn("h-1.5 w-1.5 rounded-full", ACCENT_CLASS[p.accent].dot)} />
-                          <span className="text-sm text-ink-800">{p.name}</span>
-                          <FollowButton personaId={p.id} personaName={p.name} onChange={reload} refreshKey={reloadNonce} />
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="mb-4">
                     <EmailNotifyToggle />
                   </div>
 
