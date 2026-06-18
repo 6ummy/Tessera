@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, Check, Heart, LogIn, MessageCircle, Repeat2, TrendingUp } from "lucide-react";
 import { ACCENT_CLASS, PERSONAS, PERSONA_BY_ID, type Persona } from "@/lib/mock/personas";
 import { rebase, usePerformance, toPoints } from "@/lib/performance-data";
-import { buildAccountSegments, type FollowEvent, ACCOUNT_CASH_KEY, ACCOUNT_MIXED_KEY } from "@/lib/account-curve";
+import { buildAccountSegments, buildAccountIndex, type FollowEvent, ACCOUNT_CASH_KEY, ACCOUNT_MIXED_KEY } from "@/lib/account-curve";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { Header } from "@/components/header";
 import { CumulativeChart } from "@/components/cumulative-chart";
@@ -50,7 +50,7 @@ function useMyPortfolios(nonce: number) {
     (async () => {
       try {
         const token = await user.getIdToken();
-        const res = await fetch("/api/me/portfolios", { headers: { authorization: `Bearer ${token}` } });
+        const res = await fetch("/api/me/portfolios", { headers: { authorization: `Bearer ${token}` }, cache: "no-store" });
         if (!res.ok || cancelled) return;
         const { portfolios } = (await res.json()) as { portfolios: Portfolio[] };
         if (!cancelled) setPortfolios(portfolios);
@@ -73,7 +73,7 @@ function useMyTimeline(nonce: number) {
     (async () => {
       try {
         const token = await user.getIdToken();
-        const res = await fetch("/api/me/timeline", { headers: { authorization: `Bearer ${token}` } });
+        const res = await fetch("/api/me/timeline", { headers: { authorization: `Bearer ${token}` }, cache: "no-store" });
         if (!res.ok || cancelled) return;
         const { events } = (await res.json()) as { events: FollowEvent[] };
         if (!cancelled) setEvents(events);
@@ -121,7 +121,7 @@ function DashboardInner() {
     (async () => {
       try {
         const token = await user.getIdToken();
-        const res = await fetch("/api/me/profile", { headers: { authorization: `Bearer ${token}` } });
+        const res = await fetch("/api/me/profile", { headers: { authorization: `Bearer ${token}` }, cache: "no-store" });
         if (!res.ok || cancelled) return;
         const d = (await res.json()) as { nickname: string | null };
         if (!cancelled) setMyNickname(d.nickname ?? null);
@@ -163,11 +163,35 @@ function DashboardInner() {
   // Real paper-track data: persona curves + leaderboard metrics.
   const personaIds = PERSONAS.map((p) => p.id);
   const { perf, benchmark } = usePerformance(personaIds);
+  const events = useMyTimeline(reloadNonce);
 
-  // Aggregate header figures across every follow.
-  const totalValue = portfolios?.reduce((s, p) => s + p.totalValue, 0) ?? 0;
-  const totalStarting = portfolios?.reduce((s, p) => s + p.startingCapital, 0) ?? 0;
-  const aggReturn = totalStarting > 0 ? totalValue / totalStarting - 1 : 0;
+  // The account is ONE $100K paper book over time. Its value/return are the
+  // COMPOUNDED result across every follow + analyst switch — reconstructed
+  // from follow_events (same engine as the chart + investor leaderboard), NOT
+  // the current user_portfolios row, which reseeds to $100K on each switch and
+  // would drop the prior analyst's P&L (showing the new analyst at ~0%).
+  const account = useMemo(() => {
+    if (!benchmark || benchmark.length < 2) return null;
+    const axis = benchmark.map((p) => p.date);
+    const seriesByPersona: Record<string, ReturnType<typeof toPoints>> = {};
+    for (const p of PERSONAS) {
+      const pf = perf[p.id];
+      if (pf) seriesByPersona[p.id] = toPoints(pf);
+    }
+    const nodes = buildAccountIndex(events, seriesByPersona, axis);
+    if (nodes.length === 0) return null;
+    const idx = nodes[nodes.length - 1].value;
+    const started = [...events].filter((e) => e.action === "follow").map((e) => e.ts).sort()[0] ?? null;
+    return { value: 100_000 * idx, ret: idx - 1, started };
+  }, [benchmark, perf, events]);
+
+  // Headline value/return: the compounded account when reconstructable, else
+  // the row sum (loading / no perf yet).
+  const totalValue = account?.value ?? (portfolios?.reduce((s, p) => s + p.totalValue, 0) ?? 0);
+  const aggReturn = account?.ret ?? 0;
+  // Scale the current persona's mirrored book (cash + positions, reseeded to
+  // $100K on a switch) to the compounded account value so the tiles reconcile.
+  const bookScale = selected && selected.totalValue > 0 ? totalValue / selected.totalValue : 1;
 
   const selectedPersona = selected ? PERSONA_BY_ID[selected.personaId] : null;
 
@@ -176,7 +200,6 @@ function DashboardInner() {
   // before/after follows, tracking each persona while followed, recoloured at
   // every follow/unfollow. The S&P 500 reference is ALWAYS drawn over the
   // full window, even before your first follow.
-  const events = useMyTimeline(reloadNonce);
   const accountChart = useMemo(() => {
     if (!benchmark || benchmark.length < 2) return null;
     const axis = benchmark.map((p) => p.date);
@@ -206,9 +229,13 @@ function DashboardInner() {
   const selectedPositions = useMemo(() => {
     if (!selected) return [];
     return Object.entries(selected.positions)
-      .map(([ticker, p]) => ({ ticker, value: p.value, weight: selected.totalValue > 0 ? p.value / selected.totalValue : 0 }))
+      .map(([ticker, p]) => ({
+        ticker,
+        value: p.value * bookScale,
+        weight: selected.totalValue > 0 ? p.value / selected.totalValue : 0,
+      }))
       .sort((a, b) => b.value - a.value);
-  }, [selected]);
+  }, [selected, bookScale]);
 
   return (
     <main className="min-h-screen">
@@ -251,7 +278,7 @@ function DashboardInner() {
                   ${totalValue.toLocaleString("en-US", { maximumFractionDigits: 0 })}
                 </div>
                 <div className={cn("num mt-0.5 text-sm", signClass(aggReturn))}>
-                  {fmt.pct(aggReturn)} since follow
+                  {fmt.pct(aggReturn)} since first follow
                 </div>
               </div>
             )}
@@ -370,10 +397,10 @@ function DashboardInner() {
                     </div>
 
                     <div className="space-y-4">
-                      <Tile label="Starting capital" value={`$${selected!.startingCapital.toLocaleString("en-US", { maximumFractionDigits: 0 })}`} />
-                      <Tile label="Total value" value={`$${selected!.totalValue.toLocaleString("en-US", { maximumFractionDigits: 0 })}`}
-                        sub={`${fmt.pct(selected!.startingCapital > 0 ? selected!.totalValue / selected!.startingCapital - 1 : 0)} since follow`} />
-                      <Tile label="Cash" value={`$${selected!.currentCash.toLocaleString("en-US", { maximumFractionDigits: 0 })}`}
+                      <Tile label="Starting capital" value="$100,000" />
+                      <Tile label="Total value" value={`$${Math.round(totalValue).toLocaleString("en-US")}`}
+                        sub={`${fmt.pct(aggReturn)} since first follow`} />
+                      <Tile label="Cash" value={`$${Math.round(selected!.currentCash * bookScale).toLocaleString("en-US")}`}
                         sub={`${fmt.pctAbs(selected!.totalValue > 0 ? selected!.currentCash / selected!.totalValue : 0)} allocation`} />
                       <Tile label="Open positions" value={`${selectedPositions.length}`} sub={`Following ${selectedPersona?.name}`} />
                     </div>
