@@ -35,9 +35,11 @@ export function PersonaCard({
       onClick={() => onOpen(persona.id)}
       className="group relative flex h-full flex-col overflow-hidden rounded-3xl border border-ink-900/[0.06] bg-cream-50 p-6 text-left transition-all hover:-translate-y-0.5 hover:border-ink-900/[0.12] hover:shadow-[0_24px_60px_-20px_rgba(31,30,27,0.18)] ring-focus"
     >
-      {/* corner accent */}
+      {/* corner accent — inline accent colour (some accents like plum are
+          too muted as a Tailwind bg to read at blur+opacity), brighter on hover */}
       <div
-        className={cn("absolute -right-16 -top-16 h-40 w-40 rounded-full opacity-0 blur-3xl transition-opacity group-hover:opacity-40", a.dot.replace("bg-", "bg-"))}
+        className="pointer-events-none absolute -right-16 -top-16 h-40 w-40 rounded-full opacity-0 blur-3xl transition-opacity group-hover:opacity-60"
+        style={{ background: ACCENT_HEX[persona.accent] }}
       />
 
       <div className="flex items-start justify-between gap-3">
