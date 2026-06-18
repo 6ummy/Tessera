@@ -6,6 +6,7 @@ import { NextResponse } from "next/server";
 import { getSql } from "@/lib/db";
 import { verifyFirebaseToken } from "@/lib/firebase/verify-token";
 import { sendEmail, emailAlertsWelcome } from "@/lib/email";
+import { unsubscribeUrl } from "@/lib/unsubscribe";
 
 export const runtime = "edge";
 
@@ -58,17 +59,19 @@ export async function PUT(req: Request) {
       SET preferences = u.preferences || jsonb_build_object('email_notify', ${body.emailNotify}::boolean)
       FROM before b
       WHERE u.id = b.id
-      RETURNING b.email AS email, b.prev AS prev
+      RETURNING b.id AS id, b.email AS email, b.prev AS prev
     `;
     const row = rows[0] ?? {};
     const wasOn = (row.prev as string | null) === "true"; // strict: default-on counts as off until explicitly enabled
     const toEmail = (row.email as string | null) ?? user.email ?? "";
 
     // Closes the feedback loop: enabling alerts emails the user a confirmation
-    // (so the toggle visibly "did something"). Best-effort — a send failure or
-    // unconfigured RESEND never fails the preference write.
+    // (so the toggle visibly "did something"), with a one-click unsubscribe
+    // link. Best-effort — a send failure or unconfigured RESEND/secret never
+    // fails the preference write.
     if (body.emailNotify && !wasOn && toEmail) {
-      const { subject, html } = emailAlertsWelcome();
+      const unsub = await unsubscribeUrl((row.id as string | null) ?? "");
+      const { subject, html } = emailAlertsWelcome(unsub);
       const ok = await sendEmail(toEmail, subject, html);
       console.info("preferences.welcome_email", { to: toEmail.replace(/(.).+(@.*)/, "$1***$2"), sent: ok });
     }

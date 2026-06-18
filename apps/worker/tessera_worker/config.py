@@ -96,6 +96,10 @@ class Settings(BaseSettings):
         description="From header for notification email. Use a verified-domain "
                     "address in prod (resend.dev sandbox only delivers to the "
                     "Resend account owner).")
+    unsubscribe_secret: str = Field(
+        "", description="HMAC secret for one-click email unsubscribe links. MUST "
+                        "match UNSUBSCRIBE_SECRET on Vercel (the web verifies the "
+                        "token). Blank → emails carry no unsubscribe link.")
 
     # ── Observability ──
     sentry_dsn: str = Field(

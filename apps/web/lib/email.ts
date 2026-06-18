@@ -33,10 +33,14 @@ export async function sendEmail(to: string, subject: string, html: string): Prom
 }
 
 /** Confirmation email sent when a user turns email alerts ON — closes the
- *  feedback loop so the toggle visibly "did something". */
-export function emailAlertsWelcome(): { subject: string; html: string } {
+ *  feedback loop so the toggle visibly "did something". `unsubUrl`, when
+ *  present, is a one-click opt-out link in the footer. */
+export function emailAlertsWelcome(unsubUrl?: string | null): { subject: string; html: string } {
   const url = `${SITE_URL}/dashboard`;
   const subject = "Email alerts are on — Tessera";
+  const optOut = unsubUrl
+    ? `You can <a href="${unsubUrl}" style="color:#7C7870">unsubscribe in one click</a> or toggle alerts off in your dashboard.`
+    : "You can turn alerts off anytime from your dashboard.";
   const html =
     '<div style="font-family:system-ui,-apple-system,sans-serif;max-width:520px">' +
     '<h2 style="font-weight:600;color:#1F1E1B">Email alerts are on.</h2>' +
@@ -44,8 +48,7 @@ export function emailAlertsWelcome(): { subject: string; html: string } {
     "follow rebalances their book — so your paper portfolio's moves never take you by surprise.</p>" +
     `<p><a href="${url}" style="display:inline-block;background:#1F1E1B;color:#FAF9F5;` +
     'padding:10px 18px;border-radius:9999px;text-decoration:none">Open your dashboard</a></p>' +
-    '<p style="color:#7C7870;font-size:12px">Paper trading only — no real money. ' +
-    "You can turn alerts off anytime from your dashboard.</p>" +
+    `<p style="color:#7C7870;font-size:12px">Paper trading only — no real money. ${optOut}</p>` +
     "</div>";
   return { subject, html };
 }
