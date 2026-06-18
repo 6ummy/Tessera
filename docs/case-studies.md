@@ -269,13 +269,20 @@
 - **수정**: 012를 추가(additive) 형태로 재작성 — `ALTER TABLE users ADD COLUMN IF NOT EXISTS photo_url ... / last_login_at ...`. `CREATE TABLE IF NOT EXISTS`는 신규/빈 DB 대비로 남기되, prod의 실제 작업은 ALTER가 한다. 적용 전 발견이라 prod 영향 0.
 - **교훈**: **`CREATE TABLE IF NOT EXISTS`(그리고 `ADD COLUMN`이 아닌 모든 "전부 아니면 전무" DDL)는 기존 객체와 새 정의가 어긋날 때 그 차이를 조용히 삼킨다.** 새 마이그레이션을 쓰기 전에 `\d <table>`(혹은 `information_schema.columns`) 한 번으로 실제 스키마를 확인할 것. 그리고 운영자에게 넘기기 전 **read-only 사전점검으로 대상 객체의 현재 상태를 직접 보라** — 이번엔 그 한 번이 적용 직전 부분 no-op을 잡았다. 컬럼 추가는 항상 `ALTER ... ADD COLUMN IF NOT EXISTS`(멱등 + 기존 테이블에 실제로 동작).
 
+### CS-17. Ray의 보라색 점이 사라진 사연 — Tailwind가 안 본 디렉터리의 클래스 (#170)
+
+- **증상**: 랜딩(Desk)에서 Ray 카드만 이름 옆 **점**과 hover **글로우**가 안 떴다. Warren/Cathie/Peter는 정상.
+- **추적**: Ray의 accent는 `plum`. 빌드된 CSS를 grep하니 `.bg-coral-500{`는 있는데 **`.bg-plum-500{`이 통째로 없었다.** `bg-plum-500` 리터럴이 어디 있나 보니 `lib/mock/personas.ts`의 `ACCENT_CLASS`(점/글로우가 쓰는 곳)와 `badge.tsx`의 `bg-plum-500/10`(opacity 변형 — solid 아님)뿐. 그런데 **Tailwind `content` 글로브가 `app/` + `components/`만 스캔하고 `lib/`는 빠져 있었다.** Tailwind는 *스캔한 파일에 리터럴로 나타난* 클래스만 생성한다 → `ACCENT_CLASS`의 클래스들은 사실 app/components 어딘가에 **우연히 중복 등장**해서 생성돼 왔던 것. `coral/sage/ink`는 다른 곳에도 리터럴이 있어 살아남았지만, `bg-plum-500`은 how-it-works 페이지에만 리터럴로 있었는데 **#147(how-it-works 압축)이 그 줄을 지우면서** 마지막 참조가 사라져 클래스가 CSS에서 증발 → plum을 쓰는 유일한 페르소나 Ray만 깨졌다. 에러도 빌드 실패도 없음.
+- **수정(#170)**: `tailwind.config.ts`의 `content`에 `./lib/**/*.{ts,tsx}` 추가. 빌드 후 `.bg-plum-500{` 재생성 확인. (글로우는 accent hex 인라인으로도 보강.)
+- **교훈**: **동적 클래스 레지스트리(`ACCENT_CLASS` 같은 "맵에 담아 런타임에 고르는" 클래스)는 그 파일이 Tailwind `content`에 없으면, 다른 곳의 중복 리터럴 덕에 *우연히* 동작할 뿐이다.** 그 중복을 리팩터가 지우면 가장 드문 값(plum=Ray 한 명)만 조용히 깨진다 — 침묵 실패 가족의 프런트엔드판. **클래스 이름 리터럴을 담는 모든 디렉터리(`lib/` 포함)를 `content`에 넣어라.** 그리고 색/배경처럼 "값마다 클래스가 다른" 패턴은 가능하면 인라인 style(hex)로 두는 게 JIT 누락에 안전하다.
+
 ---
 
 ## 메타 교훈 (발표 마무리 슬라이드용)
 
 | # | 패턴 | 해당 케이스 |
 |---|---|---|
-| 1 | **침묵 실패가 1등 버그 클래스** — `suppress`/`except: pass`/`setdefault`/ok=True/무시된 exit code/통과해버리는 sanity bound/loader가 안 실어준 입력 필드/기존 객체에 no-op되는 `CREATE ... IF NOT EXISTS`로 빈 결과가 전부 실사고로 | CS-3,4,5,6,12,13,15,16 |
+| 1 | **침묵 실패가 1등 버그 클래스** — `suppress`/`except: pass`/`setdefault`/ok=True/무시된 exit code/통과해버리는 sanity bound/loader가 안 실어준 입력 필드/기존 객체에 no-op되는 `CREATE ... IF NOT EXISTS`/스캔 안 된 디렉터리의 Tailwind 클래스 드롭으로 빈 결과가 전부 실사고로 | CS-3,4,5,6,12,13,15,16,17 |
 | 2 | **검증 장치는 자동이어야 의미가 있다** — 수동 캐너리는 없는 것과 같다 | CS-1, CS-6 |
 | 3 | **LLM은 신뢰 경계 밖** — 날짜를 써주고, 산문을 덧붙이고, 형식을 어긴다. 파서·필드 권위·게이트가 방어선 | CS-4, CS-5 |
 | 4 | **스키마/계약이 바뀌면 reader 전수조사** | CS-2 |

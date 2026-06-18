@@ -1042,6 +1042,11 @@ distilled rules:
   `persona_batch` fires FCM + email independently (the iOS / opt-out fallback
   web push can't reach). Gated on `FEATURE_EMAIL_NOTIFY` + `RESEND_API_KEY`.
   Runbook §6.
+- [x] **Chat memory recall** (2026-06-16, #168): `agents/chat.py`
+  `_build_memory_block` — persona recalls its OWN past theses from
+  `persona_memory` (pgvector cosine to the user message, cross-ticker;
+  recency fallback) as a "reference, don't fabricate" block. The last
+  deferred Phase-D chat-memory item (was Plan §4 "Not in this PR").
 - [ ] **Onboard 3 F&F users**: self + 2 family/friends, each on a different persona
 
 **Compression note**: previously two weeks. The social feed feature is
