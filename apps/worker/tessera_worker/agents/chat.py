@@ -182,6 +182,63 @@ def _build_ticker_features_block(session: Any, tickers: list[str]) -> str:
     return "\n".join(lines)
 
 
+def _memory_by_similarity(
+    session: Any, persona: PersonaId, query_text: str, limit: int,
+) -> list[tuple[Any, Any, Any, str]]:
+    """pgvector cosine recall of this persona's past theses, ACROSS tickers
+    (chat is conversational, not book construction). Empty on any miss."""
+    if not query_text:
+        return []
+    from tessera_worker.agents.embeddings import embed_query, to_pgvector_literal
+    vec = embed_query(query_text)
+    if vec is None:
+        return []
+    rows = session.execute(text("""
+        SELECT thesis_md, ts, ticker,
+               (embedding <=> CAST(:q AS vector)) AS distance
+        FROM persona_memory
+        WHERE persona_id = :p AND embedding IS NOT NULL
+        ORDER BY embedding <=> CAST(:q AS vector)
+        LIMIT :n
+    """), {"p": persona, "q": to_pgvector_literal(vec), "n": limit}).all()
+    return [(r.thesis_md, r.ts, r.ticker, f"sim={float(r.distance):.3f}") for r in rows]
+
+
+def _memory_by_recency(
+    session: Any, persona: PersonaId, limit: int,
+) -> list[tuple[Any, Any, Any, str]]:
+    rows = session.execute(text("""
+        SELECT thesis_md, ts, ticker FROM persona_memory
+        WHERE persona_id = :p ORDER BY ts DESC LIMIT :n
+    """), {"p": persona, "n": limit}).all()
+    return [(r.thesis_md, r.ts, r.ticker, "recency") for r in rows]
+
+
+def _build_memory_block(
+    session: Any, persona: PersonaId, user_message: str, limit: int = 3,
+) -> str:
+    """Recall the persona's most relevant PAST theses for conversational
+    grounding — 'remember what you've written.' Similarity via Voyage
+    embedding when available, else recency. Cross-ticker; the universal
+    hallucination guard + the 'reference, don't fabricate' framing keep it
+    honest."""
+    rows = (
+        _memory_by_similarity(session, persona, user_message, limit)
+        or _memory_by_recency(session, persona, limit)
+    )
+    if not rows:
+        return ""
+    strategy = "similarity" if rows[0][3].startswith("sim=") else "recency"
+    log.info("chat.memory_recall", persona=persona, n=len(rows), strategy=strategy)
+    lines = [f'<your_past_views count="{len(rows)}">']
+    for thesis_md, ts, ticker, tag in rows:
+        date_str = ts.date().isoformat() if ts else "?"
+        snippet = (thesis_md or "")[:300].replace("\n", " ")
+        lines.append(f"  [{date_str} · {ticker} · {tag}] {snippet}")
+    lines.append("</your_past_views>")
+    return "\n".join(lines)
+
+
 def assemble_chat_system_prompt(
     session: Any, persona: PersonaId, user_message: str,
     *, recent_report_count: int = 5,
@@ -200,6 +257,9 @@ def assemble_chat_system_prompt(
     reports_block = _build_recent_reports_block(
         session, persona, limit=recent_report_count,
     )
+    # pgvector recall of the persona's own past theses relevant to THIS
+    # message — conversational long-term memory (Phase D).
+    memory_block = _build_memory_block(session, persona, user_message)
 
     parts = [
         "# UNIVERSAL CHAT POLICIES",
@@ -215,6 +275,13 @@ def assemble_chat_system_prompt(
         "do not invent prior positions)",
         reports_block,
     ]
+    if memory_block:
+        parts += [
+            "",
+            "# RELEVANT THINGS YOU'VE WRITTEN BEFORE (your memory — reference "
+            "naturally when it fits; never fabricate a past view not shown here)",
+            memory_block,
+        ]
     if features_block:
         parts += ["", "# TODAY'S NUMBERS FOR TICKERS THE USER MENTIONED",
                   features_block]
