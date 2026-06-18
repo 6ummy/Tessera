@@ -12,7 +12,6 @@ import { CumulativeChart } from "@/components/cumulative-chart";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { PersonaAvatar } from "@/components/persona-avatar";
 import { EmailNotifyToggle } from "@/components/email-notify-toggle";
 import { ProfileEditor } from "@/components/profile-editor";
 import { InvestorsLeaderboard } from "@/components/investors-leaderboard";
@@ -315,9 +314,9 @@ function DashboardInner() {
                 <>
                   {/* Compact: pick one analyst (click to follow / switch;
                       click the followed one to unfollow) + email alerts inline. */}
-                  <div className="mb-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-2xl border border-ink-900/[0.06] bg-cream-50 px-4 py-2.5">
+                  <div className="mb-4 flex flex-col gap-3 rounded-2xl border border-ink-900/[0.06] bg-cream-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:py-2.5">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="mr-1 text-[10px] uppercase tracking-[0.16em] text-ink-500">Analyst</span>
+                      <span className="mr-1 w-full text-[10px] uppercase tracking-[0.16em] text-ink-500 sm:w-auto">Analyst</span>
                       {PERSONAS.map((p) => {
                         const followed = followedId === p.id;
                         return (
@@ -450,8 +449,12 @@ function DashboardInner() {
                 </div>
               </div>
               <div className="overflow-hidden rounded-3xl border border-ink-900/[0.06] bg-cream-50">
-                <div className="grid grid-cols-[40px_1.4fr_1.1fr_0.9fr_0.9fr_1fr_1fr_1fr] border-b border-ink-900/[0.06] bg-ink-900/[0.025] px-5 py-3 text-[10px] uppercase tracking-[0.14em] text-ink-500">
-                  <div>#</div><div>Analyst</div><div>Since inception</div><div>1y*</div><div>90d</div><div>Sharpe 30d</div><div>MDD 30d</div><div className="text-right">Value</div>
+                <div className="grid grid-cols-[28px_1fr_auto] sm:grid-cols-[40px_1.4fr_1.1fr_0.9fr_0.9fr_1fr_1fr_1fr] items-center border-b border-ink-900/[0.06] bg-ink-900/[0.025] px-4 py-3 text-[10px] uppercase tracking-[0.12em] text-ink-500 sm:px-5">
+                  <div>#</div><div>Analyst</div>
+                  <div className="text-right sm:text-left">Since inception</div>
+                  <div className="hidden sm:block">1y*</div><div className="hidden sm:block">90d</div>
+                  <div className="hidden sm:block">Sharpe 30d</div><div className="hidden sm:block">MDD 30d</div>
+                  <div className="hidden text-right sm:block">Value</div>
                 </div>
                 {(() => {
                   // Rank by return SINCE INCEPTION (real paper track) =
@@ -467,31 +470,25 @@ function DashboardInner() {
                       const pm = perf[p.id]?.metrics ?? null;
                       const inc = inception(p.id);
                       return (
-                      <div key={p.id} className="grid grid-cols-[40px_1.4fr_1.1fr_0.9fr_0.9fr_1fr_1fr_1fr] items-center border-b border-ink-900/[0.05] px-5 py-4 last:border-b-0 hover:bg-ink-900/[0.02]">
+                      <div key={p.id} className="grid grid-cols-[28px_1fr_auto] sm:grid-cols-[40px_1.4fr_1.1fr_0.9fr_0.9fr_1fr_1fr_1fr] items-center border-b border-ink-900/[0.05] px-4 py-3.5 last:border-b-0 hover:bg-ink-900/[0.02] sm:px-5 sm:py-4">
                         <div className="num text-xs text-ink-400">{(i + 1).toString().padStart(2, "0")}</div>
-                        <div className="flex items-center gap-3">
-                          <PersonaAvatar persona={p} size="xs" />
-                          <div>
-                            <div className="text-sm font-medium text-ink-900">{p.name}</div>
-                            <div className="text-[11px] text-ink-500">{p.archetype}</div>
-                          </div>
-                        </div>
-                        <div className={cn("num text-sm font-medium", inc != null ? signClass(inc) : "text-ink-400")}>
+                        <div className="truncate text-sm font-medium text-ink-900">{p.name}</div>
+                        <div className={cn("num text-right text-sm font-medium sm:text-left", inc != null ? signClass(inc) : "text-ink-400")}>
                           {inc != null ? fmt.pct(inc) : "—"}
                         </div>
-                        <div className={cn("num text-sm", pm?.return1y != null ? signClass(pm.return1y) : "text-ink-400")}>
+                        <div className={cn("hidden num text-sm sm:block", pm?.return1y != null ? signClass(pm.return1y) : "text-ink-400")}>
                           {pm?.return1y != null ? fmt.pct(pm.return1y) : "—"}
                         </div>
-                        <div className={cn("num text-sm", pm?.return90d != null ? signClass(pm.return90d) : "text-ink-400")}>
+                        <div className={cn("hidden num text-sm sm:block", pm?.return90d != null ? signClass(pm.return90d) : "text-ink-400")}>
                           {pm?.return90d != null ? fmt.pct(pm.return90d) : "—"}
                         </div>
-                        <div className="num text-sm text-ink-800">
+                        <div className="hidden num text-sm text-ink-800 sm:block">
                           {pm?.sharpe30d != null ? fmt.num(pm.sharpe30d) : "—"}
                         </div>
-                        <div className={cn("num text-sm", pm?.mdd30d != null ? signClass(-pm.mdd30d) : "text-ink-400")}>
+                        <div className={cn("hidden num text-sm sm:block", pm?.mdd30d != null ? signClass(-pm.mdd30d) : "text-ink-400")}>
                           {pm?.mdd30d != null ? fmt.pct(-pm.mdd30d) : "—"}
                         </div>
-                        <div className="num text-right text-sm text-ink-800">
+                        <div className="hidden num text-right text-sm text-ink-800 sm:block">
                           {pm?.totalValue != null
                             ? `$${pm.totalValue.toLocaleString("en-US", { maximumFractionDigits: 0 })}`
                             : "—"}
