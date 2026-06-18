@@ -69,6 +69,53 @@ export function CumulativeChart({
   const zoomed = zoomable && (view.lo > 0 || view.hi < N - 1);
   const data = zoomable ? merged.slice(view.lo, view.hi + 1) : merged;
 
+  // Y-axis FIXED to the full-data range (computed over `merged`, not the
+  // zoom slice) so wheel-zoom only changes the X window — the vertical scale
+  // stays put, like a normal finance chart. Only when zoomable; other charts
+  // keep recharts' auto-scaling.
+  const seriesIds = series.map((s) => s.id);
+  const allY: number[] = [];
+  for (const row of merged) {
+    for (const id of seriesIds) {
+      const v = row[id];
+      if (typeof v === "number") allY.push(v);
+    }
+  }
+  const yPad = allY.length ? Math.max(1, (Math.max(...allY) - Math.min(...allY)) * 0.08) : 1;
+  const yDomain: [number, number] | undefined =
+    zoomable && allY.length
+      ? [Math.floor(Math.min(...allY) - yPad), Math.ceil(Math.max(...allY) + yPad)]
+      : undefined;
+
+  // X-axis ticks as MONTHS over a wide window ("Jul", "Aug", … "Jan 26"),
+  // or "Jul 5"-style day labels when zoomed in tight — instead of raw MM-DD.
+  const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const visDates = data.map((r) => r.date as string);
+  const spanDays =
+    visDates.length > 1
+      ? (Date.parse(visDates[visDates.length - 1]) - Date.parse(visDates[0])) / 86_400_000
+      : 0;
+  const wide = spanDays > 70;
+  const xTicks: string[] = [];
+  if (visDates.length) {
+    if (wide) {
+      const seenMonth = new Set<string>();
+      for (const d of visDates) {
+        const k = d.slice(0, 7);
+        if (!seenMonth.has(k)) { seenMonth.add(k); xTicks.push(d); }
+      }
+    } else {
+      const step = Math.max(1, Math.floor(visDates.length / 6));
+      for (let i = 0; i < visDates.length; i += step) xTicks.push(visDates[i]);
+    }
+  }
+  const fmtTick = (v: string) => {
+    const [y, m, d] = v.split("-");
+    const mi = Math.max(0, Math.min(11, parseInt(m, 10) - 1));
+    if (wide) return mi === 0 ? `${MON[mi]} '${y.slice(2)}` : MON[mi];
+    return `${MON[mi]} ${parseInt(d, 10)}`;
+  };
+
   return (
     <div ref={wrapRef} className="relative" onDoubleClick={() => setView({ lo: 0, hi: Math.max(0, N - 1) })}>
       {zoomable && (
@@ -82,8 +129,8 @@ export function CumulativeChart({
         <XAxis
           dataKey="date"
           tick={{ fontSize: 11 }}
-          tickFormatter={(v: string) => v.slice(5)}
-          minTickGap={42}
+          ticks={xTicks}
+          tickFormatter={fmtTick}
           axisLine={false}
           tickLine={false}
         />
@@ -93,6 +140,8 @@ export function CumulativeChart({
           axisLine={false}
           tickLine={false}
           width={48}
+          domain={yDomain}
+          allowDataOverflow={!!yDomain}
         />
         <Tooltip
           contentStyle={{
