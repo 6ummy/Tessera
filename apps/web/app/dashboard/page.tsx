@@ -362,7 +362,7 @@ function DashboardInner() {
                     </div>
                     {selectedPositions.length === 0 ? (
                       <div className="px-5 py-8 text-center text-sm text-ink-500">
-                        Positions populate after the next nightly sync (the mirror engine runs after market close).
+                        No positions yet — your analyst hasn&apos;t published a book to mirror.
                       </div>
                     ) : (
                       selectedPositions.map((p) => (
