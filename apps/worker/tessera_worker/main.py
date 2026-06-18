@@ -295,12 +295,20 @@ async def get_persona_reports(
 
     rows = []
     with session_scope() as session:
+        # ONE report per as_of_date — a re-triggered batch (manual + cron)
+        # writes multiple analyst_reports rows for the same day; without the
+        # DISTINCT ON the UI shows the same date duplicated. Keep the newest
+        # (ts DESC) per date, then the latest N dates.
         result = session.execute(
             _sql("""
-                SELECT id::text AS id, as_of_date, parsed
-                FROM analyst_reports
-                WHERE persona_id = :p AND rejected = false
-                ORDER BY as_of_date DESC, ts DESC
+                SELECT id, as_of_date, parsed FROM (
+                    SELECT DISTINCT ON (as_of_date)
+                           id::text AS id, as_of_date, parsed, ts
+                    FROM analyst_reports
+                    WHERE persona_id = :p AND rejected = false
+                    ORDER BY as_of_date DESC, ts DESC
+                ) q
+                ORDER BY q.as_of_date DESC
                 LIMIT :n
             """),
             {"p": persona_id, "n": limit},
