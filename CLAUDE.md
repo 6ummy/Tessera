@@ -153,8 +153,10 @@ Everything below is LIVE in prod unless marked otherwise:
   `docs/grafana/cross-source-disagreements-dashboard.json`);
   `coverage_gap` + `mcap_gap_yf_also_failed` daily warning streams from
   the post-build audit step; Sentry errors-only; Voyage embeddings on
-  prod (similarity recall fires in the WEEKLY BATCH logs as `sim=0.xx`
-  — chat has no memory recall, that's Phase D). Slack alert webhook at
+  prod (similarity recall fires in the WEEKLY BATCH logs as `sim=0.xx`,
+  and in CHAT as `chat.memory_recall strategy=similarity` since 2026-06-16
+  — chat now recalls the persona's past theses cross-ticker via
+  `_build_memory_block`). Slack alert webhook at
   $5/$10/$20 spend thresholds is LIVE (2026-06-16, operator-wired Grafana
   contact point + alert rules over `llm_call_log`; no code). The
   `check_daily_budget()` hard-pause remains the safety net; the alert is
