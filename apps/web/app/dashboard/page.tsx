@@ -14,6 +14,8 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { PersonaAvatar } from "@/components/persona-avatar";
 import { EmailNotifyToggle } from "@/components/email-notify-toggle";
+import { ProfileEditor } from "@/components/profile-editor";
+import { InvestorsLeaderboard } from "@/components/investors-leaderboard";
 import { cn, fmt, signClass } from "@/lib/utils";
 
 const ACCENT_HEX: Record<Persona["accent"], string> = {
@@ -108,6 +110,25 @@ function DashboardInner() {
   const reload = () => setReloadNonce((n) => n + 1);
   const portfolios = useMyPortfolios(reloadNonce);
   const hasFollows = !!portfolios && portfolios.length > 0;
+
+  // Public profile — nickname drives the "You" highlight on the Investors
+  // board; profileNonce refetches it + the board after a profile save.
+  const [profileNonce, setProfileNonce] = useState(0);
+  const [myNickname, setMyNickname] = useState<string | null>(null);
+  useEffect(() => {
+    if (!user) { setMyNickname(null); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await user.getIdToken();
+        const res = await fetch("/api/me/profile", { headers: { authorization: `Bearer ${token}` } });
+        if (!res.ok || cancelled) return;
+        const d = (await res.json()) as { nickname: string | null };
+        if (!cancelled) setMyNickname(d.nickname ?? null);
+      } catch { /* ignore */ }
+    })();
+    return () => { cancelled = true; };
+  }, [user, profileNonce]);
 
   // Single-follow: at most one analyst. Clicking a name follows/switches;
   // clicking the followed one unfollows (back to cash).
@@ -295,6 +316,10 @@ function DashboardInner() {
                     <EmailNotifyToggle />
                   </div>
 
+                  <div className="mb-4">
+                    <ProfileEditor onSaved={() => setProfileNonce((n) => n + 1)} />
+                  </div>
+
                   {portfolios.length === 0 ? (
                     <EmptyState
                       title="You're not following anyone yet"
@@ -449,6 +474,8 @@ function DashboardInner() {
                 frozen-book backfill (look-ahead bias), shown for context only.
                 Sharpe/MDD are 30-day trailing on paper NAV.
               </p>
+
+              <InvestorsLeaderboard myNickname={myNickname} refreshKey={profileNonce} />
             </TabsContent>
 
             {/* ───── SOCIAL (Phase-D demo) ───── */}
