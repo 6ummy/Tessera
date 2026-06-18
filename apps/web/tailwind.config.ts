@@ -1,7 +1,11 @@
 import type { Config } from "tailwindcss";
 
 const config: Config = {
-  content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}"],
+  // lib/ holds ACCENT_CLASS (persona accent classes like bg-plum-500). It
+  // must be scanned or rarely-duplicated classes get dropped from the CSS —
+  // e.g. Ray's plum dot vanished once how-it-works stopped also referencing
+  // bg-plum-500 literally.
+  content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}", "./lib/**/*.{ts,tsx}"],
   darkMode: "class",
   theme: {
     extend: {
