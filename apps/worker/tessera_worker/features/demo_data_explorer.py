@@ -28,7 +28,7 @@ from tessera_worker.db import session_scope
 from tessera_worker.universe import by_asset_class
 
 with contextlib.suppress(AttributeError):
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
 
 # 8-level block chars for sparklines. Each char represents one bucket.
 SPARKLINE_CHARS = "▁▂▃▄▅▆▇█"
