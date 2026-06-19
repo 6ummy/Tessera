@@ -305,7 +305,7 @@ function DashboardInner() {
               {configured && !user ? (
                 <EmptyState
                   title="Sign in to see your portfolio"
-                  body="Follow an analyst and Tessera tracks a $100K paper book for you."
+                  body="Follow an analyst and Convt tracks a $100K paper book for you."
                   action={<Button size="md" onClick={() => void signInWithGoogle()}><LogIn className="h-4 w-4" /> Sign in</Button>}
                 />
               ) : portfolios === null ? (
@@ -355,7 +355,7 @@ function DashboardInner() {
                   {portfolios.length === 0 ? (
                     <EmptyState
                       title="You're not following anyone yet"
-                      body="Hit Follow on an analyst above — Tessera seeds a $100K paper book that mirrors their moves."
+                      body="Hit Follow on an analyst above — Convt seeds a $100K paper book that mirrors their moves."
                       action={<Link href="/"><Button size="md">Meet the analysts</Button></Link>}
                     />
                   ) : (

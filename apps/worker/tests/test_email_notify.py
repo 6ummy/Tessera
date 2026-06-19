@@ -9,7 +9,7 @@ from tessera_worker.notify.email import build_email, unsub_url
 
 def test_build_email_subject_and_link():
     subject, html = build_email("warren")
-    assert subject == "Warren rebalanced — new book on Tessera"
+    assert subject == "Warren rebalanced — new book on Convt"
     assert "Warren just rebalanced." in html
     assert "https://tessera-ruby.vercel.app/dashboard" in html
 

@@ -14,7 +14,7 @@ const SITE_URL = "https://tessera-ruby.vercel.app";
 export async function sendEmail(to: string, subject: string, html: string): Promise<boolean> {
   const key = process.env.RESEND_API_KEY;
   if (!key || !to) return false;
-  const from = process.env.EMAIL_FROM || "Tessera <onboarding@resend.dev>";
+  const from = process.env.EMAIL_FROM || "Convt <onboarding@resend.dev>";
   try {
     const res = await fetch(RESEND_URL, {
       method: "POST",
@@ -37,7 +37,7 @@ export async function sendEmail(to: string, subject: string, html: string): Prom
  *  present, is a one-click opt-out link in the footer. */
 export function emailAlertsWelcome(unsubUrl?: string | null): { subject: string; html: string } {
   const url = `${SITE_URL}/dashboard`;
-  const subject = "Email alerts are on — Tessera";
+  const subject = "Email alerts are on — Convt";
   const optOut = unsubUrl
     ? `You can <a href="${unsubUrl}" style="color:#7C7870">unsubscribe in one click</a> or toggle alerts off in your dashboard.`
     : "You can turn alerts off anytime from your dashboard.";

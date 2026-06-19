@@ -1,7 +1,12 @@
 # CLAUDE.md — operator handbook for AI sessions (zero-context handoff)
 
-You are working on **Tessera** with 정우 (@6ummy, Korean, replies in
-Korean — answer in Korean, keep code/identifiers/commits in English).
+You are working on **Convt** (user-facing brand, domain `convt.xyz` —
+"conviction"; renamed from "Tessera" 2026-06-19) with 정우 (@6ummy, Korean,
+replies in Korean — answer in Korean, keep code/identifiers/commits in
+English). **Infra/repo identifiers stay `tessera`** (GCP project
+`tessera-498200`, Cloud Run `tessera-worker`, `tessera_worker` package,
+Firebase `tessera-641a5`, the `tessera-ruby.vercel.app` URL until convt.xyz
+is pointed) — only user-visible strings (UI / emails / metadata) say "Convt".
 Read this file top to bottom once; it is written so you can act without
 any prior conversation.
 

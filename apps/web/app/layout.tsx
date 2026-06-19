@@ -8,9 +8,9 @@ const fraunces = Fraunces({ subsets: ["latin"], variable: "--font-serif", displa
 const mono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-mono", display: "swap" });
 
 export const metadata: Metadata = {
-  title: "Tessera — An agentic research desk",
+  title: "Convt — An agentic research desk",
   description:
-    "Four AI analysts, each a tile in the mosaic. Distinct philosophies, one manager who curates. Tessera turns multi-persona market research into long-term portfolios you can follow.",
+    "Four AI analysts, distinct philosophies, one manager who curates. Convt turns multi-persona market research into high-conviction portfolios you can follow.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

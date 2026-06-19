@@ -92,7 +92,7 @@ class Settings(BaseSettings):
     resend_api_key: str = Field(
         "", description="Resend API key for transactional email. Blank → email off.")
     email_from: str = Field(
-        "Tessera <onboarding@resend.dev>",
+        "Convt <onboarding@resend.dev>",
         description="From header for notification email. Use a verified-domain "
                     "address in prod (resend.dev sandbox only delivers to the "
                     "Resend account owner).")
@@ -125,7 +125,7 @@ class Settings(BaseSettings):
 
     # ── SEC EDGAR ──
     # SEC requires a contact-bearing User-Agent on every request; non-conformant
-    # requests get 403. Format: "Tessera Pilot you@example.com".
+    # requests get 403. Format: "Convt Pilot you@example.com".
     sec_user_agent: str = Field("", description="User-Agent header for SEC EDGAR")
 
 

@@ -195,7 +195,7 @@ export default function Page() {
       <footer className="border-t border-ink-900/[0.06] py-10">
         <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-3 px-6 text-xs text-ink-500 sm:flex-row">
           <div className="flex items-center gap-2">
-            <span className="display-serif text-base text-ink-700">Tessera</span>
+            <span className="display-serif text-base text-ink-700">Convt</span>
             <span>· Paper trading pilot · Not investment advice</span>
           </div>
           <div className="num">v0.1 · {fmt.num(PERSONAS.length, 0)} analysts on the desk</div>
