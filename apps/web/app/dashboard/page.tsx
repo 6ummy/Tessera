@@ -170,6 +170,13 @@ function DashboardInner() {
     }
     const axisSet = new Set(benchmark.map((p) => p.date));
     for (const pts of Object.values(seriesByPersona)) for (const pt of pts) axisSet.add(pt.date);
+    // Always extend the axis to TODAY (UTC). Persona/S&P feeds lag ~1 day, so
+    // without this a follow/switch made on the latest data day has only that
+    // single boundary point — its colored segment can't draw a line and the
+    // chart still shows the previous analyst. Adding today gives the current
+    // segment a second point (flat carry-forward — no new return is invented),
+    // so the switch is visible immediately in the right colour.
+    axisSet.add(new Date().toISOString().slice(0, 10));
     return { seriesByPersona, axis: [...axisSet].sort() };
   }, [benchmark, perf]);
 
