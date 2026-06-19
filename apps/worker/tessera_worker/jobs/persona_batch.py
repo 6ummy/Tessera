@@ -46,14 +46,17 @@ import sys
 import time
 from dataclasses import dataclass, field
 from datetime import date
-from typing import Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from tessera_worker.logging import get_logger
+
+if TYPE_CHECKING:
+    from tessera_worker.agents.models import AnalystReport, RegimeReport
 
 log = get_logger(__name__)
 
 with contextlib.suppress(AttributeError):
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -100,7 +103,7 @@ class BatchResult:
     by_persona: dict[str, dict[str, int | float]] = field(default_factory=dict)
     aborted_reason: str | None = None
 
-    def bump(self, persona: str, kind: str, n: int = 1) -> None:
+    def bump(self, persona: str, kind: str, n: float = 1) -> None:
         b = self.by_persona.setdefault(
             persona,
             {"attempted": 0, "persisted": 0, "rejected": 0, "errors": 0, "cost_usd": 0.0},
@@ -132,6 +135,7 @@ def run_one(
     )
 
     try:
+        report: AnalystReport | RegimeReport
         if persona == "ray":
             report = run_regime_thesis(as_of=as_of)
         else:
@@ -260,7 +264,7 @@ def run_batch_v2(
                 continue
 
             # Stock-picker: Pass 1 — research per ticker
-            research_notes: list[dict] = []
+            research_notes: list[dict[str, Any]] = []
             for ticker in PERSONA_SHORTLISTS.get(persona, []):
                 if result.total_cost_usd >= max_cost:
                     result.aborted_reason = (

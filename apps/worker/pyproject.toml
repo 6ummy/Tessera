@@ -126,14 +126,13 @@ ignore_missing_imports = true
 #     (2026-06-16 — 9 errors: targeted `# type: ignore[union-attr]` on the
 #     stdout.reconfigure stdlib-stub gap, a read_sql params arg-type ignore,
 #     PERSONA annotated PersonaId).
-# 5 modules remain (ingestors.* glob + the 4 jobs).
+#   - the 4 jobs (hallucination_canary, persona_batch, backtest_harness,
+#     backfill_history) (2026-06-19 — 25 errors: bare dict/list generics,
+#     no-untyped-def on `session`/helpers, BatchResult.bump int|float).
+# 1 module remains: the ingestors.* glob.
 [[tool.mypy.overrides]]
 module = [
     "tessera_worker.ingestors.*",
-    "tessera_worker.jobs.hallucination_canary",
-    "tessera_worker.jobs.persona_batch",
-    "tessera_worker.jobs.backtest_harness",
-    "tessera_worker.jobs.backfill_history",
 ]
 ignore_errors = true
 

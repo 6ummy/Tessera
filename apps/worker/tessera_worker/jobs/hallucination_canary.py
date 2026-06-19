@@ -44,8 +44,10 @@ import re
 import sys
 from dataclasses import dataclass, field
 from datetime import date
+from typing import Any
 
 from sqlalchemy import text
+from sqlalchemy.orm import Session
 
 from tessera_worker.db import session_scope
 from tessera_worker.logging import get_logger
@@ -53,7 +55,7 @@ from tessera_worker.logging import get_logger
 log = get_logger(__name__)
 
 with contextlib.suppress(AttributeError):
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -137,12 +139,12 @@ class CanaryResult:
 
 
 def load_recent_rows(
-    session,
+    session: Session,
     *,
     table: str = "backtest_reports",
     run_id: str | None = None,
     since: date | None = None,
-) -> list[dict]:
+) -> list[dict[str, Any]]:
     """Pull rows to check. Default = most recent run_id from backtest_reports.
 
     `analyst_reports` doesn't have a `run_id` column (prod theses are
@@ -156,7 +158,7 @@ def load_recent_rows(
                 FROM backtest_reports
                 WHERE run_id = :rid AND rejected = false
             """)
-            params = {"rid": run_id}
+            params: dict[str, Any] = {"rid": run_id}
         else:
             sql = text("""
                 SELECT id::text AS id, persona_id, parsed
@@ -189,7 +191,7 @@ def load_recent_rows(
     ]
 
 
-def load_valid_news_ids(session) -> set[str]:
+def load_valid_news_ids(session: Session) -> set[str]:
     rows = session.execute(text("SELECT id::text AS id FROM news")).all()
     return {r.id for r in rows}
 
@@ -200,7 +202,7 @@ def load_valid_news_ids(session) -> set[str]:
 # ─────────────────────────────────────────────────────────────────────────
 
 
-def check_citations_resolve(rows: list[dict], valid_ids: set[str],
+def check_citations_resolve(rows: list[dict[str, Any]], valid_ids: set[str],
                              result: CanaryResult) -> None:
     for r in rows:
         for prop in (r["parsed"].get("proposals") or []):
@@ -216,7 +218,7 @@ def check_citations_resolve(rows: list[dict], valid_ids: set[str],
                     ))
 
 
-def check_weight_distribution(rows: list[dict], result: CanaryResult) -> None:
+def check_weight_distribution(rows: list[dict[str, Any]], result: CanaryResult) -> None:
     """Weight-distribution telemetry + mode-collapse tripwire (Plan §11).
 
     The §11 risk: the LLM treats the persona's single-name cap as the
@@ -273,7 +275,7 @@ def check_weight_distribution(rows: list[dict], result: CanaryResult) -> None:
             ))
 
 
-def check_no_cap_anchoring(rows: list[dict], result: CanaryResult) -> None:
+def check_no_cap_anchoring(rows: list[dict[str, Any]], result: CanaryResult) -> None:
     for r in rows:
         for prop in (r["parsed"].get("proposals") or []):
             try:
@@ -290,7 +292,7 @@ def check_no_cap_anchoring(rows: list[dict], result: CanaryResult) -> None:
                 ))
 
 
-def check_buy_conviction_floor(rows: list[dict], result: CanaryResult) -> None:
+def check_buy_conviction_floor(rows: list[dict[str, Any]], result: CanaryResult) -> None:
     for r in rows:
         persona = r["persona_id"]
         floor = PERSONA_MIN_BUY_CONVICTION.get(persona)
@@ -313,7 +315,7 @@ def check_buy_conviction_floor(rows: list[dict], result: CanaryResult) -> None:
                 ))
 
 
-def check_forbidden_phrases(rows: list[dict], result: CanaryResult) -> None:
+def check_forbidden_phrases(rows: list[dict[str, Any]], result: CanaryResult) -> None:
     # Compile once, case-insensitive whole-phrase match.
     patterns = [(p, re.compile(r"\b" + re.escape(p) + r"\b", re.IGNORECASE))
                 for p in FORBIDDEN_PHRASES]
@@ -330,7 +332,7 @@ def check_forbidden_phrases(rows: list[dict], result: CanaryResult) -> None:
                     ))
 
 
-def check_persona_topic_drift(rows: list[dict], result: CanaryResult) -> None:
+def check_persona_topic_drift(rows: list[dict[str, Any]], result: CanaryResult) -> None:
     """Value/GARP voices shouldn't talk options/leverage — spec drift signal."""
     compiled = {
         persona: [(t, re.compile(r"\b" + re.escape(t) + r"\b", re.IGNORECASE))
@@ -359,7 +361,7 @@ def check_persona_topic_drift(rows: list[dict], result: CanaryResult) -> None:
 
 
 def run_canary(
-    session, *, table: str = "backtest_reports",
+    session: Session, *, table: str = "backtest_reports",
     run_id: str | None = None, since: date | None = None,
 ) -> CanaryResult:
     result = CanaryResult()
