@@ -10,7 +10,7 @@ import { verifyUnsubToken } from "@/lib/unsubscribe";
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
 
-const SITE_URL = "https://tessera-ruby.vercel.app";
+const SITE_URL = "https://convt.xyz";
 
 function page(title: string, body: string, status = 200): Response {
   const html = `<!doctype html><html lang="en"><head><meta charset="utf-8">

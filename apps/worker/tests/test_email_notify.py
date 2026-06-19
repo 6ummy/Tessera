@@ -11,7 +11,7 @@ def test_build_email_subject_and_link():
     subject, html = build_email("warren")
     assert subject == "Warren rebalanced — new book on Convt"
     assert "Warren just rebalanced." in html
-    assert "https://tessera-ruby.vercel.app/dashboard" in html
+    assert "https://convt.xyz/dashboard" in html
 
 
 def test_build_email_custom_path():
@@ -34,7 +34,7 @@ def test_unsub_url_matches_hmac_and_handles_blank():
     url = unsub_url(uid, secret)
     assert url is not None
     expected = hmac.new(secret.encode(), uid.encode(), hashlib.sha256).hexdigest()
-    assert url == f"https://tessera-ruby.vercel.app/api/unsubscribe?u={uid}&t={expected}"
+    assert url == f"https://convt.xyz/api/unsubscribe?u={uid}&t={expected}"
     # Blank secret or empty id → no link.
     assert unsub_url(uid, "") is None
     assert unsub_url("", secret) is None

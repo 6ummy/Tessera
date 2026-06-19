@@ -7,14 +7,14 @@
 // sender on Vercel for real delivery.
 
 const RESEND_URL = "https://api.resend.com/emails";
-const SITE_URL = "https://tessera-ruby.vercel.app";
+const SITE_URL = "https://convt.xyz";
 
 /** Send one email. Best-effort: returns true on a 2xx, false otherwise
  *  (and never throws). */
 export async function sendEmail(to: string, subject: string, html: string): Promise<boolean> {
   const key = process.env.RESEND_API_KEY;
   if (!key || !to) return false;
-  const from = process.env.EMAIL_FROM || "Convt <onboarding@resend.dev>";
+  const from = process.env.EMAIL_FROM || "Convt <alerts@convt.xyz>";
   try {
     const res = await fetch(RESEND_URL, {
       method: "POST",

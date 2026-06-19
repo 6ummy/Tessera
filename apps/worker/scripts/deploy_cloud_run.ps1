@@ -20,7 +20,7 @@ $SA       = "tessera-worker@$PROJECT.iam.gserviceaccount.com"
 # a verified-domain address (the sandbox onboarding@resend.dev only delivers
 # to the Resend account owner). Kept in-script so a redeploy's --set-env-vars
 # doesn't wipe it. Must match EMAIL_FROM on Vercel.
-$EMAIL_FROM = "Convt <onboarding@resend.dev>"
+$EMAIL_FROM = "Convt <alerts@convt.xyz>"
 # Build context = REPO ROOT (not apps/worker/) because the Dockerfile needs
 # to COPY both packages/shared/ and apps/worker/ — they're sibling dirs under
 # the monorepo root. The Dockerfile path is given relative to that root.
