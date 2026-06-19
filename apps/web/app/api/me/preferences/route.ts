@@ -48,36 +48,39 @@ export async function PUT(req: Request) {
   }
   try {
     const sql = getSql();
-    // RETURNING the prior flag + email so we can (a) confirm the write landed
-    // and (b) send a one-off confirmation email only on the OFF→ON transition.
     const rows = await sql`
-      WITH before AS (
-        SELECT id, email, (preferences ->> 'email_notify') AS prev
-        FROM users WHERE firebase_uid = ${user.uid}
-      )
-      UPDATE users u
-      SET preferences = u.preferences || jsonb_build_object('email_notify', ${body.emailNotify}::boolean)
-      FROM before b
-      WHERE u.id = b.id
-      RETURNING b.id AS id, b.email AS email, b.prev AS prev
+      UPDATE users
+      SET preferences = preferences || jsonb_build_object('email_notify', ${body.emailNotify}::boolean)
+      WHERE firebase_uid = ${user.uid}
+      RETURNING id::text AS id, email
     `;
     const row = rows[0] ?? {};
-    const wasOn = (row.prev as string | null) === "true"; // strict: default-on counts as off until explicitly enabled
     const toEmail = (row.email as string | null) ?? user.email ?? "";
 
-    // Closes the feedback loop: enabling alerts emails the user a confirmation
-    // (so the toggle visibly "did something"), with a one-click unsubscribe
-    // link. Best-effort — a send failure or unconfigured RESEND/secret never
-    // fails the preference write.
-    if (body.emailNotify && !wasOn && toEmail) {
-      const unsub = await unsubscribeUrl((row.id as string | null) ?? "");
-      const { subject, html } = emailAlertsWelcome(unsub);
-      const ok = await sendEmail(toEmail, subject, html);
-      console.info("preferences.welcome_email", { to: toEmail.replace(/(.).+(@.*)/, "$1***$2"), sent: ok });
+    // Turning alerts ON sends a confirmation email (with a one-click
+    // unsubscribe link) every time, so the toggle visibly "did something"
+    // and the UI can report the real send result. Best-effort — a failure or
+    // unconfigured RESEND never fails the preference write.
+    let welcome: { sent: boolean; to: string } | null = null;
+    if (body.emailNotify) {
+      if (toEmail) {
+        const unsub = await unsubscribeUrl((row.id as string | null) ?? "");
+        const { subject, html } = emailAlertsWelcome(unsub);
+        const sent = await sendEmail(toEmail, subject, html);
+        welcome = { sent, to: maskEmail(toEmail) };
+        console.info("preferences.welcome_email", { to: maskEmail(toEmail), sent });
+      } else {
+        welcome = { sent: false, to: "" }; // no email on file
+        console.warn("preferences.welcome_email_no_address", { uid: user.uid });
+      }
     }
-    return NextResponse.json({ emailNotify: body.emailNotify });
+    return NextResponse.json({ emailNotify: body.emailNotify, welcome });
   } catch (err) {
     console.error("preferences.put_failed", err);
     return NextResponse.json({ error: "preferences update failed" }, { status: 500 });
   }
+}
+
+function maskEmail(e: string): string {
+  return e.replace(/(.).+(@.*)/, "$1***$2");
 }
