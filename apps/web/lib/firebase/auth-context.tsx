@@ -74,7 +74,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!auth) return;
     // The users-row upsert happens in the onAuthStateChanged handler above,
     // which fires right after the popup resolves.
-    await signInWithPopup(auth, googleProvider());
+    try {
+      await signInWithPopup(auth, googleProvider());
+    } catch (err) {
+      const code = (err as { code?: string })?.code ?? "";
+      // auth/unauthorized-domain fires when signing in from a domain not in
+      // Firebase's authorized list — i.e. a Vercel per-deploy PREVIEW URL
+      // (only the production alias / custom domain are authorized; ephemeral
+      // preview domains can't all be added). Expected off-prod, not a bug.
+      if (code === "auth/unauthorized-domain") {
+        console.warn("auth.sign_in_unauthorized_domain", {
+          host: typeof window !== "undefined" ? window.location.host : "",
+          hint: "Sign in from the production site, not a preview deployment URL.",
+        });
+        return;
+      }
+      // User dismissed / double-clicked the popup — benign, don't report.
+      if (["auth/popup-closed-by-user", "auth/cancelled-popup-request", "auth/popup-blocked"].includes(code)) {
+        return;
+      }
+      throw err; // genuine failure — let it surface
+    }
   }, []);
 
   const signOut = useCallback(async () => {
