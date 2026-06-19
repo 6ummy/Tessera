@@ -2,14 +2,13 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, Check, Heart, LogIn, MessageCircle, Repeat2, TrendingUp } from "lucide-react";
+import { ArrowLeft, Check, LogIn } from "lucide-react";
 import { ACCENT_CLASS, PERSONAS, PERSONA_BY_ID, type Persona } from "@/lib/mock/personas";
 import { rebase, usePerformance, toPoints } from "@/lib/performance-data";
 import { buildAccountSegments, buildAccountIndex, type FollowEvent, ACCOUNT_CASH_KEY, ACCOUNT_MIXED_KEY } from "@/lib/account-curve";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { Header } from "@/components/header";
 import { CumulativeChart } from "@/components/cumulative-chart";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { EmailNotifyToggle } from "@/components/email-notify-toggle";
@@ -29,14 +28,6 @@ type Portfolio = {
   positions: Record<string, { qty: number; close: number; value: number }>;
   startedAt: string;
 };
-
-// Social feed is still a Phase-D demo (labelled in the UI).
-const SOCIAL = [
-  { user: "nara_k", persona: "cathie", fork: "Cathie · ex-China", note: "Removed China exposure, tilted toward Nordic semis.", likes: 142, replies: 18, ret: 0.41 },
-  { user: "ben.t",  persona: "warren", fork: "Warren · Dividend-only", note: "Filtered for yield > 2.5% and 10-yr div growth.", likes: 89, replies: 7, ret: 0.13 },
-  { user: "min_su", persona: "ray",    fork: "Ray · Inflation hedged", note: "Doubled TIPS allocation; cut nominal duration.", likes: 56, replies: 4, ret: 0.07 },
-  { user: "alex.r", persona: "peter",  fork: "Peter · Industrials focus", note: "Concentrated GARP in re-shoring beneficiaries.", likes: 211, replies: 24, ret: 0.22 },
-];
 
 /** Fetch the signed-in user's real paper portfolios (their follows).
  *  `nonce` bumps force a refetch after a follow/unfollow. */
@@ -91,7 +82,7 @@ export default function DashboardPage() {
   );
 }
 
-const VALID_TABS = ["portfolio", "leaderboard", "social"] as const;
+const VALID_TABS = ["portfolio", "leaderboard"] as const;
 
 function DashboardInner() {
   const params = useSearchParams();
@@ -297,7 +288,6 @@ function DashboardInner() {
             <TabsList>
               <TabsTrigger value="portfolio">My portfolio</TabsTrigger>
               <TabsTrigger value="leaderboard">Leaderboard</TabsTrigger>
-              <TabsTrigger value="social">Social</TabsTrigger>
             </TabsList>
 
             {/* ───── PORTFOLIO ───── */}
@@ -506,46 +496,6 @@ function DashboardInner() {
               </p>
 
               <InvestorsLeaderboard myNickname={myNickname} refreshKey={profileNonce} />
-            </TabsContent>
-
-            {/* ───── SOCIAL (Phase-D demo) ───── */}
-            <TabsContent value="social">
-              <div className="grid gap-4 md:grid-cols-2">
-                {SOCIAL.map((post) => {
-                  const persona = PERSONA_BY_ID[post.persona];
-                  const a = ACCENT_CLASS[persona.accent];
-                  return (
-                    <article key={post.fork} className="rounded-3xl border border-ink-900/[0.06] bg-cream-50 p-6">
-                      <div className="flex items-center gap-3">
-                        <div className="grid h-9 w-9 place-items-center rounded-full bg-gradient-to-br from-coral-400 to-plum-500 text-cream-50 text-xs font-semibold">
-                          {post.user[0].toUpperCase()}
-                        </div>
-                        <div>
-                          <div className="text-sm font-medium text-ink-900">@{post.user}</div>
-                          <div className="flex items-center gap-1.5 text-[11px] text-ink-500">
-                            <Repeat2 className="h-3 w-3" />
-                            forked
-                            <span className={cn("inline-flex items-center gap-1 font-medium", a.text)}>
-                              <span className={cn("h-1.5 w-1.5 rounded-full", a.dot)} /> {persona.name}
-                            </span>
-                          </div>
-                        </div>
-                        <div className={cn("ml-auto inline-flex items-center gap-1 text-sm num font-medium", signClass(post.ret))}>
-                          <TrendingUp className="h-3.5 w-3.5" /> {fmt.pct(post.ret)}
-                        </div>
-                      </div>
-                      <h3 className="display-serif mt-4 text-xl text-ink-900">{post.fork}</h3>
-                      <p className="mt-1.5 text-sm leading-relaxed text-ink-600">{post.note}</p>
-                      <div className="mt-5 flex items-center gap-5 text-xs text-ink-500">
-                        <span className="inline-flex items-center gap-1.5"><Heart className="h-3.5 w-3.5" /> {post.likes}</span>
-                        <span className="inline-flex items-center gap-1.5"><MessageCircle className="h-3.5 w-3.5" /> {post.replies}</span>
-                        <Badge tone="default" className="ml-auto">Copy fork</Badge>
-                      </div>
-                    </article>
-                  );
-                })}
-              </div>
-              <p className="mt-3 text-[11px] text-ink-500">Social feed is a Phase-D demo — not real users yet.</p>
             </TabsContent>
           </Tabs>
         </div>

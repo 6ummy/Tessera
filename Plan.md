@@ -1034,7 +1034,7 @@ distilled rules:
   `/dashboard` portfolio tab now renders real follows (multi-follow
   persona selector, curve rebased to follow date, positions table, tiles)
   with sign-in / no-follows empty states. The hardcoded `peter` mock is
-  gone (social feed stays a labelled demo).
+  gone (social feed was a labelled demo — DEACTIVATED 2026-06-19, see below).
 - [x] **Personal P&L diverges** from persona P&L based on follow start +
   capital — falls out of the mirror engine: follower return = persona
   return since `started_at`, scaled by `starting_capital`. Surfaced on
@@ -1063,8 +1063,18 @@ distilled rules:
   deferred Phase-D chat-memory item (was Plan §4 "Not in this PR").
 - [ ] **Onboard 3 F&F users**: self + 2 family/friends, each on a different persona
 
+- [x] **Social tab DEACTIVATED 2026-06-19**: the dashboard "Social" tab was a
+  labelled mock (forked-portfolio demo feed, never real). Removed from the UI
+  (tab trigger + content + the `SOCIAL` mock + now-unused imports) so the
+  dashboard ships only the two REAL tabs (My portfolio · Leaderboard). The
+  real social layer (forking a persona's book, copy-trading, a feed of public
+  users) is a post-launch feature — revisit when there's a user base. The
+  public **investor leaderboard** already covers the "see other real users"
+  need for the pilot.
+
 **Compression note**: previously two weeks. The social feed feature is
-deferred to post-launch. Auth + mirror engine + onboarding ship in one week.
+deferred to post-launch (the mock tab is now removed, not just hidden). Auth
++ mirror engine + onboarding ship in one week.
 
 ### Acceptance criteria
 - ✅ 3 real users in production with active paper portfolios
