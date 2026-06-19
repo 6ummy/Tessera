@@ -7,6 +7,7 @@ import {
   LogIn,
   LogOut,
   Menu,
+  Settings,
   Trophy,
   Users,
   X,
@@ -149,8 +150,9 @@ export function Header({ variant = "transparent" }: { variant?: "transparent" | 
                 </div>
                 <div className="p-1.5">
                   <MenuLink href="/dashboard" icon={<LayoutDashboard className="h-4 w-4" />} label="My dashboard" sub="P&L · positions" onNavigate={closeAll} />
+                  <MenuLink href="/dashboard#profile-settings" icon={<Settings className="h-4 w-4" />} label="Profile settings" sub="Nickname · visibility" onNavigate={closeAll} />
                   <MenuLink href="/dashboard?tab=leaderboard" icon={<Trophy className="h-4 w-4" />} label="Leaderboard" sub="Persona rankings" onNavigate={closeAll} />
-                  <MenuLink href="/dashboard?tab=social" icon={<Users className="h-4 w-4" />} label="Social feed" sub="Forks · followers" onNavigate={closeAll} />
+                  <MenuItemSoon icon={<Users className="h-4 w-4" />} label="Social feed" sub="Forks · followers" />
                   <NotificationsToggle onDone={closeAll} />
                 </div>
                 {signedIn && (
@@ -202,5 +204,22 @@ function MenuLink({ href, icon, label, sub, onNavigate }: { href: string; icon: 
         <span className="block text-xs text-ink-500">{sub}</span>
       </span>
     </Link>
+  );
+}
+
+// Not-yet-shipped menu item: shown but disabled with a "Soon" badge so the
+// surface communicates the roadmap without dead-ending into a blank tab.
+function MenuItemSoon({ icon, label, sub }: { icon: React.ReactNode; label: string; sub: string }) {
+  return (
+    <div role="menuitem" aria-disabled className="flex items-start gap-3 rounded-xl px-3 py-2.5 opacity-55">
+      <span className="mt-0.5 text-ink-400">{icon}</span>
+      <span className="min-w-0 flex-1">
+        <span className="flex items-center gap-2">
+          <span className="text-sm font-medium text-ink-700">{label}</span>
+          <span className="rounded-full bg-ink-900/[0.06] px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-ink-500">Soon</span>
+        </span>
+        <span className="block text-xs text-ink-500">{sub}</span>
+      </span>
+    </div>
   );
 }

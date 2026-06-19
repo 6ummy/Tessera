@@ -35,7 +35,13 @@ export function ProfileEditor({ onSaved }: { onSaved?: () => void }) {
 
   if (!user || !loaded) return null;
 
+  // A public profile must carry a nickname — otherwise the investor shows up
+  // on the leaderboard as a blank row. Private profiles can leave it empty.
+  const trimmedNickname = nickname.trim();
+  const needsNickname = isPublic && trimmedNickname.length === 0;
+
   const save = async () => {
+    if (needsNickname) return;
     setSaving(true);
     try {
       const token = await user.getIdToken();
@@ -57,10 +63,15 @@ export function ProfileEditor({ onSaved }: { onSaved?: () => void }) {
       <div className="flex flex-wrap items-center gap-3">
         <input
           value={nickname}
-          onChange={(e) => setNickname(e.target.value.slice(0, 24))}
+          onChange={(e) => { setNickname(e.target.value.slice(0, 24)); setSavedAt(0); }}
           placeholder="Nickname"
+          aria-label="Nickname"
+          aria-invalid={needsNickname}
           maxLength={24}
-          className="h-9 w-40 rounded-full border border-ink-900/10 bg-cream-100 px-3 text-sm text-ink-900 outline-none ring-focus placeholder:text-ink-400"
+          className={cn(
+            "h-9 w-40 rounded-full border bg-cream-100 px-3 text-sm text-ink-900 outline-none ring-focus placeholder:text-ink-400",
+            needsNickname ? "border-coral-500/60" : "border-ink-900/10",
+          )}
         />
         <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-ink-700">
           <button
@@ -83,14 +94,17 @@ export function ProfileEditor({ onSaved }: { onSaved?: () => void }) {
         <button
           type="button"
           onClick={save}
-          disabled={saving}
+          disabled={saving || needsNickname}
+          title={needsNickname ? "Add a nickname to stay public" : undefined}
           className="ml-auto inline-flex h-9 items-center rounded-full bg-ink-900 px-4 text-sm font-medium text-cream-50 hover:bg-ink-800 ring-focus disabled:opacity-50"
         >
           {saving ? "Saving…" : savedAt ? "Saved ✓" : "Save"}
         </button>
       </div>
-      <p className="mt-2 text-xs text-ink-500">
-        {isPublic
+      <p className={cn("mt-2 text-xs", needsNickname ? "text-coral-700" : "text-ink-500")}>
+        {needsNickname
+          ? "Add a nickname to appear on the leaderboard — or switch to Private."
+          : isPublic
           ? "You appear on the Investors leaderboard by nickname (return only — never your email or name)."
           : "Hidden from the public leaderboard."}
       </p>
