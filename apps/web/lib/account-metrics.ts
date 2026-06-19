@@ -48,6 +48,25 @@ const dayDiff = (from: string, to: string) => Math.round((Date.parse(to) - Date.
 const minusDays = (date: string, days: number) =>
   new Date(Date.parse(date) - days * DAY_MS).toISOString().slice(0, 10);
 
+/** The persona the user currently follows, from the event log (last
+ *  net-active follow). Independent of the reconstruction axis — which can lag
+ *  the latest follow by a day until the persona's next snapshot lands — so a
+ *  user who followed "today" shows their analyst immediately, not "Cash".
+ *  Single-follow → at most one; mixed / none → null. */
+function currentFollow(events: FollowEvent[]): string | null {
+  const active = new Map<string, number>();
+  for (const e of [...events].sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0))) {
+    if (e.action === "follow") active.set(e.personaId, (active.get(e.personaId) ?? 0) + 1);
+    else {
+      const c = (active.get(e.personaId) ?? 0) - 1;
+      if (c <= 0) active.delete(e.personaId);
+      else active.set(e.personaId, c);
+    }
+  }
+  const keys = [...active.keys()];
+  return keys.length === 1 ? keys[0] : null;
+}
+
 export function computeAccountMetrics(
   events: FollowEvent[],
   seriesByPersona: Record<string, { date: string; value: number }[]>,
@@ -62,7 +81,7 @@ export function computeAccountMetrics(
     .map((e) => e.ts.slice(0, 10))
     .sort()[0] ?? null;
   if (nodes.length === 0 || !firstFollow) {
-    return { metrics: empty, firstFollow, currentPersonaId: null };
+    return { metrics: empty, firstFollow, currentPersonaId: currentFollow(events) };
   }
 
   const last = nodes[nodes.length - 1];
@@ -97,7 +116,5 @@ export function computeAccountMetrics(
     sharpe30d: sharpe30d(activeReturns),
     mdd30d: maxDrawdown(activeValues),
   };
-  const currentPersonaId =
-    last.key !== ACCOUNT_CASH_KEY && !last.key.startsWith("__") ? last.key : null;
-  return { metrics, firstFollow, currentPersonaId };
+  return { metrics, firstFollow, currentPersonaId: currentFollow(events) };
 }
