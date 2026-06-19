@@ -32,6 +32,10 @@ export function FollowButton({
   const { configured, user, signInWithGoogle } = useAuth();
   const [following, setFollowing] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
+  // Set when a signed-out user clicks Follow: remember the intent so we can
+  // complete the follow automatically once the sign-in popup resolves, instead
+  // of making them click Follow a second time.
+  const [pendingFollow, setPendingFollow] = useState(false);
 
   // Load current follow status whenever the signed-in user changes.
   useEffect(() => {
@@ -56,11 +60,8 @@ export function FollowButton({
     };
   }, [user, personaId, refreshKey]);
 
-  const toggle = useCallback(async () => {
-    if (!user) {
-      void signInWithGoogle();
-      return;
-    }
+  const applyToggle = useCallback(async () => {
+    if (!user) return;
     setBusy(true);
     try {
       const token = await user.getIdToken();
@@ -79,7 +80,25 @@ export function FollowButton({
     } finally {
       setBusy(false);
     }
-  }, [user, following, personaId, signInWithGoogle, onChange]);
+  }, [user, following, personaId, onChange]);
+
+  const toggle = useCallback(() => {
+    if (!user) {
+      setPendingFollow(true);
+      void signInWithGoogle();
+      return;
+    }
+    void applyToggle();
+  }, [user, applyToggle, signInWithGoogle]);
+
+  // Complete a remembered follow once sign-in lands. Wait for the follow
+  // status to load first (following !== null) so we never accidentally
+  // unfollow an analyst the returning user already follows.
+  useEffect(() => {
+    if (!user || !pendingFollow || following === null) return;
+    setPendingFollow(false);
+    if (following === false) void applyToggle();
+  }, [user, pendingFollow, following, applyToggle]);
 
   // No follow affordance until Firebase is wired (pilot mode).
   if (!configured) return null;
