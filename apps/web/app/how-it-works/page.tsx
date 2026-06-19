@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
 export const metadata = {
-  title: "How it works · Tessera",
+  title: "How it works · Convt",
 };
 
 export default function HowItWorks() {
@@ -25,12 +25,12 @@ export default function HowItWorks() {
             <ArrowLeft className="h-3.5 w-3.5" /> Back to the desk
           </Link>
           <div className="mt-5 max-w-3xl">
-            <div className="text-xs font-medium uppercase tracking-[0.18em] text-coral-600">How Tessera works</div>
+            <div className="text-xs font-medium uppercase tracking-[0.18em] text-coral-600">How Convt works</div>
             <h1 className="display-serif mt-3 text-5xl leading-[1.05] tracking-tightest text-ink-900 sm:text-6xl">
               Four minds on the market.
               <br />
-              <span className="italic text-ink-700">One mosaic </span>
-              <span className="text-coral-600">for you.</span>
+              <span className="italic text-ink-700">Conviction </span>
+              <span className="text-coral-600">you can follow.</span>
             </h1>
             <p className="mt-6 max-w-xl text-[17px] leading-relaxed text-ink-600">
               An AI research desk of four analysts. Each reads the market daily and writes the
@@ -112,7 +112,7 @@ export default function HowItWorks() {
               We're research. <span className="italic text-ink-700">Not your broker.</span>
             </h2>
             <p className="mt-4 max-w-xl text-[15px] leading-relaxed text-ink-600">
-              Tessera publishes ideas. It never holds your money, trades without your say-so, or
+              Convt publishes ideas. It never holds your money, trades without your say-so, or
               tells you what's right for your account.
             </p>
           </div>
@@ -144,7 +144,7 @@ export default function HowItWorks() {
             Pilot phase is paper trading only — no real money, no brokerage connection. Any future
             live execution would route through your own brokerage and require your confirmation on
             every order. Past performance, paper or otherwise, doesn't predict future results.
-            Tessera is not a registered investment advisor and gives no individualized advice.
+            Convt is not a registered investment advisor and gives no individualized advice.
           </p>
         </div>
       </section>

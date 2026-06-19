@@ -42,7 +42,7 @@ def build_email(
     """(subject, html) for a rebalance alert. Pure — unit-tested."""
     name = persona.title()
     url = f"{_SITE_URL}{link_path}"
-    subject = f"{name} rebalanced — new book on Tessera"
+    subject = f"{name} rebalanced — new book on Convt"
     opt_out = (
         f' <a href="{unsubscribe_url}" style="color:#7C7870">Unsubscribe</a>.'
         if unsubscribe_url else ""
@@ -56,7 +56,7 @@ def build_email(
         f'color:#FAF9F5;padding:10px 18px;border-radius:9999px;'
         f'text-decoration:none">View your dashboard</a></p>'
         f'<p style="color:#7C7870;font-size:12px">Paper trading only — no real '
-        f"money. You're receiving this because you follow {name} on Tessera.{opt_out}</p>"
+        f"money. You're receiving this because you follow {name} on Convt.{opt_out}</p>"
         f"</div>"
     )
     return subject, html

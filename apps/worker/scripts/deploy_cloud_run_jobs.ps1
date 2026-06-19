@@ -50,7 +50,7 @@ $REPO_ROOT = "C:\Users\jshin\Documents\Project\PennyMaker"
 # Notification email sender — change to a verified-domain address after
 # Resend domain verification (sandbox delivers only to the Resend owner).
 # Must match EMAIL_FROM on Vercel + the Service deploy script.
-$EMAIL_FROM = "Tessera <onboarding@resend.dev>"
+$EMAIL_FROM = "Convt <onboarding@resend.dev>"
 $ENV_VARS = "ENV=production,LOG_LEVEL=INFO,SENTRY_ENVIRONMENT=production,FEATURE_REAL_LLM=true,FEATURE_PAPER_EXECUTION=true,FEATURE_LIVE_TRADING=false,FEATURE_FCM_PUSH=false,FEATURE_EMAIL_NOTIFY=true,GCS_BUCKET_RAW=tessera-raw,LLM_MAX_DAILY_COST_USD=5.0,LLM_MAX_DAILY_COST_CHAT_USD=2.0,ALPACA_BASE_URL=https://paper-api.alpaca.markets,EMAIL_FROM=$EMAIL_FROM"
 $SECRETS = "DATABASE_URL=DATABASE_URL:latest,ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest,ALPACA_API_KEY=ALPACA_API_KEY:latest,ALPACA_API_SECRET=ALPACA_API_SECRET:latest,FMP_API_KEY=FMP_API_KEY:latest,FRED_API_KEY=FRED_API_KEY:latest,NEWSAPI_API_KEY=NEWSAPI_API_KEY:latest,SENTRY_DSN=SENTRY_DSN:latest,SEC_USER_AGENT=SEC_USER_AGENT:latest,VOYAGE_API_KEY=VOYAGE_API_KEY:latest,RESEND_API_KEY=RESEND_API_KEY:latest,UNSUBSCRIBE_SECRET=UNSUBSCRIBE_SECRET:latest"
 # Note: no WORKER_WEBHOOK_SECRET / RELY_ON_IAM — Jobs have no HTTP surface,
