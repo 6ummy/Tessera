@@ -20,12 +20,27 @@ export const dynamic = "force-dynamic"; // never cache — profile edits sync li
 const noStore = (body: unknown) =>
   NextResponse.json(body, { headers: { "cache-control": "no-store" } });
 
-export async function GET() {
+export async function GET(req: Request) {
+  const debug = new URL(req.url).searchParams.get("debug") === "1";
   try {
     const sql = getSql();
 
     // Public users + their handles.
     const users = await sql`SELECT id::text, nickname FROM users WHERE is_public = true`;
+    if (debug) {
+      const allUsers = await sql`SELECT email, nickname, is_public FROM users`;
+      const evCount = await sql`SELECT count(*)::int AS c FROM follow_events`;
+      return noStore({
+        _debug: {
+          publicUsers: users.map((u) => u.nickname ?? "(no nick)"),
+          allUsers: allUsers.map((u) => ({
+            email: (u.email as string | null)?.replace(/(.).+(@.*)/, "$1***$2"),
+            nick: u.nickname, pub: u.is_public,
+          })),
+          followEventRows: (evCount[0] as { c: number }).c,
+        },
+      });
+    }
     if (users.length === 0) return noStore({ investors: [] });
     const nickById = new Map(
       users.map((u) => [u.id as string, ((u.nickname as string | null) ?? "").trim()]),
