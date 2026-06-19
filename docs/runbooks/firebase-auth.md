@@ -129,35 +129,53 @@ when the flag is off).
 
 ---
 
-## 6. Email notifications (parallel to FCM)
+## 6. Email notifications — the SOLE notify channel (LIVE)
 
-Web push misses iOS (no PWA) and anyone who didn't enable it, so email is
-the reliable second channel. Sent from the worker via **Resend**. Ships
-dark: no key → worker logs "would email N" and sends nothing.
+**FCM web push was dropped (2026-06-18) — email is the only channel.**
+(The §5 FCM scaffolding stays in the tree, unused; leave `FEATURE_FCM_PUSH`
+off.) Email is LIVE: `RESEND_API_KEY` + `FEATURE_EMAIL_NOTIFY=true` are set,
+the worker is redeployed. Two senders use Resend:
+- **Web** (`apps/web/lib/email.ts`, Edge) — the *confirmation* email when a
+  user enables "Email alerts". Reads `process.env.RESEND_API_KEY` /
+  `EMAIL_FROM` on **Vercel**.
+- **Worker** (`notify/email.py`) — the *rebalance* email to followers on the
+  Friday batch. Reads `RESEND_API_KEY` / `EMAIL_FROM` on **Cloud Run**.
 
-1. **Resend account** → https://resend.com → create an API key.
-2. **Verify a sending domain** (Resend → Domains) and use a from-address
-   on it, e.g. `Tessera <notifications@yourdomain>`. (The default
-   `onboarding@resend.dev` only delivers to the Resend account owner —
-   fine for a first self-test, not for F&F.)
-3. Store the key + flip the flags on the worker (deploy scripts):
-   ```
-   FEATURE_EMAIL_NOTIFY=true
-   EMAIL_FROM=Tessera <notifications@yourdomain>
-   ```
-   `RESEND_API_KEY` as a Secret Manager secret (same pattern as
-   VOYAGE_API_KEY — create the secret, grant the worker SA accessor, add
-   it to the `--set-secrets` line, redeploy).
+Both emails carry a one-click unsubscribe link (HMAC over the user id,
+shared `UNSUBSCRIBE_SECRET` on Vercel **and** Cloud Run; verified by the web
+`/api/unsubscribe`).
+
+### 6-1. Remaining task — verified-domain sender (so email reaches F&F)
+The default `onboarding@resend.dev` (Resend sandbox) **only delivers to the
+Resend account-owner's email** — fine for the operator's self-test, but it
+will NOT reach other F&F users. To deliver to anyone:
+
+1. **Resend → Domains → Add domain** (e.g. `tessera.app` or a subdomain you
+   own). Add the **DNS records Resend shows** (SPF/DKIM TXT + MX) at your
+   registrar; wait for Resend to mark it **Verified**.
+2. Pick a from-address on that domain, e.g. `Tessera <alerts@tessera.app>`.
+3. Set `EMAIL_FROM` to it in **all three** places (they must match):
+   - **Vercel** env (Production) → `EMAIL_FROM = Tessera <alerts@tessera.app>`
+     (redeploy / it applies on next deploy).
+   - **`deploy_cloud_run.ps1`** + **`deploy_cloud_run_jobs.ps1`** → edit the
+     `$EMAIL_FROM` variable near the top, then redeploy the worker. (It's
+     kept in-script because `--set-env-vars` replaces the whole env on each
+     deploy — a console-only value would be wiped on the next redeploy.)
+4. Send yourself a test (enable "Email alerts" → confirmation email; toggle
+   shows "✓ Email sent to …").
 
 ### Verify
-On the next Friday batch (or a manual `persona-batch` run), followers
-with a `users.email` get a "X rebalanced" email; worker logs
-`email.notified` (or `email.would_email` when off). FCM + email fire
-independently — one failing never blocks the other or the batch.
+- Enabling alerts → confirmation email arrives; the toggle reports the real
+  send result. Web log: `preferences.welcome_email sent=true`.
+- On the Friday batch (or a manual `persona-batch` run), followers with a
+  `users.email` get a "X rebalanced" email; worker logs `email.notified`
+  (or `email.would_email` when the flag/key is off).
 
 ---
 
 ## Done (no longer pending)
 
-`/api/follow` + mirror engine + dashboard + account curve + FCM + email
-are all wired. Remaining Phase D: onboard F&F users.
+Auth + `/api/follow` + mirror engine + dashboard + account curve + public
+profiles/leaderboard + email notify (confirmation + rebalance + one-click
+unsubscribe) are all LIVE. **FCM dropped.** Remaining Phase D: onboard F&F
+users + (optional) the verified-domain `EMAIL_FROM` above.
