@@ -117,10 +117,12 @@ paper account nightly, and the 2026-06-14 backtest baseline produced
 per-archetype Sharpe/MDD on look-ahead-free replays (Warren 1.28 / Cathie
 3.21 / Peter 2.81 / Ray 1.96 over 9/13 weeks, the remaining 4 weeks
 limited by a one-time prod cap collision since fixed via the
-`cost_namespace` isolation in #132). The only remaining mocks are the
-Phase-D account demos (dashboard "My portfolio" positions + Social feed)
-and auth (see "Still mocked" below). **Phase D (Firebase Auth + F&F
-follows) is the next milestone.**
+`cost_namespace` isolation in #132). **Phase D shipped & deployed
+2026-06-18** (auth · single-follow + mirror · live positions · compounded
+account · public profiles + investor leaderboard · email notify + confirm
++ one-click unsubscribe · chat memory). The only remaining mock is the
+Social feed (labelled demo). **FCM web push was dropped — email is the
+sole notify channel.** Remaining: onboard 3 F&F users.
 
 ### Frontend (4 routes on Vercel)
 - **Marketplace** (`/`) — landing page = persona grid; click any card opens a slide-over detail sheet. Header logo is an inline SVG mosaic mark (coral / ink / sage tiles).
@@ -710,7 +712,10 @@ migrations/
                                     # 001 §5); applied
   013_follow_events.sql             # follow/unfollow audit log for the
                                     # account curve; applied
-  014_fcm_tokens.sql                # FCM web-push device tokens; pending apply
+  014_fcm_tokens.sql                # FCM web-push device tokens; applied but
+                                    # UNUSED (FCM dropped 2026-06-18 — email-only)
+  015_user_profile.sql              # users.nickname + is_public (public
+                                    # investor leaderboard); applied
 
 docs/                               # retros, ADRs, runbooks, Grafana JSON
 build-deck.js                       # generates the Tessera deck (.pptx files
@@ -726,7 +731,7 @@ build-deck.js                       # generates the Tessera deck (.pptx files
 | **A. Live data wiring** | 5 ingestors + feature builder + universe + Vercel Cron + daily orchestrator | **✅ Done 2026-05-18** — see Phase A retro below |
 | **B. Real LLM theses** (wk 2–3) | Wire `respond()` and report generation to Claude | **✅ Done 2026-06-05** — weekly v2 batch, live chat, reports/proposals UI |
 | **C. Paper execution** (wk 4–5) | Persona positions executed in paper; daily P&L attribution | **✅ Done 2026-06-14** — gateway full (VaR99/DD/Ray), paper engine live (NAV-conserving + hit_rate FIFO closed-lot), integrity gates (point-in-time + stale-data + adjusted-price policy), performance/portfolio UI real, attribution endpoint + UI table, weight telemetry, Sentry paging, **90d backtest baseline (#132)** with `cost_namespace` isolation. Edge-case quant work shipped: fy_end_month FCF anchor (#121), FCF staleness guard (#128), gross_margin_qtr_yoy (#133), fcf_yield_normalized (#134). |
-| **D. User auth + own portfolio** (wk 6) | Real user accounts following a persona on paper | 🟡 **Ready to start 2026-06-15** — Phase C carry-overs all closed (#132/#133/#134/#136). Scope: Firebase Auth + Google SSO, `users` table, follow CTA, `user_portfolios` + mirror engine, real dashboard positions, FCM push, onboard 3 F&F users. |
+| **D. User auth + own portfolio** (wk 6) | Real user accounts following a persona on paper | ✅ **Shipped & deployed 2026-06-18** — Firebase Auth + Google SSO, `users` table, single-follow CTA + mirror engine, live-projected dashboard positions, compounded since-first-follow account, public profiles + investor leaderboard (migration 015), email rebalance notify + confirmation + one-click unsubscribe, chat memory recall. **FCM web push dropped — email-only.** Remaining: onboard 3 F&F users. |
 | **E. Compliance review** (wk 6, parallel) | Securities-lawyer consult before any non-self user runs live | ⏳ Blocked on Phase D scope — needs a concrete cohort + product description for the brief |
 | **F. Live trading (optional)** (wk 7+) | Feature-flag flip; OAuth to user's Alpaca | ⏳ Blocked on E |
 
@@ -798,6 +803,7 @@ One-time: securities-lawyer consult (~$300) before Phase E.
 
 | Version | Date | Notes |
 |---|---|---|
+| 1.9 | 2026-06-18 | **Phase D shipped & deployed.** Public profiles + investor leaderboard (migration 015 `nickname`/`is_public`; `/api/me/profile`, `/api/leaderboard/users` PUBLIC; ranks by since-FIRST-follow return + persona metric set; nickname-only — never email/real name) (#173/#175/#178). Account value/return reconstructed from `follow_events` via `buildAccountIndex` (extracted to `lib/account-curve.ts`; metrics `lib/account-metrics.ts`) — NOT the reseed-on-switch `user_portfolios` row; chart axis = S&P ∪ persona dates so a same-day switch shows immediately (#175/#177, CS-19). Live-projected positions on read in `/api/me/portfolios` (#174). Email confirmation on enable + one-click HMAC unsubscribe (`lib/email.ts`, `lib/unsubscribe.ts`, `/api/unsubscribe`) on welcome **and** worker rebalance emails; `UNSUBSCRIBE_SECRET` on Vercel + Cloud Run (#176/#179). Worker redeployed: chat memory recall (#168) + reports same-day dedupe (#171) + `FEATURE_EMAIL_NOTIFY` on. **FCM web push DROPPED — email-only** (token never registered, iOS unsupported; the FCM scaffolding + migration 014 stay in the tree, unused). Bug: neon returns `date`/`timestamptz` as JS `Date` → server `.slice` 500, fixed `::text` at the SQL boundary (CS-18). Mobile: boards 3-col, persona board name-only. |
 | 0.1 | 2026-05-17 | Initial architecture: Vercel + Firebase + Cloud Run + Neon + Alpaca. PennyMaker brand. |
 | 0.2 | 2026-05-18 | Renamed PennyMaker → Tessera. Reflects current frontend-MVP state (4 personas with photos and ages, chat feature, dedicated how-it-works route, paper-only scope). Roadmap split into 6 phases. |
 | 0.3 | 2026-05-18 | Phase A complete. Monorepo (apps/web + apps/worker + packages/shared + migrations). Neon + Timescale + pgvector live. 5 ingestors (Alpaca, Coinbase, FRED, FMP, NewsAPI) + feature builder + daily orchestrator + Vercel Cron endpoint. 51-ticker universe. 13/13 property tests; SPY canary 0.49 bps vs Yahoo. File map and Phase A retro added; roadmap updated with status indicators. |

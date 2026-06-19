@@ -19,11 +19,12 @@ Monorepo: `apps/web` (Next.js 14 App Router, Vercel) · `apps/worker`
 (Python 3.11 FastAPI on Cloud Run `tessera-worker`, us-east1, project
 `tessera-498200`) · `packages/shared` (Pydantic schemas) ·
 `migrations/` (plain SQL → Neon Postgres + Timescale + pgvector,
-**001–014 applied to prod (012 = additive `users` ALTER; 013 =
-`follow_events`; 014 = `fcm_tokens`). users/user_portfolios already
+**001–015 applied to prod (012 = additive `users` ALTER; 013 =
+`follow_events`; 014 = `fcm_tokens`, now unused — FCM dropped; 015 =
+`users.nickname` + `is_public`). users/user_portfolios already
 exist from 001 §5**).
 
-## 2. State as of 2026-06-16 — 🏁 **Phase C CLOSED · Phase D feature-complete (F&F onboarding left)**
+## 2. State as of 2026-06-18 — 🏁 **Phase C CLOSED · Phase D shipped & deployed (only F&F onboarding left)**
 
 Phase C acceptance 4/4 green (see Plan.md §5). 90-day baseline ran
 2026-06-14: Warren Sharpe 1.28 (matches expected ~1.3), Cathie 3.21,
@@ -50,12 +51,53 @@ all closed before Phase D opens:
     2026-06-14 baseline's 6-of-9-cells Tech-cap failures were the
     proximate trigger.
 
-**Phase D (§6) FEATURE-COMPLETE**: Firebase Auth + Google SSO, `users`
+**Phase D (§6) SHIPPED & DEPLOYED**: Firebase Auth + Google SSO, `users`
 table, single-follow CTA, `user_portfolios` + mirror engine, real
-dashboard + account curve, FCM + email rebalance notify, chat memory
-recall — all shipped (bullets below). **Only F&F onboarding (ops) and
-turning the notification channels on (operator: VAPID/IAM/RESEND, runbook
-§5/§6) remain.** Runs alongside Phase E (lawyer consult).
+dashboard + account curve, **public profiles + investor leaderboard**,
+**email rebalance notify + confirmation email + one-click unsubscribe**,
+chat memory recall — all live (bullets below). Worker redeployed
+2026-06-18 (chat memory #168 + reports dedupe #171 + email channel on +
+`UNSUBSCRIBE_SECRET` on Vercel **and** Cloud Run). **FCM web push DROPPED
+— email is the sole notify channel** (product decision 2026-06-18: token
+never registered, iOS can't do web push anyway, email is reliable +
+covers everyone). **Only F&F onboarding (ops) remains.** Runs alongside
+Phase E (lawyer consult).
+
+  - **Public profiles + investor leaderboard shipped** (2026-06-18,
+    #173/#175/#178): migration `015` adds `users.nickname` + `users.is_public`
+    (default true). `/api/me/profile` (GET/PUT, token) sets nickname +
+    public/private; `/api/leaderboard/users` (PUBLIC, no auth) ranks public
+    users by **since-FIRST-follow** return + the persona-board metric set
+    (1y/90d/Sharpe30d/MDD30d, blank until old enough). Exposes ONLY a
+    nickname (else "Anonymous") + returns + current persona — never email
+    or the Google display_name. `force-dynamic` + `no-store` so profile
+    edits sync live. Mobile: boards collapse to 3 cols (#, name, return);
+    persona board is name-only (avatar + archetype dropped).
+  - **Compounded account value/return** (2026-06-18, #175/#177): the
+    dashboard headline value/return + the leaderboard are reconstructed
+    from `follow_events` via `buildAccountIndex` (extracted into
+    `lib/account-curve.ts`; metrics in `lib/account-metrics.ts`), NOT the
+    per-persona `user_portfolios` row (which reseeds to $100K on a switch
+    and would drop the prior analyst's P&L → showed the new one at ~0%).
+    The account is ONE $100K book compounded across every follow + switch.
+    Account-curve **axis = S&P window ∪ persona snapshot dates** so a
+    follow/switch made "today" shows immediately even when the S&P feed
+    lags a day (CS-19).
+  - **Live follower positions on read** (2026-06-18, #174):
+    `/api/me/portfolios` projects each follow's positions at request time
+    from the persona's latest book re-priced at the freshest ohlcv close
+    (same weight projection as the nightly mirror) → follow/switch shows
+    the mirrored book immediately, no nightly wait.
+  - **Email confirmation + one-click unsubscribe** (2026-06-18,
+    #176/#179): enabling Email alerts sends a confirmation email every
+    time (`lib/email.ts`, Resend HTTP via Edge) and the toggle shows the
+    real send result ("✓ Email sent to j***@…" / "Couldn't send"). Both
+    the welcome and the worker rebalance emails carry a **one-click
+    unsubscribe** link — HMAC-SHA256 over the user id, minted identically
+    on web (`lib/unsubscribe.ts`, `crypto.subtle`) and worker
+    (`notify/email.py`, `hmac`), verified by `/api/unsubscribe` (public,
+    fail-closed). Shared `UNSUBSCRIBE_SECRET` set on **both** Vercel and
+    Cloud Run. Recipient = `users.email` collected at auth.
 
   - **Auth scaffolding shipped** (2026-06-16): `firebase` client SDK +
     `lib/firebase/client.ts` (lazy, env-gated) + `auth-context.tsx`
@@ -98,32 +140,33 @@ turning the notification channels on (operator: VAPID/IAM/RESEND, runbook
     `lib/account-curve.ts` — flat (grey) in cash, tracking each persona's
     book while followed, **recoloured at every follow/unfollow**, S&P 500
     always drawn. Replaces the per-persona since-follow curve.
-  - **FCM push shipped** (2026-06-16): web "Enable notifications" toggle →
-    `getToken(VAPID)` → `/api/me/fcm-token` (`fcm_tokens`, migration 014) +
-    `public/firebase-messaging-sw.js`; worker `notify/fcm.py` pushes
-    followers on rebalance from `persona_batch` (best-effort, never breaks
-    the batch). **Keyless send**: worker SA OAuth from the Cloud Run
-    metadata server → FCM v1; needs the SA granted
-    `roles/firebasecloudmessaging.admin` on `tessera-641a5` + flags
-    `FEATURE_FCM_PUSH=true` (worker) + `NEXT_PUBLIC_FIREBASE_VAPID_KEY` /
-    `_MESSAGING_SENDER_ID` (Vercel). Ships dark until then. Runbook §5.
-  - **Email notify shipped** (2026-06-16): `notify/email.py` emails a
-    persona's followers (via `users.email`) on rebalance, in PARALLEL with
-    FCM — `persona_batch._notify_followers` fires both, each isolated.
-    Resend HTTP API; gated on `FEATURE_EMAIL_NOTIFY` + `RESEND_API_KEY`
-    (+ `EMAIL_FROM`). Ships dark. Runbook §6. (Email is the iOS / opt-out
-    fallback web push can't reach.) **Per-user opt-out**: dashboard
-    "Email alerts" switch → `/api/me/preferences` writes
-    `users.preferences.email_notify`; the worker query skips users with
-    it set `false` (default ON).
-  - **Chat memory recall shipped** (2026-06-16, #168): `agents/chat.py`
-    `_build_memory_block` recalls the persona's OWN past theses from
-    `persona_memory` (pgvector cosine to the user message, cross-ticker;
-    recency fallback), injected as a "things you've written before —
-    reference, don't fabricate" block. Logs `chat.memory_recall
-    strategy=similarity|recency`. (Was the last deferred Phase-D item.)
-  - **NOT yet wired**: onboard 3 F&F users (ops); FCM/email channels need
-    the operator to set VAPID/IAM/RESEND + redeploy (runbook §5/§6).
+  - **FCM web push DROPPED** (2026-06-18): the `notify/fcm.py` +
+    `firebase-messaging-sw.js` + `fcm_tokens` (migration 014) scaffolding
+    still exists in the tree but is **not the notify channel** — the token
+    never registered (`fcm_tokens` stayed 0), iOS can't do web push, and
+    email reaches everyone. Product decision: **email-only**. Leave
+    `FEATURE_FCM_PUSH` off; don't invest in the FCM path unless that
+    changes.
+  - **Email notify LIVE** (2026-06-18): `notify/email.py` emails a persona's
+    followers (via `users.email`) on rebalance. Resend HTTP API; gated on
+    `FEATURE_EMAIL_NOTIFY=true` + `RESEND_API_KEY` (+ `EMAIL_FROM`) — all
+    set, worker redeployed. **Per-user opt-out**: dashboard "Email alerts"
+    switch → `/api/me/preferences` writes `users.preferences.email_notify`
+    (default ON); the worker query skips `false`. Enabling sends a
+    confirmation email + the toggle reports the real send result; every
+    email carries the one-click unsubscribe link (see profiles bullet
+    above). **Resend sandbox sender (`onboarding@resend.dev`) only delivers
+    to the Resend account-owner email** — set a verified-domain `EMAIL_FROM`
+    on Vercel before emailing other F&F users.
+  - **Chat memory recall LIVE** (2026-06-16, #168; deployed 2026-06-18):
+    `agents/chat.py` `_build_memory_block` recalls the persona's OWN past
+    theses from `persona_memory` (pgvector cosine to the user message,
+    cross-ticker; recency fallback), injected as a "things you've written
+    before — reference, don't fabricate" block. Logs `chat.memory_recall
+    strategy=similarity|recency`.
+  - **NOT yet done**: onboard 3 F&F users (ops). (Optional: set a
+    verified-domain `EMAIL_FROM` so rebalance/welcome emails deliver beyond
+    the Resend account owner.)
 
 Prior state snapshot (pre-closure):
 
@@ -200,7 +243,13 @@ Everything below is LIVE in prod unless marked otherwise:
   docs sync → #139 deploy `-ImageTag` normalize (bare/full) + Jobs
   cmd echo → #143 advisory-lock `conn.commit()` root-cause (CS-14) →
   #144 fcf_yield_normalized loader form/fp + cap 8→24 (CS-15, norm
-  1→38).
+  1→38) → #170 Tailwind `lib/` content (CS-17) → #171 reports same-day
+  dedupe → #172 docs sync → #173 public profiles + investor leaderboard
+  (migration 015) → #174 live follower positions on read → #175
+  compounded since-first-follow return → #176 email confirm + one-click
+  unsubscribe → #177 account-curve axis = S&P ∪ persona (CS-19) → #178
+  leaderboard 500 neon-Date `::text` + mobile boards (CS-18) → #179
+  "Email sent" feedback.
 
 ## 3. Hard invariants (each from a real incident — don't relearn them)
 
@@ -298,6 +347,24 @@ Everything below is LIVE in prod unless marked otherwise:
   refactor that removes the duplicate silently drops the class for the
   rarest value (Ray/plum). Prefer inline `style={{background: hex}}` for
   per-value colors.
+- **The neon driver returns `date`/`timestamptz` as JS `Date`, not
+  string** (CS-18). `@neondatabase/serverless` parses temporal columns to
+  `Date` objects. Code that worked on the CLIENT (where dates arrive as
+  JSON strings) throws on the SERVER when it does string ops on them
+  (`buildAccountIndex` did `ts.slice(0,10)` → `.slice` is not a function →
+  route 500). When a SQL value feeds a pure function server-side, fix the
+  type at the boundary: `SELECT col::text`. Corollary: a fetch must
+  resolve its loading state on `!res.ok` too, or a 500 becomes an infinite
+  spinner.
+- **Account/portfolio "cumulative" numbers are reconstructed from
+  `follow_events`, never read off the current `user_portfolios` row**
+  (CS-19). Single-follow reseeds the row to $100K on a switch, so the row
+  is "since the current follow" only; the account is ONE $100K book
+  compounded across switches → `buildAccountIndex` over the event log is
+  the source of truth for the dashboard headline + the leaderboard. And a
+  reconstructed view's date axis is the UNION of all source dates (S&P ∪
+  persona), never just the laggiest feed — else a switch made "today" is
+  invisible until the slow feed catches up.
 
 ## 4. Commands (Windows / PowerShell)
 
@@ -350,6 +417,13 @@ batch day only), `/api/performance/{p}` (curve + hypothetical flags),
 (?period=mtd|7d|30d), `/api/features/{t}`, `/api/prices/{t}`,
 `/api/chat/{p}` (SSE), `/jobs/ingest-daily`, `/jobs/persona-batch`.
 
+USER-layer web Edge routes (web→Neon direct, token-verified unless noted;
+NOT proxied to the worker): `/api/auth/sync`, `/api/follow`,
+`/api/me/portfolios` (live-projected positions), `/api/me/timeline`,
+`/api/me/profile` (nickname + public/private), `/api/me/preferences`
+(email opt-out + sends the confirmation email), `/api/leaderboard/users`
+(PUBLIC, since-first-follow ranks), `/api/unsubscribe` (PUBLIC, HMAC).
+
 Key tables: `ohlcv_1d`, `ticker_features` (the only numbers LLMs see;
 `fcf_yield` / `fcf_yield_normalized` / `gross_margin_qtr_yoy_chg` /
 `market_cap_usd` / `peg` / etc.), `fundamentals` (JSONB, 3-tier merged
@@ -357,7 +431,10 @@ across FMP / EDGAR XBRL / yfinance / fmp_key_metrics), `analyst_reports`
 (parsed book JSONB; `rejected` flag), `persona_trades/portfolios/
 performance` (+ `hypothetical` flag), `llm_call_log` (+ `cost_namespace`
 for baseline isolation), `persona_memory` (pgvector),
-`cross_source_disagreements` (mcap candidate spread audit).
+`cross_source_disagreements` (mcap candidate spread audit), `users`
+(`email` / `nickname` / `is_public` / `preferences.email_notify`),
+`user_portfolios` (the follow row), `follow_events` (follow/unfollow log
+— source for account reconstruction).
 
 ## 6. Process rules (violations have burned us)
 

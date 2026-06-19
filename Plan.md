@@ -9,7 +9,7 @@
 
 ## 0. Where we are today (baseline)
 
-**Phase A + B + C complete; Phase D ready to start.** ✅ Updated 2026-06-15.
+**Phase A + B + C complete; Phase D shipped & deployed — only F&F onboarding left.** ✅ Updated 2026-06-18.
 
 **Phase C closed 2026-06-14, 4/4 acceptance green** (§5 Acceptance):
 Warren Sharpe 1.28 / Cathie 3.21 / Peter 2.81 / Ray 1.96 from the
@@ -984,6 +984,20 @@ distilled rules:
 
 **Goal**: 3 friends-and-family users sign up, each follows a persona on their own paper account.
 
+> **STATUS 2026-06-18 — SHIPPED & DEPLOYED. Only F&F onboarding (ops) left.**
+> Auth (Google SSO) · single-follow + mirror engine · live-projected
+> positions · compounded since-first-follow account value/return · public
+> profiles (nickname, public/private) + investor leaderboard · email
+> rebalance notify + confirmation email + one-click unsubscribe · chat
+> memory recall — all live. Worker redeployed (#168 chat memory, #171
+> reports dedupe, email channel on, `UNSUBSCRIBE_SECRET` on Vercel +
+> Cloud Run). **FCM web push DROPPED — email-only** (token never
+> registered; iOS can't web-push; email covers everyone). PR trail
+> #173–#179. Lessons → §5 / case-studies CS-18 (neon Date `::text`),
+> CS-19 (axis = S&P ∪ persona; reconstruct cumulative from events).
+> Remaining: onboard 3 F&F users; optional verified-domain `EMAIL_FROM`
+> so email delivers beyond the Resend account owner.
+
 ### Tasks
 - [x] **Firebase Auth**: Google SSO. **Live 2026-06-16.** Client
   scaffolding (`firebase` SDK + `lib/firebase/client.ts` + `auth-context`)
@@ -1267,4 +1281,5 @@ Each of these could be a future phase. Keeping them out of pilot scope is the di
 | 0.6 | 2026-06-12 | **Phase C Week 4 core live.** Audit Steps 1–2 landed (#93: CI ruff-0 + pytest gate, gitleaks pre-commit, ingest advisory lock, chat abuse guards + chat budget pool, nightly SPY canary step, `--no-cpu-throttling`). Risk gateway (#94) inside construction retry loop. PaperEngine v1 (#95) + `FEATURE_PAPER_EXECUTION=true` (#96) — Week-4 ledger tasks (engine / order ledger / MTM / performance writer) marked done, LISTEN/NOTIFY dropped for the simpler daily-step design. §0 baseline rewritten. `CLAUDE.md` added. |
 | 0.8 | 2026-06-12 | **Phase C risk/analytics layer complete (#105–#108, deployed same day).** Gateway gains parametric VaR99 (calibrated per persona) + drawdown floor (live track only) + Ray's regime gate; weight-distribution telemetry as canary check 6 (§11 mode-collapse tripwire); ticker-level attribution (`/api/attribution`, contributions sum to period return); paper-engine failures now page via explicit Sentry capture + operator alert rule. Live smoke caught warren/cathie's pre-#94 books over SECTOR caps — Friday's batch re-shapes them via retry feedback. Remaining in Phase C: 90d backtest baseline, attribution UI table, quant edge cases; tech debt: Cloud Run Jobs, mypy ledger. |
 | 0.7 | 2026-06-12 | **Audit Step 4 — docs closed out.** Frozen-book 1y backfill run on prod (#100, 251 days × 4 personas, seam exact); frontend performance/portfolio swap shipped (#103, `lib/mock/performance.ts` deleted, hypothetical segments dashed + captioned); Week-5 leaderboard/chart tasks marked done. Retro policy decided: per-phase "Lessons" subsections live INSIDE this file (§4 gains Phase B's 7 lessons; no separate retro files). `CLAUDE.md` rewritten as a zero-context AI operator handbook. Decks moved to local-only `decks/` (gitignored). mypy CI-blocking via pyproject debt ledger (#99). |
+| 1.0 | 2026-06-18 | **Phase D SHIPPED & DEPLOYED — only F&F onboarding left.** Public profiles + investor leaderboard (migration 015 `nickname`/`is_public`; since-FIRST-follow ranks + persona metric set; nickname-only, never email/real name) (#173/#175/#178); compounded account value/return reconstructed from `follow_events` via `buildAccountIndex`, not the reseed-on-switch `user_portfolios` row, axis = S&P ∪ persona dates (#175/#177); live-projected follower positions on read (#174); email confirmation + one-click HMAC unsubscribe on welcome **and** worker rebalance emails, `UNSUBSCRIBE_SECRET` on Vercel + Cloud Run (#176/#179); "Email sent" toggle feedback. Worker redeployed: chat memory recall (#168) + reports same-day dedupe (#171) + `FEATURE_EMAIL_NOTIFY` on. **FCM web push DROPPED — email-only** (token never registered, iOS unsupported). Case studies **CS-18** (neon returns `date`/`timestamptz` as JS `Date` → server-side `.slice` 500, fix `::text` at the SQL boundary + resolve loading on `!res.ok`) and **CS-19** (chart axis bound to the laggiest feed hid a same-day switch; cumulative metrics must reconstruct from the event log, not the reseeded row). Mobile: leaderboards 3-col + persona board name-only. |
 | 0.9 | 2026-06-15 | **Phase C CLOSED, Phase D ready.** 90-day baseline ran 2026-06-14 (Warren 1.28 / Cathie 3.21 / Peter 2.81 / Ray 1.96, all positive + mandate-ordered). Phase C closure (#131) + the four carry-overs landed: `cost_namespace` baseline↔prod cap isolation (#132), quarterly `gross_margin_qtr_yoy_chg` (#133), `fcf_yield_normalized` (#134), Cathie full-shortlist hotfix (#136). Migrations 008–011 applied to prod. Docs synced to Phase-D-ready (#137). §5 Lessons gain #11–#12 from the 06-15 deploy chaos: **CS-14** advisory-lock idle-in-transaction → Job exit 1 on a green run, fixed by `conn.commit()` after acquire + suppressed unlock (#140/#143); **CS-15** `fcf_yield_normalized` populated 1/59 because the loader's `cash_rows` lacked `form`/`fp` (EDGAR annual marker) + an 8-row cap, fixed via `cash_sql` form/fp + cap 8→24, norm 1→38 (#144); deploy `-ImageTag` bare-tag footgun normalized (#139). 283 worker tests. |
