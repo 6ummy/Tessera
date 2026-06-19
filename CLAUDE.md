@@ -132,7 +132,9 @@ Phase E (lawyer consult).
     /api/me/portfolios` (Edge, token-verified) reads `user_portfolios`;
     `/dashboard` portfolio tab renders real follows (multi-follow persona
     selector, positions table, tiles) with sign-in / no-follows empty
-    states. Hardcoded `peter` mock gone. Social feed stays a labelled demo.
+    states. Hardcoded `peter` mock gone. (Social tab — a labelled mock —
+    DEACTIVATED 2026-06-19; dashboard now ships only My portfolio +
+    Leaderboard. Real social/forking is post-launch.)
   - **Account curve** (2026-06-16): `follow_events` (migration 013) logs
     every follow/unfollow (best-effort write from `/api/follow`, never
     fails the follow); `GET /api/me/timeline` returns them; the dashboard
@@ -195,7 +197,8 @@ Everything below is LIVE in prod unless marked otherwise:
 - **Frontend**: all real — reports/proposals/chat (since 06-05),
   performance/portfolio (since 06-12, mock deleted). Dashboard "My
   portfolio" is now real (follows via `/api/me/portfolios`, 06-16).
-  Remaining mock: the Social tab only (Phase-D demo, labelled). Auth is
+  No mocks left — the Social tab (last labelled demo) was DEACTIVATED
+  2026-06-19; the dashboard ships only My portfolio + Leaderboard. Auth is
   LIVE in prod (Firebase project `tessera-641a5`, Google SSO, 06-16);
   the "jshin" pilot chip is the fallback only when `NEXT_PUBLIC_FIREBASE_*`
   is unset (local/unconfigured).
