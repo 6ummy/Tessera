@@ -84,7 +84,7 @@ def backfill_yahoo(years: int = 20) -> None:
     `source='yahoo'` so they don't get confused with Alpaca's IEX data.
     """
     try:
-        import yfinance as yf  # type: ignore[import-not-found]
+        import yfinance as yf  # type: ignore[import-untyped]
     except ImportError:
         log.error("backfill.yahoo.missing_dep",
                   hint="pip install yfinance")

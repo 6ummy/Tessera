@@ -42,6 +42,7 @@ from datetime import date, timedelta
 from uuid import UUID, uuid4
 
 from sqlalchemy import text
+from sqlalchemy.orm import Session
 
 from tessera_worker.db import session_scope
 from tessera_worker.logging import get_logger
@@ -50,7 +51,7 @@ log = get_logger(__name__)
 
 # Force UTF-8 stdout so summary tables don't crash on Windows cp1252.
 with contextlib.suppress(AttributeError):
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
 
 
 @dataclass
@@ -75,7 +76,7 @@ class RunResult:
 def trading_days(end: date, n: int) -> list[date]:
     """Last `n` weekdays ending at `end` (skip Sat/Sun — no calendar API needed
     for a sub-month window)."""
-    out = []
+    out: list[date] = []
     d = end
     while len(out) < n:
         if d.weekday() < 5:  # Mon-Fri
@@ -85,7 +86,7 @@ def trading_days(end: date, n: int) -> list[date]:
 
 
 def persist_backtest_row(
-    session, *, run_id: UUID, replay_as_of: date,
+    session: Session, *, run_id: UUID, replay_as_of: date,
     persona_id: str, as_of_date: date, inputs_hash: str,
     raw_response: str, parsed_json: str | None, model: str,
     tokens_in: int, tokens_out: int, cost_usd: float,
@@ -120,7 +121,7 @@ def persist_backtest_row(
 
 
 def run_one(
-    session, *, run_id: UUID, replay_as_of: date,
+    session: Session, *, run_id: UUID, replay_as_of: date,
     persona: str, ticker: str, dry_run: bool,
     result: RunResult,
 ) -> None:
