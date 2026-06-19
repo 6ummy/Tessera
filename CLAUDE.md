@@ -506,13 +506,12 @@ for baseline isolation), `persona_memory` (pgvector),
 
 1. **90-day point-in-time backtest baseline** — credibility anchor;
    harness exists (`jobs/backtest_harness.py`), ~$10–20 LLM. Plan §5 Week 5.
-2. **mypy ledger burn-down** — 5 modules left. Burned: `features/compute.py`
-   + `agents/anthropic_runner.py` + `agents/prompt_assembler.py`
-   (2026-06-14); `agents.portfolio_construction` + `agents.ticker_resolver`
-   + `agents.chat` (2026-06-16, #148); the 4 demo modules (2026-06-16, #169
-   — stdout.reconfigure stub gap, read_sql params cast, PERSONA: PersonaId).
-   Remaining: the ingestors.* glob + the 4 jobs (hallucination_canary,
-   persona_batch, backtest_harness, backfill_history).
+2. **mypy ledger burn-down — ✅ DONE 2026-06-19.** The ignore_errors ledger
+   is fully burned; every module (53 files) is mypy strict-clean and there is
+   no override left. Final two PRs: the 4 jobs (#182) + the ingestors.* glob
+   (53 errors — bare dict/list generics → `dict[str, Any]`, `session: Session`,
+   no-any-return `cast(...)`, yfinance/google.cloud `import-untyped` ignores,
+   tuple-key annotations). Keep new modules strict-clean (CI is blocking).
 3. **hit_rate** (needs closed-lot tracking) · quarterly margin series
    ingest (low) · §10 weight-authority decision once a few weeks of
    `canary.weight_telemetry` accumulate. Phase D feature-complete (auth /

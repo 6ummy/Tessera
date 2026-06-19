@@ -38,6 +38,7 @@ import time
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import text
 
@@ -73,7 +74,7 @@ def _to_yahoo_symbol(ticker: str) -> str:
     return ticker.replace(".", "-")
 
 
-def _pick_label(df, labels: tuple[str, ...]):
+def _pick_label(df: Any, labels: tuple[str, ...]) -> Any:
     """Return the row for the first matching label, or None."""
     for lbl in labels:
         if lbl in df.index:
@@ -81,7 +82,7 @@ def _pick_label(df, labels: tuple[str, ...]):
     return None
 
 
-def _safe_float(v) -> float | None:
+def _safe_float(v: Any) -> float | None:
     try:
         f = float(v)
     except (TypeError, ValueError):
@@ -92,14 +93,14 @@ def _safe_float(v) -> float | None:
     return f
 
 
-def _fetch_one(ticker: str) -> list[dict] | None:
+def _fetch_one(ticker: str) -> list[dict[str, Any]] | None:
     """Pull 4 annual periods of income statement for one ticker.
 
     Returns a list of `{fy_end, epsDiluted, revenue, grossProfit,
     operatingIncome}` dicts, newest first. None on hard failure.
     """
     try:
-        import yfinance as yf  # type: ignore[import-not-found]
+        import yfinance as yf  # type: ignore[import-untyped]
     except ImportError:
         log.error("yf_history.yfinance_not_installed",
                   hint="pip install yfinance")
@@ -123,7 +124,7 @@ def _fetch_one(ticker: str) -> list[dict] | None:
     operating_income_row = _pick_label(df, OPERATING_INCOME_LABELS)
 
     # Columns of df are Timestamps (fiscal-year ends) in descending order.
-    out: list[dict] = []
+    out: list[dict[str, Any]] = []
     for col in df.columns:
         try:
             fy_end = col.date() if hasattr(col, "date") else col
@@ -153,7 +154,7 @@ def _fetch_one(ticker: str) -> list[dict] | None:
     return out or None
 
 
-def _upsert(rows: list[dict]) -> int:
+def _upsert(rows: list[dict[str, Any]]) -> int:
     if not rows:
         return 0
     # JSONB merge: if EDGAR or FMP already wrote a row for this fy_end,
@@ -202,7 +203,7 @@ def ingest(tickers: Iterable[str]) -> IngestResult:
     started = datetime.now()
     log.info("yf_history.start", n_tickers=len(tickers_list))
 
-    rows: list[dict] = []
+    rows: list[dict[str, Any]] = []
     no_data: list[str] = []
 
     for tk in tickers_list:

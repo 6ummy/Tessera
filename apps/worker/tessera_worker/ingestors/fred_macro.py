@@ -11,6 +11,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date, datetime
+from typing import Any, cast
 
 import httpx
 from sqlalchemy import text
@@ -94,7 +95,7 @@ class IngestResult:
     wait=wait_exponential(multiplier=1, min=2, max=10),
     reraise=True,
 )
-def _fetch_series(series_id: str, start: date | None = None) -> list[dict]:
+def _fetch_series(series_id: str, start: date | None = None) -> list[dict[str, Any]]:
     s = get_settings()
     params: dict[str, str | int] = {
         "series_id": series_id,
@@ -105,10 +106,10 @@ def _fetch_series(series_id: str, start: date | None = None) -> list[dict]:
         params["observation_start"] = start.isoformat()
     r = httpx.get(API, params=params, timeout=15)
     r.raise_for_status()
-    return r.json().get("observations", [])
+    return cast("list[dict[str, Any]]", r.json().get("observations", []))
 
 
-def _upsert(rows: list[dict]) -> int:
+def _upsert(rows: list[dict[str, Any]]) -> int:
     if not rows:
         return 0
     sql = text("""
@@ -134,13 +135,13 @@ def ingest(
     started = datetime.now()
     log.info("fred.start", n=len(series_list), start=str(start) if start else "full")
 
-    rows: list[dict] = []
+    rows: list[dict[str, Any]] = []
     for series_id, _desc in series_list:
         obs = _fetch_series(series_id, start=start)
         for o in obs:
             # FRED uses "." sentinel for missing observations
             val_raw = o.get("value")
-            if val_raw in (".", "", None):
+            if val_raw is None or val_raw in (".", ""):
                 continue
             try:
                 val = float(val_raw)

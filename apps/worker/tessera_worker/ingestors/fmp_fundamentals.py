@@ -17,7 +17,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date, datetime
-from typing import Literal
+from typing import Any, Literal
 
 import httpx
 from sqlalchemy import text
@@ -55,7 +55,7 @@ class IngestResult:
     wait=wait_exponential(multiplier=1, min=2, max=10),
     reraise=True,
 )
-def _fetch(filing_type: FilingType, ticker: str, period: str, limit: int) -> list[dict]:
+def _fetch(filing_type: FilingType, ticker: str, period: str, limit: int) -> list[dict[str, Any]]:
     s = get_settings()
     endpoint = _ENDPOINT_BY_TYPE[filing_type]
     r = httpx.get(
@@ -73,7 +73,9 @@ def _fetch(filing_type: FilingType, ticker: str, period: str, limit: int) -> lis
     return data if isinstance(data, list) else []
 
 
-def _row_for(ticker: str, filing_type: FilingType, payload: dict) -> dict | None:
+def _row_for(
+    ticker: str, filing_type: FilingType, payload: dict[str, Any],
+) -> dict[str, Any] | None:
     # FMP payload always carries `date` (period end). Skip if missing.
     period_end = payload.get("date")
     if not period_end:
@@ -90,7 +92,7 @@ def _row_for(ticker: str, filing_type: FilingType, payload: dict) -> dict | None
     }
 
 
-def _upsert(rows: list[dict]) -> int:
+def _upsert(rows: list[dict[str, Any]]) -> int:
     if not rows:
         return 0
     sql = text("""
@@ -100,7 +102,7 @@ def _upsert(rows: list[dict]) -> int:
             payload = EXCLUDED.payload,
             fetched_at = NOW()
     """)
-    # psycopg requires dict→jsonb to go through json.dumps
+    # psycopg requires dict[str, Any]→jsonb to go through json.dumps
     import json
     chunk = 200
     written = 0
@@ -129,7 +131,7 @@ def ingest(
              types=filing_types)
 
     requests_made = 0
-    rows: list[dict] = []
+    rows: list[dict[str, Any]] = []
     for ticker in tickers:
         for ft in filing_types:
             try:

@@ -37,6 +37,7 @@ import json
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
+from typing import Any, cast
 
 import httpx
 from sqlalchemy import text
@@ -65,8 +66,8 @@ class IngestResult:
 @retry(stop=stop_after_attempt(3),
        wait=wait_exponential(multiplier=1, min=2, max=10),
        reraise=True)
-def _fetch_one(ticker: str) -> dict | None:
-    """Returns the first (and typically only) TTM-metrics dict for a
+def _fetch_one(ticker: str) -> dict[str, Any] | None:
+    """Returns the first (and typically only) TTM-metrics dict[str, Any] for a
     ticker, or None if FMP has no entry. Network errors propagate via
     tenacity's retry."""
     s = get_settings()
@@ -83,10 +84,10 @@ def _fetch_one(ticker: str) -> dict | None:
     data = r.json()
     if not isinstance(data, list) or not data:
         return None
-    return data[0]
+    return cast("dict[str, Any]", data[0])
 
 
-def _upsert(rows: list[dict]) -> int:
+def _upsert(rows: list[dict[str, Any]]) -> int:
     if not rows:
         return 0
     # JSONB merge: this ingestor is the authoritative source for the
@@ -119,7 +120,7 @@ def ingest(tickers: Iterable[str] | None = None) -> IngestResult:
     log.info("fmp_key_metrics.start", n_tickers=len(tickers_list))
 
     period_end = date.today() - timedelta(days=1)
-    rows: list[dict] = []
+    rows: list[dict[str, Any]] = []
     no_data: list[str] = []
 
     for tk in tickers_list:
@@ -175,7 +176,7 @@ def ingest(tickers: Iterable[str] | None = None) -> IngestResult:
     return result
 
 
-def _safe_float(v) -> float | None:
+def _safe_float(v: Any) -> float | None:
     if v is None:
         return None
     try:

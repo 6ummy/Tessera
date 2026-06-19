@@ -129,12 +129,11 @@ ignore_missing_imports = true
 #   - the 4 jobs (hallucination_canary, persona_batch, backtest_harness,
 #     backfill_history) (2026-06-19 — 25 errors: bare dict/list generics,
 #     no-untyped-def on `session`/helpers, BatchResult.bump int|float).
-# 1 module remains: the ingestors.* glob.
-[[tool.mypy.overrides]]
-module = [
-    "tessera_worker.ingestors.*",
-]
-ignore_errors = true
+#   - the ingestors.* glob (2026-06-19 — 53 errors across 10 files: bare
+#     dict/list generics, no-untyped-def on `session`/helpers, no-any-return
+#     widening, yfinance/SDK import-untyped ignores).
+# LEDGER FULLY BURNED — every module is mypy strict-clean. There is no
+# ignore_errors override left; keep it that way (new modules strict-clean).
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

@@ -14,6 +14,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
+from typing import Any, cast
 
 import httpx
 from sqlalchemy import text
@@ -66,7 +67,7 @@ def _fetch_window(pair: str, start: datetime, end: datetime) -> list[list[float]
         headers={"User-Agent": "tessera-worker/0.1"},
     )
     r.raise_for_status()
-    return r.json()
+    return cast("list[list[float]]", r.json())
 
 
 def _fetch_pair(pair: str, start: date, end: date) -> list[list[float]]:
@@ -82,7 +83,7 @@ def _fetch_pair(pair: str, start: date, end: date) -> list[list[float]]:
     return all_rows
 
 
-def _upsert(rows: list[dict]) -> int:
+def _upsert(rows: list[dict[str, Any]]) -> int:
     if not rows:
         return 0
     sql = text("""
@@ -114,7 +115,7 @@ def ingest(
 
     log.info("coinbase_eod.start", pairs=pairs, start=str(start), end=str(end))
 
-    rows: list[dict] = []
+    rows: list[dict[str, Any]] = []
     for pair in pairs:
         raw = _fetch_pair(pair, start, end)
         for r in raw:

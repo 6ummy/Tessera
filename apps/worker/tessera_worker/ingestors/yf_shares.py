@@ -26,6 +26,7 @@ import json
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import date, datetime
+from typing import Any
 
 from sqlalchemy import text
 
@@ -54,7 +55,7 @@ def _to_yahoo_symbol(ticker: str) -> str:
     return ticker.replace(".", "-")
 
 
-def _fetch_one(ticker: str) -> dict | None:
+def _fetch_one(ticker: str) -> dict[str, Any] | None:
     """Return {sharesOutstanding, marketCap} from yfinance, or None on failure.
 
     yfinance's `Ticker.info` is the property that hits Yahoo's quote-summary
@@ -63,7 +64,7 @@ def _fetch_one(ticker: str) -> dict | None:
     transient HTTP issues and we'd rather skip a name than abort the batch.
     """
     try:
-        import yfinance as yf  # type: ignore[import-not-found]
+        import yfinance as yf  # type: ignore[import-untyped]
     except ImportError:
         log.error("yf_shares.yfinance_not_installed",
                   hint="pip install yfinance")
@@ -105,7 +106,7 @@ def _fetch_one(ticker: str) -> dict | None:
     }
 
 
-def _upsert(rows: list[dict]) -> int:
+def _upsert(rows: list[dict[str, Any]]) -> int:
     if not rows:
         return 0
     # JSONB-merge so a re-run today refreshes shares without dropping any
@@ -154,7 +155,7 @@ def ingest(tickers: Iterable[str]) -> IngestResult:
     log.info("yf_shares.start", n_tickers=len(tickers_list))
 
     today = date.today()
-    rows: list[dict] = []
+    rows: list[dict[str, Any]] = []
     no_data: list[str] = []
 
     for tk in tickers_list:
