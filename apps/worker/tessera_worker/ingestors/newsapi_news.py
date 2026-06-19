@@ -15,6 +15,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
+from typing import Any, cast
 from uuid import uuid4
 
 import httpx
@@ -45,7 +46,7 @@ class IngestResult:
     wait=wait_exponential(multiplier=1, min=2, max=10),
     reraise=True,
 )
-def _fetch(query: str, since_iso: str, page_size: int = 25) -> list[dict]:
+def _fetch(query: str, since_iso: str, page_size: int = 25) -> list[dict[str, Any]]:
     s = get_settings()
     r = httpx.get(
         API,
@@ -64,7 +65,7 @@ def _fetch(query: str, since_iso: str, page_size: int = 25) -> list[dict]:
     if body.get("status") != "ok":
         # NewsAPI returns status=error with message in body — surface it
         raise RuntimeError(f"NewsAPI error: {body.get('code')} {body.get('message')}")
-    return body.get("articles", [])
+    return cast("list[dict[str, Any]]", body.get("articles", []))
 
 
 def _build_query(ticker: str) -> str:
@@ -78,7 +79,7 @@ def _build_query(ticker: str) -> str:
     return ticker
 
 
-def _row_for(article: dict, ticker: str) -> dict | None:
+def _row_for(article: dict[str, Any], ticker: str) -> dict[str, Any] | None:
     ts_raw = article.get("publishedAt")
     if not ts_raw:
         return None
@@ -102,7 +103,7 @@ def _row_for(article: dict, ticker: str) -> dict | None:
     }
 
 
-def _upsert(rows: list[dict]) -> int:
+def _upsert(rows: list[dict[str, Any]]) -> int:
     if not rows:
         return 0
     # No natural unique key on NewsAPI articles, but (title, ticker, ts day) is
@@ -140,7 +141,7 @@ def ingest(
     log.info("newsapi.start", n_tickers=len(tickers), since=since_iso)
 
     requests_made = 0
-    rows: list[dict] = []
+    rows: list[dict[str, Any]] = []
     seen_titles: set[tuple[str, str]] = set()   # (ticker, normalized title)
     for ticker in tickers:
         try:

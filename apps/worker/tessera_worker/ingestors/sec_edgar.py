@@ -2,7 +2,7 @@
 
 Pulls recent 10-K + 10-Q filings for the equity universe. Two-stage:
   1) ticker -> CIK via SEC's company_tickers.json (small, cached on disk
-     in module-level dict per process)
+     in module-level dict[str, Any] per process)
   2) per ticker, GET submissions JSON, walk recent filings, download
      the primary doc, extract a body-text excerpt, upload raw HTML to
      GCS, upsert headers + excerpt into the filings table.
@@ -24,10 +24,11 @@ import time
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import date, datetime
+from typing import Any
 
 import httpx
 from bs4 import BeautifulSoup
-from google.cloud import storage
+from google.cloud import storage  # type: ignore[import-untyped]
 from sqlalchemy import text
 from tenacity import retry, stop_after_attempt, wait_exponential
 
@@ -96,7 +97,7 @@ def _gcs_bucket() -> storage.Bucket:
 @retry(stop=stop_after_attempt(3),
        wait=wait_exponential(multiplier=1, min=2, max=8),
        reraise=True)
-def _get(client: httpx.Client, url: str, **kwargs) -> httpx.Response:
+def _get(client: httpx.Client, url: str, **kwargs: Any) -> httpx.Response:
     # Switch Host header based on which subdomain we hit.
     host = "data.sec.gov" if "data.sec.gov" in url else "www.sec.gov"
     r = client.get(url, headers={"Host": host}, **kwargs)
@@ -128,7 +129,7 @@ def _load_cik_map(client: httpx.Client) -> dict[str, int]:
     return _CIK_CACHE
 
 
-def _list_recent_filings(client: httpx.Client, cik: int) -> list[dict]:
+def _list_recent_filings(client: httpx.Client, cik: int) -> list[dict[str, Any]]:
     """Return SEC 'recent filings' rows for one CIK (oldest first)."""
     url = SUBMISSIONS_URL.format(cik=cik)
     r = _get(client, url)
@@ -176,7 +177,7 @@ def _upload_to_gcs(bucket: storage.Bucket, accession: str, html: bytes) -> str:
     return f"gs://{bucket.name}/{blob_name}"
 
 
-def _upsert_filing(row: dict) -> bool:
+def _upsert_filing(row: dict[str, Any]) -> bool:
     """Insert/replace one filing header + excerpt. Returns True if newly written."""
     sql = text("""
         INSERT INTO filings (
@@ -244,7 +245,7 @@ def ingest(
                 continue
 
             # Filter to forms of interest, then keep most recent N per form.
-            kept_by_form: dict[str, list[dict]] = {f: [] for f in forms_set}
+            kept_by_form: dict[str, list[dict[str, Any]]] = {f: [] for f in forms_set}
             for f in all_filings:
                 form = f["form"]
                 if form not in forms_set:

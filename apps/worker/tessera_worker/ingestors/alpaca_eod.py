@@ -19,6 +19,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
+from typing import Any
 
 from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.requests import StockBarsRequest
@@ -58,7 +59,7 @@ def _client() -> StockHistoricalDataClient:
     wait=wait_exponential(multiplier=1, min=2, max=10),
     reraise=True,
 )
-def _fetch_bars(tickers: list[str], start: date, end: date) -> dict:
+def _fetch_bars(tickers: list[str], start: date, end: date) -> dict[str, Any]:
     """Fetch daily bars for all tickers in one request. Alpaca returns a
     `BarSet` with `.data` mapping ticker → list[Bar]."""
     client = _client()
@@ -75,7 +76,7 @@ def _fetch_bars(tickers: list[str], start: date, end: date) -> dict:
     return bars.data if hasattr(bars, "data") else {}
 
 
-def _upsert(rows: list[dict]) -> int:
+def _upsert(rows: list[dict[str, Any]]) -> int:
     """Idempotent insert. ON CONFLICT (ticker, ts) DO UPDATE so a re-run
     rewrites the same row with fresh values (handles late corrections)."""
     if not rows:
@@ -110,7 +111,7 @@ def ingest(
     log.info("alpaca_eod.start", tickers=tickers, start=str(start), end=str(end))
     raw = _fetch_bars(tickers, start, end)
 
-    rows: list[dict] = []
+    rows: list[dict[str, Any]] = []
     for ticker, bars in raw.items():
         for b in bars:
             # b.timestamp is a timezone-aware datetime at the bar's open time

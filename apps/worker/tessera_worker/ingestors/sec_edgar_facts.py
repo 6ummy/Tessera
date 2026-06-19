@@ -27,6 +27,7 @@ import time
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Any, cast
 
 import httpx
 from sqlalchemy import text
@@ -125,17 +126,17 @@ class IngestResult:
 @retry(stop=stop_after_attempt(3),
        wait=wait_exponential(multiplier=1, min=2, max=8),
        reraise=True)
-def _fetch_companyfacts(client: httpx.Client, cik: int) -> dict | None:
+def _fetch_companyfacts(client: httpx.Client, cik: int) -> dict[str, Any] | None:
     """Return the SEC companyfacts JSON for one CIK, or None if 404."""
     url = COMPANYFACTS_URL.format(cik=cik)
     r = client.get(url, headers={"Host": "data.sec.gov"})
     if r.status_code == 404:
         return None
     r.raise_for_status()
-    return r.json()
+    return cast("dict[str, Any]", r.json())
 
 
-def _extract_rows(ticker: str, companyfacts: dict) -> list[dict]:
+def _extract_rows(ticker: str, companyfacts: dict[str, Any]) -> list[dict[str, Any]]:
     """Walk us-gaap facts, group by (period_end, filing_type), return upsert rows.
 
     Also pulls `dei.EntityCommonStockSharesOutstanding` as a fallback for
@@ -149,8 +150,8 @@ def _extract_rows(ticker: str, companyfacts: dict) -> list[dict]:
         return []
     dei = companyfacts.get("facts", {}).get("dei", {})
 
-    # key = (period_end_str, filing_type, form, fy, fp) → field dict
-    payloads: dict[tuple, dict] = {}
+    # key = (period_end_str, filing_type, form, fy, fp) → field dict[str, Any]
+    payloads: dict[tuple[Any, ...], dict[str, Any]] = {}
 
     for filing_type, concept_map in CONCEPT_MAP_BY_TYPE.items():
         for our_name, xbrl_names in concept_map.items():
@@ -171,7 +172,9 @@ def _extract_rows(ticker: str, companyfacts: dict) -> list[dict]:
                     period_end = obs.get("end")
                     if not period_end:
                         continue
-                    key = (period_end, filing_type, form, obs.get("fy"), obs.get("fp"))
+                    key: tuple[Any, ...] = (
+                        period_end, filing_type, form, obs.get("fy"), obs.get("fp"),
+                    )
                     payload = payloads.setdefault(key, {
                         "source": "edgar",
                         "form": form,
@@ -224,7 +227,7 @@ def _extract_rows(ticker: str, companyfacts: dict) -> list[dict]:
     # if there are multiple form/fy/fp combos for the same period_end+filing_type
     # (rare but possible when a company restates), prefer the 10-K over 10-Q
     # for that period_end.
-    out: dict[tuple, dict] = {}
+    out: dict[tuple[Any, ...], dict[str, Any]] = {}
     for (pe, ft, form, _fy, _fp), payload in payloads.items():
         key = (pe, ft)
         existing = out.get(key)
@@ -238,7 +241,7 @@ def _extract_rows(ticker: str, companyfacts: dict) -> list[dict]:
     return rows
 
 
-def _upsert(rows: list[dict]) -> int:
+def _upsert(rows: list[dict[str, Any]]) -> int:
     if not rows:
         return 0
     # JSONB merge (||) preserves any field present in the existing FMP row
