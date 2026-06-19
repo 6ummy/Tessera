@@ -5,7 +5,7 @@
 // rebalance emails, so the shared UNSUBSCRIBE_SECRET must match on both
 // Vercel and Cloud Run. Unset → no link is produced (and verify fails closed).
 
-const SITE_URL = "https://tessera-ruby.vercel.app";
+const SITE_URL = "https://convt.xyz";
 
 async function hmacHex(secret: string, message: string): Promise<string> {
   const enc = new TextEncoder();

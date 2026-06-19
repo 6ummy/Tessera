@@ -23,7 +23,7 @@ from tessera_worker.logging import get_logger
 log = get_logger(__name__)
 
 _RESEND_URL = "https://api.resend.com/emails"
-_SITE_URL = "https://tessera-ruby.vercel.app"
+_SITE_URL = "https://convt.xyz"
 
 
 def unsub_url(user_id: str, secret: str) -> str | None:

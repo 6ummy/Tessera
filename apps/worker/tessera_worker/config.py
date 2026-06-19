@@ -92,7 +92,7 @@ class Settings(BaseSettings):
     resend_api_key: str = Field(
         "", description="Resend API key for transactional email. Blank → email off.")
     email_from: str = Field(
-        "Convt <onboarding@resend.dev>",
+        "Convt <alerts@convt.xyz>",
         description="From header for notification email. Use a verified-domain "
                     "address in prod (resend.dev sandbox only delivers to the "
                     "Resend account owner).")
