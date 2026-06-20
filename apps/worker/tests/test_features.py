@@ -969,6 +969,55 @@ def test_gross_margin_qtr_yoy_chg_no_yoy_anchor() -> None:
     # when an in-window row exists.
     result = compute_gross_margin_qtr_yoy_chg(rows)
     assert result is not None  # day-delta walker finds 2025-06-01
+
+
+# ─── compute_gross_margin_qtr_series (quarterly margin trajectory) ─────────
+
+
+def test_gross_margin_qtr_series_newest_first_and_skips_fy() -> None:
+    import datetime as _dt
+
+    from tessera_worker.features.compute import compute_gross_margin_qtr_series
+    rows = [
+        {"period_end": _dt.date(2026, 6, 30), "period": "Q2",
+         "revenue": 100.0, "grossProfit": 43.5},
+        {"period_end": _dt.date(2026, 3, 31), "period": "Q1",
+         "revenue": 100.0, "grossProfit": 42.8},
+        {"period_end": _dt.date(2025, 12, 31), "period": "FY",
+         "revenue": 400.0, "grossProfit": 170.0},
+        {"period_end": _dt.date(2025, 9, 30), "period": "Q3",
+         "revenue": 100.0, "grossProfit": 42.0},
+    ]
+    series = compute_gross_margin_qtr_series(rows)
+    assert series == [
+        {"pe": "2026-06-30", "gm": 0.435},
+        {"pe": "2026-03-31", "gm": 0.428},
+        {"pe": "2025-09-30", "gm": 0.42},
+    ]  # FY row excluded, newest-first
+
+
+def test_gross_margin_qtr_series_none_with_one_quarter() -> None:
+    import datetime as _dt
+
+    from tessera_worker.features.compute import compute_gross_margin_qtr_series
+    rows = [{"period_end": _dt.date(2026, 6, 30), "period": "Q2",
+             "revenue": 100.0, "grossProfit": 43.0}]
+    assert compute_gross_margin_qtr_series(rows) is None  # need >= 2
+
+
+def test_fmt_gm_series_renders_oldest_to_newest() -> None:
+    from tessera_worker.agents.prompt_assembler import _fmt_gm_series
+    # Newest-first input → oldest→newest output, last 4.
+    series = [
+        {"pe": "2026-06-30", "gm": 0.435},
+        {"pe": "2026-03-31", "gm": 0.428},
+        {"pe": "2025-09-30", "gm": 0.420},
+    ]
+    assert _fmt_gm_series(series) == "42.0->42.8->43.5%"
+    assert _fmt_gm_series(None) == "n/a"
+    assert _fmt_gm_series([]) == "n/a"
+
+
 # ─── compute_fcf_yield_normalized (PR10) ───────────────────────────────
 
 

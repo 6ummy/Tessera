@@ -31,6 +31,7 @@ when fundamentals + news ingestors land):
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -702,6 +703,30 @@ def compute_gross_margin_qtr_yoy_chg(rows: list[dict[str, Any]]) -> float | None
     if anchor_margin is None:
         return None
     return latest_margin - anchor_margin
+
+
+def compute_gross_margin_qtr_series(
+    rows: list[dict[str, Any]], n: int = 8,
+) -> list[dict[str, Any]] | None:
+    """The last `n` quarterly gross margins, newest-first, so the persona
+    prompt can show the TRAJECTORY (steady expansion vs a one-quarter blip),
+    not just the single YoY delta (`compute_gross_margin_qtr_yoy_chg`).
+
+    Each entry: {"pe": "YYYY-MM-DD", "gm": <margin, 4dp>}. Uses the same
+    quarterly cadence (Q1-Q3) and margin sanity envelope as the YoY signal.
+    Returns None with fewer than 2 valid quarters (no trend to read).
+    """
+    series: list[dict[str, Any]] = []
+    for row in _quarterly_income_rows(rows)[:n]:
+        pe = row.get("period_end")
+        gm = compute_gross_margin(
+            _to_float(row.get("revenue")),
+            _to_float(row.get("grossProfit")),
+        )
+        if pe is None or gm is None:
+            continue
+        series.append({"pe": pe.isoformat(), "gm": round(gm, 4)})
+    return series if len(series) >= 2 else None
 
 
 FCF_STALENESS_MAX_DAYS = 400  # ~13 months — generous past the longest
@@ -1442,7 +1467,7 @@ def _upsert_fundamental_features(per_ticker: dict[str, dict[str, Any]]) -> int:
             ticker, ts,
             fcf_yield, fcf_yield_normalized, peg, market_cap_usd,
             operating_margin, eps_cagr_3y, debt_to_equity, gross_margin,
-            gross_margin_trend, gross_margin_qtr_yoy_chg,
+            gross_margin_trend, gross_margin_qtr_yoy_chg, gross_margin_qtr_series,
             pe_trailing, pe_forward
         )
         VALUES (
@@ -1450,6 +1475,7 @@ def _upsert_fundamental_features(per_ticker: dict[str, dict[str, Any]]) -> int:
             :fcf_yield, :fcf_yield_normalized, :peg, :market_cap_usd,
             :operating_margin, :eps_cagr_3y, :debt_to_equity, :gross_margin,
             :gross_margin_trend, :gross_margin_qtr_yoy_chg,
+            CAST(:gross_margin_qtr_series AS jsonb),
             :pe_trailing, :pe_forward
         )
         ON CONFLICT (ticker, ts) DO UPDATE SET
@@ -1471,6 +1497,10 @@ def _upsert_fundamental_features(per_ticker: dict[str, dict[str, Any]]) -> int:
             gross_margin_qtr_yoy_chg = COALESCE(
                 EXCLUDED.gross_margin_qtr_yoy_chg,
                 ticker_features.gross_margin_qtr_yoy_chg
+            ),
+            gross_margin_qtr_series = COALESCE(
+                EXCLUDED.gross_margin_qtr_series,
+                ticker_features.gross_margin_qtr_series
             ),
             pe_trailing        = COALESCE(EXCLUDED.pe_trailing, ticker_features.pe_trailing),
             pe_forward         = COALESCE(EXCLUDED.pe_forward, ticker_features.pe_forward)
@@ -1494,6 +1524,10 @@ def _upsert_fundamental_features(per_ticker: dict[str, dict[str, Any]]) -> int:
                 "gross_margin":         _f(fields.get("gross_margin")),
                 "gross_margin_trend":   _f(fields.get("gross_margin_trend")),
                 "gross_margin_qtr_yoy_chg": _f(fields.get("gross_margin_qtr_yoy_chg")),
+                "gross_margin_qtr_series": (
+                    json.dumps(fields.get("gross_margin_qtr_series"))
+                    if fields.get("gross_margin_qtr_series") is not None else None
+                ),
                 "pe_trailing":          _f(fields.get("pe_trailing")),
                 "pe_forward":           _f(fields.get("pe_forward")),
             })
@@ -1651,6 +1685,7 @@ def build(
             gross_margin_qtr_yoy_chg = compute_gross_margin_qtr_yoy_chg(
                 income_rows,
             )
+            gross_margin_qtr_series = compute_gross_margin_qtr_series(income_rows)
             balance = f.get("balance", {})
             debt_to_equity = compute_debt_to_equity(
                 total_debt=balance.get("total_debt"),
@@ -1669,6 +1704,7 @@ def build(
                 "gross_margin": gross_margin,
                 "gross_margin_trend": gross_margin_trend,
                 "gross_margin_qtr_yoy_chg": gross_margin_qtr_yoy_chg,
+                "gross_margin_qtr_series": gross_margin_qtr_series,
                 "operating_margin": operating_margin,
                 "pe_trailing": pe_trailing,
                 "pe_forward": pe_forward,

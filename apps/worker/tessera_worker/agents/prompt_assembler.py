@@ -166,7 +166,8 @@ def fetch_inputs(
                    vol_30d, rsi_14, sma_20, sma_50, volume_z,
                    fcf_yield, fcf_yield_normalized, peg, market_cap_usd,
                    operating_margin, eps_cagr_3y, debt_to_equity, gross_margin,
-                   gross_margin_trend, gross_margin_qtr_yoy_chg
+                   gross_margin_trend, gross_margin_qtr_yoy_chg,
+                   gross_margin_qtr_series
             FROM ticker_features WHERE ticker = :t AND ts <= :cutoff
             ORDER BY ts DESC LIMIT 1
         """),
@@ -482,9 +483,24 @@ def render_features(f: dict[str, Any] | None) -> str:
         f"gross_margin={_fmt_pct(f.get('gross_margin'))}  "
         f"gross_margin_trend={_fmt_pct(f.get('gross_margin_trend'), signed=True)}  "
         f"gross_margin_qtr_yoy={_fmt_pct(f.get('gross_margin_qtr_yoy_chg'), signed=True)}  "
+        f"gross_margin_qtr_trend={_fmt_gm_series(f.get('gross_margin_qtr_series'))}  "
         f"operating_margin={_fmt_pct(f.get('operating_margin'))}\n"
         "</features>"
     )
+
+
+def _fmt_gm_series(series: Any, k: int = 4) -> str:
+    """Render the last `k` quarterly gross margins oldest→newest as a compact
+    trend, e.g. "41.2->42.0->42.8->43.5%". Input is the JSONB array of
+    {pe, gm} (newest-first) from gross_margin_qtr_series; n/a when absent."""
+    if not isinstance(series, list) or not series:
+        return "n/a"
+    parts: list[str] = []
+    for entry in list(series)[:k][::-1]:  # oldest→newest
+        gm = entry.get("gm") if isinstance(entry, dict) else None
+        if gm is not None:
+            parts.append(f"{float(gm) * 100:.1f}")
+    return "->".join(parts) + "%" if parts else "n/a"
 
 
 def _sparkline(values: list[float], width: int = 40) -> str:
