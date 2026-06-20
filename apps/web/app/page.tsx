@@ -48,15 +48,7 @@ export default function Page() {
 
         <div className="mx-auto max-w-7xl px-6">
           <div className="mx-auto max-w-3xl text-center">
-            <div className="inline-flex items-center gap-2 rounded-full border border-ink-900/10 bg-cream-50/70 px-3 py-1 text-xs text-ink-600 backdrop-blur animate-fade-up">
-              <span className="relative flex h-1.5 w-1.5">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-coral-500/40" />
-                <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-coral-500" />
-              </span>
-              AI analyst personas · Paper trading pilot
-            </div>
-
-            <h1 className="display-serif mt-6 text-[56px] leading-[1.02] tracking-tightest text-ink-900 sm:text-[72px] animate-fade-up">
+            <h1 className="display-serif text-[56px] leading-[1.02] tracking-tightest text-ink-900 sm:text-[72px] animate-fade-up">
               Four analysts.
               <br />
               <span className="italic text-ink-700">One conviction</span>{" "}
@@ -65,8 +57,7 @@ export default function Page() {
 
             <p className="mx-auto mt-6 max-w-xl text-[17px] leading-relaxed text-ink-600 animate-fade-up">
               Four <span className="font-medium text-ink-800">AI analysts</span>, each with their
-              own philosophy and voice. Same market, four portfolios — follow the one that thinks
-              like you.
+              own philosophy and voice — follow the one that thinks like you.
             </p>
 
             <div className="mt-8 flex items-center justify-center gap-3 animate-fade-up">
@@ -90,7 +81,7 @@ export default function Page() {
             <div className="rounded-[28px] border border-ink-900/[0.06] bg-cream-50 p-6 shadow-[0_40px_80px_-30px_rgba(31,30,27,0.25)] animate-fade-up">
               <div className="mb-4 flex items-center justify-between">
                 <div>
-                  <div className="text-xs uppercase tracking-[0.16em] text-ink-500">Cumulative return · 365 days · paper</div>
+                  <div className="text-xs uppercase tracking-[0.16em] text-ink-500">Cumulative return · 365 days</div>
                   <div className="display-serif mt-1 text-2xl text-ink-900">All analysts vs S&amp;P 500</div>
                 </div>
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] text-ink-500">
@@ -115,7 +106,7 @@ export default function Page() {
                 <CumulativeChart height={260} series={heroSeries} />
               )}
               <p className="mt-3 text-[11px] leading-relaxed text-ink-500">
-                Live paper track — real fills since{" "}
+                Live track — real fills since{" "}
                 <span className="font-medium text-ink-700">Jun 11, 2026</span>.
               </p>
             </div>
@@ -133,8 +124,8 @@ export default function Page() {
                 Meet your analysts.
               </h2>
               <p className="mt-4 max-w-xl text-[15px] leading-relaxed text-ink-600">
-                Four philosophies, four voices. They read the same market and reach different
-                conclusions. Tap any card for the full thesis and current book.
+                Each reads the same market and reaches different conclusions. Tap any card for the
+                full thesis, the current book, and a live chat with the analyst.
               </p>
             </div>
             <Link href="/proposals" className="group inline-flex items-center gap-2 text-sm font-medium text-ink-700 hover:text-ink-900">
@@ -196,9 +187,9 @@ export default function Page() {
         <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-3 px-6 text-xs text-ink-500 sm:flex-row">
           <div className="flex items-center gap-2">
             <span className="display-serif text-base text-ink-700">Convt</span>
-            <span>· Paper trading pilot · Not investment advice</span>
+            <span>· Trading pilot · Not investment advice</span>
           </div>
-          <div className="num">v0.1 · {fmt.num(PERSONAS.length, 0)} analysts on the desk</div>
+          <div className="num">v1.0 · {fmt.num(PERSONAS.length, 0)} analysts on the desk</div>
         </div>
       </footer>
 
