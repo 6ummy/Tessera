@@ -345,7 +345,7 @@ function DashboardInner() {
                     <EmailNotifyToggle />
                   </div>
 
-                  <div className="mb-4">
+                  <div id="profile-settings" className="mb-4 scroll-mt-24">
                     <ProfileEditor onSaved={() => setProfileNonce((n) => n + 1)} />
                   </div>
 
