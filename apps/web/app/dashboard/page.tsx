@@ -151,11 +151,6 @@ function DashboardInner() {
   // Which followed persona is in focus (default: first follow).
   const [focusId, setFocusId] = useState<string | null>(null);
 
-  // Leaderboard sub-view: the AI analysts board vs the public investors board
-  // (user-vs-user). Investors is what most people come to compare, so it gets
-  // equal billing instead of being buried under the persona table.
-  const [board, setBoard] = useState<"analysts" | "investors">("analysts");
-
   // Account-curve range selector. Default "inception" = since each user's
   // FIRST follow (per-user start); 1M/3M/1Y are trailing windows.
   const [range, setRange] = useState<RangeKey>("inception");
@@ -437,8 +432,7 @@ function DashboardInner() {
                         <div className="h-[280px] w-full animate-pulse rounded-2xl bg-ink-900/[0.04]" />
                       )}
                       <p className="mt-2 text-[11px] leading-relaxed text-ink-500">
-                        Flat while you hold cash; tracks each analyst&apos;s book by weight while you
-                        follow them (recoloured at every follow / unfollow). Real paper track — no real money.
+                        Tracks each analyst&apos;s book while you follow them (recolored at every follow / unfollow).
                       </p>
                     </div>
 
@@ -482,26 +476,14 @@ function DashboardInner() {
 
             {/* ───── LEADERBOARD ───── */}
             <TabsContent value="leaderboard">
-              <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-baseline sm:justify-between">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
-                  <h2 className="display-serif text-2xl text-ink-900">Leaderboard</h2>
-                  <div className="inline-flex h-9 w-fit items-center gap-1 rounded-full bg-ink-900/[0.05] p-1 text-sm">
-                    <BoardBtn active={board === "analysts"} onClick={() => setBoard("analysts")}>Analysts</BoardBtn>
-                    <BoardBtn active={board === "investors"} onClick={() => setBoard("investors")}>Investors</BoardBtn>
-                  </div>
+              <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between">
+                <h2 className="display-serif text-2xl text-ink-900">Analysts</h2>
+                <div className="text-xs text-ink-500">
+                  Ranked by return <span className="font-medium text-ink-700">since inception</span> ·
+                  real fills from <span className="num text-ink-700">Jun 11, 2026</span>
                 </div>
-                {board === "analysts" && (
-                  <div className="text-xs text-ink-500">
-                    Ranked by return <span className="font-medium text-ink-700">since inception</span> ·
-                    real fills from <span className="num text-ink-700">Jun 11, 2026</span>
-                  </div>
-                )}
               </div>
 
-              {board === "investors" ? (
-                <InvestorsLeaderboard myNickname={myNickname} refreshKey={profileNonce} />
-              ) : (
-              <>
               <div className="overflow-hidden rounded-3xl border border-ink-900/[0.06] bg-cream-50">
                 <div className="grid grid-cols-[28px_1fr_auto] sm:grid-cols-[40px_1.4fr_1.1fr_0.9fr_0.9fr_1fr_1fr_1fr] items-center border-b border-ink-900/[0.06] bg-ink-900/[0.025] px-4 py-3 text-[10px] uppercase tracking-[0.12em] text-ink-500 sm:px-5">
                   <div>#</div><div>Analyst</div>
@@ -553,13 +535,11 @@ function DashboardInner() {
                 })()}
               </div>
               <p className="mt-3 text-[11px] text-ink-500">
-                Ranked by <span className="text-ink-700">return since inception</span> — each persona
-                started at $100K on Jun 11, 2026 (real fills). *1y is a hypothetical
-                frozen-book backfill (look-ahead bias), shown for context only.
-                Sharpe/MDD are 30-day trailing on paper NAV.
+                Ranked by <span className="text-ink-700">return since inception</span>. Each persona
+                started at $100K on Jun 11, 2026 (real fills). *1y is a hypothetical backfill.
               </p>
-              </>
-              )}
+
+              <InvestorsLeaderboard myNickname={myNickname} refreshKey={profileNonce} />
             </TabsContent>
           </Tabs>
         </div>
