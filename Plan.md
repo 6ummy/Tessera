@@ -1116,7 +1116,23 @@ deferred to post-launch (the mock tab is now removed, not just hidden). Auth
 
 **Goal**: Flip live flag for self only. F&F only if Phase E cleared.
 
+> **STATUS 2026-06-19 — OFF-GATED SCAFFOLDING STARTED. Still paper-only; no
+> real-money path exists.** `tessera_worker/execution/broker.py` defines the
+> broker seam (`BrokerAdapter` protocol · `PaperBroker` · `LiveBroker` STUB)
+> behind a **double gate**: a live order needs BOTH `feature_live_trading`
+> AND a new `feature_live_trading_cleared` (Phase E sign-off), PLUS a
+> per-order confirm token — and even then `LiveBroker` raises
+> `NotImplementedError` (no Alpaca order API is wired). `get_broker()` returns
+> `PaperBroker` unconditionally in the pilot (both flags default False). The
+> nightly paper engine stays the only execution path; this layer is not yet
+> wired in. Tests prove live execution refuses under every default
+> (`tests/test_broker_scaffold.py`). **Phase E (legal) remains the hard gate
+> before any real order; the AI never flips the flags.**
+
 ### Tasks
+- [~] **Broker abstraction + double-gated LiveBroker stub** — scaffolding
+  shipped (`execution/broker.py`, `feature_live_trading_cleared`). Real Alpaca
+  order routing is a later, post-Phase-E PR.
 - [ ] **AlpacaLiveAdapter** implementation, behind `feature.live_trading` flag
 - [ ] **OAuth flow**: Alpaca authorize → callback → token storage (encrypted in Firestore)
 - [ ] **Order confirmation modal**: every order requires user click to confirm
