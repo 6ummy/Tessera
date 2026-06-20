@@ -110,12 +110,21 @@ export function buildAccountSegments(
   axis: string[],
   colorFor: (key: string) => string,
 ): AccountSegment[] {
-  const nodes = buildAccountIndex(events, seriesByPersona, axis);
-  if (nodes.length === 0) return [];
+  return segmentNodes(buildAccountIndex(events, seriesByPersona, axis), colorFor);
+}
 
-  // Cut into segments at every key change; the boundary node is shared by
-  // both neighbours so the line stays visually continuous through the colour
-  // change.
+/**
+ * Cut a reconstructed account index into colour-coded segments at every key
+ * change. Separated from buildAccountSegments so a caller can slice / rebase
+ * the nodes first (e.g. a "since inception / 1M / 3M / 1Y" range selector).
+ * The boundary node is shared by both neighbours so the line stays visually
+ * continuous through the colour change.
+ */
+export function segmentNodes(
+  nodes: AccountNode[],
+  colorFor: (key: string) => string,
+): AccountSegment[] {
+  if (nodes.length === 0) return [];
   const segments: AccountSegment[] = [];
   let cur: AccountNode[] = [];
   const flush = () => {
