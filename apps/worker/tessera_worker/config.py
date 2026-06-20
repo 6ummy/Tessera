@@ -77,6 +77,13 @@ class Settings(BaseSettings):
     feature_live_trading: bool = Field(
         False,
         description="Never enable without explicit user OAuth + compliance review")
+    feature_live_trading_cleared: bool = Field(
+        False,
+        description="Phase E legal/compliance sign-off. SEPARATE second gate "
+                    "from feature_live_trading — BOTH are required before the "
+                    "broker layer will route a live order (defense in depth, so "
+                    "a stray feature_live_trading=true can't reach real money on "
+                    "its own). Never set without written legal clearance on file.")
     feature_fcm_push: bool = Field(
         False,
         description="On → send FCM push to followers when a persona rebalances. "
