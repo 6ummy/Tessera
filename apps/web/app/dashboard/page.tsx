@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, Check, LogIn } from "lucide-react";
 import { ACCENT_CLASS, PERSONAS, PERSONA_BY_ID, type Persona } from "@/lib/mock/personas";
 import { rebase, usePerformance, toPoints } from "@/lib/performance-data";
-import { buildAccountSegments, buildAccountIndex, type FollowEvent, ACCOUNT_CASH_KEY, ACCOUNT_MIXED_KEY } from "@/lib/account-curve";
+import { buildAccountIndex, segmentNodes, type FollowEvent, ACCOUNT_CASH_KEY, ACCOUNT_MIXED_KEY } from "@/lib/account-curve";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { Header } from "@/components/header";
 import { CumulativeChart } from "@/components/cumulative-chart";
@@ -19,6 +19,11 @@ import { cn, fmt, signClass } from "@/lib/utils";
 const ACCENT_HEX: Record<Persona["accent"], string> = {
   coral: "#D97757", sage: "#6B8E6B", plum: "#8B6B8E", ink: "#1F1E1B",
 };
+
+// Account-curve range selector.
+type RangeKey = "inception" | "1m" | "3m" | "1y";
+const RANGE_DAYS: Record<Exclude<RangeKey, "inception">, number> = { "1m": 30, "3m": 90, "1y": 365 };
+const RANGE_LABEL: Record<RangeKey, string> = { inception: "Since inception", "1m": "1M", "3m": "3M", "1y": "1Y" };
 
 type Portfolio = {
   personaId: string;
@@ -150,6 +155,10 @@ function DashboardInner() {
   // (user-vs-user). Investors is what most people come to compare, so it gets
   // equal billing instead of being buried under the persona table.
   const [board, setBoard] = useState<"analysts" | "investors">("analysts");
+
+  // Account-curve range selector. Default "inception" = since each user's
+  // FIRST follow (per-user start); 1M/3M/1Y are trailing windows.
+  const [range, setRange] = useState<RangeKey>("inception");
   const selected = useMemo<Portfolio | null>(() => {
     if (!portfolios || portfolios.length === 0) return null;
     return portfolios.find((p) => p.personaId === focusId) ?? portfolios[0];
@@ -209,30 +218,52 @@ function DashboardInner() {
 
   const selectedPersona = selected ? PERSONA_BY_ID[selected.personaId] : null;
 
-  // ── Account curve over the full S&P window ──────────────────────────────
-  // The chart shows your whole paper account over the last ~1y: flat (cash)
-  // before/after follows, tracking each persona while followed, recoloured at
-  // every follow/unfollow. The S&P 500 reference is ALWAYS drawn over the
-  // full window, even before your first follow.
+  // ── Account curve, windowed by the range selector ──────────────────────
+  // Reconstruct the whole account index (cash flat, tracking each persona
+  // while followed, recoloured at every follow/unfollow), then SLICE to the
+  // selected range and REBASE so the window starts at 0%:
+  //   inception → since this user's first follow (per-user)
+  //   1M / 3M / 1Y → trailing windows.
+  // The S&P 500 reference is sliced + rebased to the same window for a fair
+  // side-by-side.
   const accountChart = useMemo(() => {
     if (!seriesAndAxis || !benchmark) return null;
     const colorFor = (key: string) =>
       key === ACCOUNT_CASH_KEY ? "#C9C5BC"
       : key === ACCOUNT_MIXED_KEY ? "#1F1E1B"
       : ACCENT_HEX[PERSONA_BY_ID[key].accent];
-    const segments = buildAccountSegments(events, seriesAndAxis.seriesByPersona, seriesAndAxis.axis, colorFor);
     const label = (key: string) =>
       key === ACCOUNT_CASH_KEY ? "Cash"
       : key === ACCOUNT_MIXED_KEY ? "You · mixed"
       : `You · ${PERSONA_BY_ID[key].name}`;
-    const youSeries = segments.map((seg, i) => ({
+
+    const allNodes = buildAccountIndex(events, seriesAndAxis.seriesByPersona, seriesAndAxis.axis);
+    if (allNodes.length === 0) return null;
+    const lastDate = allNodes[allNodes.length - 1].date;
+    const minusDays = (d: string, days: number) =>
+      new Date(Date.parse(d) - days * 86_400_000).toISOString().slice(0, 10);
+    const firstFollow = [...events]
+      .filter((e) => e.action === "follow").map((e) => e.ts.slice(0, 10)).sort()[0];
+    const cutoff =
+      range === "inception" ? (firstFollow ?? allNodes[0].date)
+      : minusDays(lastDate, RANGE_DAYS[range]);
+
+    // Slice + rebase the account so the window's first point reads 0%.
+    let nodes = allNodes.filter((n) => n.date >= cutoff);
+    if (nodes.length < 2) nodes = allNodes.slice(-2);
+    const base = nodes[0]?.value || 1;
+    const reb = nodes.map((n) => ({ ...n, value: Number((n.value / base).toFixed(6)) }));
+    const youSeries = segmentNodes(reb, colorFor).map((seg, i) => ({
       id: `you-${i}`, name: label(seg.key), color: seg.color, data: seg.data,
     }));
+
+    const benchWin = benchmark.filter((p) => p.date >= cutoff);
+    const benchData = rebase(benchWin.length >= 2 ? benchWin : benchmark);
     return [
       ...youSeries,
-      { id: "sp500", name: "S&P 500", color: "#A8A39A", data: rebase(benchmark), dashed: true },
+      { id: "sp500", name: "S&P 500", color: "#A8A39A", data: benchData, dashed: true },
     ];
-  }, [seriesAndAxis, benchmark, events]);
+  }, [seriesAndAxis, benchmark, events, range]);
 
   const selectedPositions = useMemo(() => {
     if (!selected) return [];
@@ -386,11 +417,19 @@ function DashboardInner() {
 
                   <div className="grid gap-4 lg:grid-cols-[1.5fr_1fr]">
                     <div className="rounded-3xl border border-ink-900/[0.06] bg-cream-50 p-6">
-                      <div className="mb-4">
-                        <div className="text-xs uppercase tracking-[0.16em] text-ink-500">Last 1 year · paper</div>
-                        <h2 className="display-serif mt-1 text-2xl text-ink-900">
-                          Your account vs S&amp;P 500
-                        </h2>
+                      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <div className="text-xs uppercase tracking-[0.16em] text-ink-500">{RANGE_LABEL[range]} · paper</div>
+                          <h2 className="display-serif mt-1 text-2xl text-ink-900">
+                            Your account vs S&amp;P 500
+                          </h2>
+                        </div>
+                        <div className="inline-flex h-9 w-fit items-center gap-1 rounded-full bg-ink-900/[0.05] p-1 text-sm">
+                          <BoardBtn active={range === "inception"} onClick={() => setRange("inception")}>Since inception</BoardBtn>
+                          <BoardBtn active={range === "1m"} onClick={() => setRange("1m")}>1M</BoardBtn>
+                          <BoardBtn active={range === "3m"} onClick={() => setRange("3m")}>3M</BoardBtn>
+                          <BoardBtn active={range === "1y"} onClick={() => setRange("1y")}>1Y</BoardBtn>
+                        </div>
                       </div>
                       {accountChart ? (
                         <CumulativeChart height={280} series={accountChart} zoomable />
