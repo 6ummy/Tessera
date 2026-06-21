@@ -1134,11 +1134,17 @@ deferred to post-launch (the mock tab is now removed, not just hidden). Auth
   shipped (`execution/broker.py`, `feature_live_trading_cleared`). Real Alpaca
   order routing is a later, post-Phase-E PR.
 - [ ] **AlpacaLiveAdapter** implementation, behind `feature.live_trading` flag
-- [ ] **OAuth flow**: Alpaca authorize → callback → token storage (encrypted in Firestore)
-- [ ] **Order confirmation modal**: every order requires user click to confirm
-- [ ] **Kill switch UI**: 1-click → Temporal workflow → close all positions
+- [~] **OAuth flow** — scaffolding shipped: migration 017 `broker_connections`
+  (encrypted token cols) + `lib/broker.ts` (gate + authorize-URL) +
+  `/api/broker/status` (read-only) + `/api/broker/connect` (HARD-gated 403).
+  No token exchange / order path — post-Phase-E.
+- [~] **Order confirmation modal** + **Kill switch UI** — scaffolding shipped
+  (`order-confirm-modal.tsx`, `kill-switch.tsx`, `live-trading-panel.tsx`),
+  display-only, hidden in the pilot (gated on `NEXT_PUBLIC_FEATURE_LIVE_TRADING`).
+  No execution path wired.
+- [~] **Compare live fills vs. paper fills → slippage** — harness shipped
+  (`execution/slippage.py`), pure/observation; empty until live runs.
 - [ ] **Self runs live for 7 days** with full monitoring
-- [ ] Compare live fills vs. paper fills on same day → quantify slippage
 - [ ] Only after self proves stable: enable for F&F users (if lawyer cleared)
 
 ### Acceptance criteria
