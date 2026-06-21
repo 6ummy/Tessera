@@ -84,6 +84,14 @@ class Settings(BaseSettings):
                     "broker layer will route a live order (defense in depth, so "
                     "a stray feature_live_trading=true can't reach real money on "
                     "its own). Never set without written legal clearance on file.")
+    feature_alpaca_paper_execution: bool = Field(
+        False,
+        description="Route orders to Alpaca's PAPER trading account (SIMULATED "
+                    "money, paper-api.alpaca.markets). DISTINCT from "
+                    "feature_live_trading (REAL money — stays false). The Alpaca "
+                    "broker also hard-refuses any non-paper endpoint, so this can "
+                    "never touch real money. Operator-only for now (the single "
+                    "worker Alpaca account); no per-user routing.")
     feature_fcm_push: bool = Field(
         False,
         description="On → send FCM push to followers when a persona rebalances. "
