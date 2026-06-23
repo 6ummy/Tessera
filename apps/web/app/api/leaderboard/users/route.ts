@@ -15,10 +15,18 @@ import { computeAccountMetrics } from "@/lib/account-metrics";
 import type { FollowEvent } from "@/lib/account-curve";
 
 export const runtime = "edge";
-export const dynamic = "force-dynamic"; // never cache — profile edits sync live
+// Cached, not force-dynamic: this PUBLIC board was the one uncached Neon-direct
+// route, so every landing/leaderboard view woke the database. A short CDN cache
+// (s-maxage) serves repeat views from the edge without a query — the trade is
+// that a profile edit / new follow shows on the PUBLIC board up to ~2 min later
+// (the viewer's own dashboard is authed + uncached, so it's still instant).
+export const revalidate = 120;
 
-const noStore = (body: unknown) =>
-  NextResponse.json(body, { headers: { "cache-control": "no-store" } });
+const SMAXAGE = 120;
+const cached = (body: unknown) =>
+  NextResponse.json(body, {
+    headers: { "cache-control": `public, s-maxage=${SMAXAGE}, stale-while-revalidate=600` },
+  });
 
 export async function GET() {
   try {
@@ -26,7 +34,7 @@ export async function GET() {
 
     // Public users + their handles.
     const users = await sql`SELECT id::text, nickname FROM users WHERE is_public = true`;
-    if (users.length === 0) return noStore({ investors: [] });
+    if (users.length === 0) return cached({ investors: [] });
     const nickById = new Map(
       users.map((u) => [u.id as string, ((u.nickname as string | null) ?? "").trim()]),
     );
@@ -50,7 +58,7 @@ export async function GET() {
       });
       eventsByUser.set(uid, arr);
     }
-    if (eventsByUser.size === 0) return noStore({ investors: [] });
+    if (eventsByUser.size === 0) return cached({ investors: [] });
 
     // Persona daily NAV series (one row per persona-day, real snapshot
     // preferred over the hypothetical backfill on overlapping days).
@@ -88,7 +96,7 @@ export async function GET() {
       });
     }
     investors.sort((a, b) => b.returnPct - a.returnPct);
-    return noStore({ investors });
+    return cached({ investors });
   } catch (err) {
     console.error("leaderboard_users.query_failed", err);
     return NextResponse.json({ error: "leaderboard lookup failed" }, { status: 500 });

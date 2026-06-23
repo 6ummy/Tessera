@@ -75,8 +75,13 @@ Phase E (lawyer consult).
     users by **since-FIRST-follow** return + the persona-board metric set
     (1y/90d/Sharpe30d/MDD30d, blank until old enough). Exposes ONLY a
     nickname (else "Anonymous") + returns + current persona — never email
-    or the Google display_name. `force-dynamic` + `no-store` so profile
-    edits sync live. Mobile: boards collapse to 3 cols (#, name, return);
+    or the Google display_name. **CDN-cached `revalidate=120` + `s-maxage`
+    (was `force-dynamic`+`no-store`): it's the one PUBLIC Neon-direct route, so
+    every landing view was waking the DB — now repeat views hit the edge. Trade:
+    a profile edit / new follow shows on the PUBLIC board up to ~2 min later;
+    the viewer's own dashboard is authed + uncached, so still instant. Client
+    fetch must NOT send `no-store` or it bypasses the edge cache.** Mobile:
+    boards collapse to 3 cols (#, name, return);
     persona board is name-only (avatar + archetype dropped).
   - **Compounded account value/return** (2026-06-18, #175/#177): the
     dashboard headline value/return + the leaderboard are reconstructed

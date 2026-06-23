@@ -37,7 +37,9 @@ export function InvestorsLeaderboard({
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch("/api/leaderboard/users", { cache: "no-store" });
+        // Default cache (not no-store) so the route's CDN s-maxage is honored
+        // — repeat views hit the edge, not Neon. The board changes slowly.
+        const res = await fetch("/api/leaderboard/users");
         if (cancelled) return;
         // Always resolve the loading state — on a non-2xx, show the empty
         // board rather than spinning forever.
