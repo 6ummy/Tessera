@@ -10,6 +10,7 @@ ALPACA_BASE_URL is the paper endpoint (so it can never reach real money).
   python -m tessera_worker.jobs.alpaca_paper cancel-all
   python -m tessera_worker.jobs.alpaca_paper sync --persona warren            # dry-run
   python -m tessera_worker.jobs.alpaca_paper sync --persona warren --execute  # place orders
+  python -m tessera_worker.jobs.alpaca_paper slippage --persona warren        # fill vs marked
 
 `sync` mirrors a persona's current paper book onto the account: it prints the
 diff (dry-run by default) and only places orders with --execute. The `order`
@@ -29,6 +30,7 @@ from tessera_worker.config import get_settings
 from tessera_worker.execution.alpaca_broker import AlpacaBroker
 from tessera_worker.execution.broker import LiveTradingNotCleared, OrderIntent
 from tessera_worker.execution.mirror_live import RebalanceLine, compute_rebalance
+from tessera_worker.execution.slippage import Fill, slippage_report
 
 # Alpaca paper supports equities/ETFs here; crypto symbols differ and are
 # skipped for now (the equity weight stays in cash).
@@ -137,6 +139,36 @@ def _sync(broker: AlpacaBroker, persona: str, execute: bool) -> int:
     return 0 if placed == len(orders) else 1
 
 
+def _slippage(broker: AlpacaBroker, persona: str) -> int:
+    """Compare the Alpaca paper fill price (avg entry) against the persona's
+    marked reference (snapshot close) for each held name, and report the cost
+    in basis points. Observation only — what did following actually cost vs the
+    book's marked price. Empty until the mirror orders have filled."""
+    _, ref_prices, _ = _load_persona_target(persona)
+    fills: list[Fill] = []
+    for p in broker.get_positions():
+        symbol = str(p["symbol"])
+        ref = ref_prices.get(symbol)
+        entry = float(p.get("avg_entry_price") or 0.0)
+        if ref is None or ref <= 0 or entry <= 0:
+            continue
+        qty = float(p["qty"])
+        fills.append(Fill(symbol, "buy", qty, ref, "paper"))
+        fills.append(Fill(symbol, "buy", qty, entry, "live"))
+
+    report = slippage_report(fills)
+    if report.n_compared == 0:
+        print(f"persona={persona}: no filled positions to compare yet "
+              "(orders may still be pending / market closed)")
+        return 0
+    print(f"persona={persona}  compared={report.n_compared}  "
+          f"avg_cost={report.avg_cost_bps} bps  (+ = filled worse than marked)")
+    print(f"{'TICKER':<8}{'marked':>10}{'fill':>10}{'slip(bps)':>12}")
+    for pr in sorted(report.pairs, key=lambda x: -x.slippage_bps):
+        print(f"{pr.ticker:<8}{pr.paper_price:>10.2f}{pr.live_price:>10.2f}{pr.slippage_bps:>12.1f}")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(prog="alpaca_paper")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -150,6 +182,8 @@ def main() -> int:
     sy = sub.add_parser("sync")
     sy.add_argument("--persona", required=True, choices=["warren", "cathie", "ray", "peter"])
     sy.add_argument("--execute", action="store_true", help="place the orders (default: dry-run)")
+    sl = sub.add_parser("slippage")
+    sl.add_argument("--persona", required=True, choices=["warren", "cathie", "ray", "peter"])
     args = parser.parse_args()
 
     try:
@@ -176,6 +210,8 @@ def main() -> int:
         return 0 if res.accepted else 1
     elif args.cmd == "sync":
         return _sync(broker, args.persona, args.execute)
+    elif args.cmd == "slippage":
+        return _slippage(broker, args.persona)
     return 0
 
 
