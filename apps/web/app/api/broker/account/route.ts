@@ -1,9 +1,10 @@
-// GET /api/broker/orders — the signed-in user's OPEN Alpaca PAPER orders (what
-// the Order-status view lists / can cancel). Gated on FEATURE_BROKER_CONNECT. Edge.
+// GET /api/broker/account — the signed-in user's live Alpaca PAPER account
+// summary (equity / cash / open-position count) for the dashboard tiles.
+// Gated on FEATURE_BROKER_CONNECT. Edge.
 
 import { NextResponse } from "next/server";
 import { verifyFirebaseToken } from "@/lib/firebase/verify-token";
-import { listRecentOrders, loadAlpacaKeys } from "@/lib/broker-mirror";
+import { accountSummary, loadAlpacaKeys } from "@/lib/broker-mirror";
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
@@ -24,9 +25,9 @@ export async function GET(req: Request) {
   if (!keys) return NextResponse.json({ error: "no Alpaca account connected" }, { status: 400 });
 
   try {
-    return NextResponse.json({ orders: await listRecentOrders(keys) });
+    return NextResponse.json(await accountSummary(keys));
   } catch (err) {
-    console.error("broker_orders.failed", err);
-    return NextResponse.json({ error: "could not list orders" }, { status: 502 });
+    console.error("broker_account.failed", err);
+    return NextResponse.json({ error: "could not load account" }, { status: 502 });
   }
 }
