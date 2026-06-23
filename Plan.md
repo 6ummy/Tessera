@@ -1133,7 +1133,14 @@ deferred to post-launch (the mock tab is now removed, not just hidden). Auth
 - [~] **Broker abstraction + double-gated LiveBroker stub** — scaffolding
   shipped (`execution/broker.py`, `feature_live_trading_cleared`). Real Alpaca
   order routing is a later, post-Phase-E PR.
-- [ ] **AlpacaLiveAdapter** implementation, behind `feature.live_trading` flag
+- [~] **Alpaca broker adapter** — `execution/alpaca_broker.py` places orders
+  against the operator's Alpaca **PAPER** account (simulated money). DOUBLE-
+  guarded: `feature_alpaca_paper_execution` (distinct from the real-money
+  `feature_live_trading`, still false) + a paper-endpoint check that refuses
+  `api.alpaca.markets` outright. Driven by the operator CLI
+  `jobs/alpaca_paper.py` (account / positions / order / cancel-all),
+  human-in-the-loop, operator-only (one account, no per-user routing). REAL
+  money (`api.alpaca.markets` + `feature_live_trading`) is a later change.
 - [~] **OAuth flow** — scaffolding shipped: migration 017 `broker_connections`
   (encrypted token cols) + `lib/broker.ts` (gate + authorize-URL) +
   `/api/broker/status` (read-only) + `/api/broker/connect` (HARD-gated 403).
