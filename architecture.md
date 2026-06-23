@@ -131,7 +131,7 @@ sole notify channel.** Remaining: onboard 3 F&F users.
 - **Proposals** (`/proposals`) — two tabs: "By analyst" (4 real books side-by-side from `/api/proposals`) and "Consensus" (cross-analyst agreement table).
 - **Dashboard** (`/dashboard`) — user account view with tabs: My portfolio, Leaderboard, Social feed. URL-synced (`?tab=…`). Still mock-backed pending `persona_performance` swap.
 - **How it works** (`/how-it-works`) — customer-facing explanation of pipeline, safety, and compliance posture.
-- **Vercel Cron endpoints** — `/api/cron/daily` (`30 21 * * 1-5`) and `/api/cron/weekly` (`0 22 * * 5`), both forwarding to the Cloud Run worker with IAM identity tokens.
+- **Batch triggers** — **Cloud Scheduler → Cloud Run Jobs** (`tessera-ingest-daily-trigger` `30 21 * * 1-5`, `tessera-persona-batch-trigger` `0 22 * * 5`) since the 2026-06-23 cutover (#211). Jobs run to completion (no Service BackgroundTask reaping). The old `/api/cron/{daily,weekly}` Vercel routes remain as **manual fallbacks** (no longer scheduled).
 
 ### Phase A backend (shipped, runs against production Neon)
 - **Neon Postgres** provisioned (us-east-1, free tier), `001_init.sql` applied. 14 tables + 3 extensions (TimescaleDB, pgvector, uuid-ossp).
@@ -154,6 +154,11 @@ sole notify channel.** Remaining: onboard 3 F&F users.
 ### Daily data flow (production)
 
 ```
+NOTE (2026-06-23 cutover, #211): the trigger below is now **Cloud
+Scheduler → Cloud Run Job `tessera-ingest-daily`** (runs to completion).
+The Vercel-cron → Service-BackgroundTask path shown here is retained only
+as a manual fallback. The STEPS themselves are unchanged.
+
 ┌────────────────────────────────────────────────────────────┐
 │  REAL WORK — automatic, no human in the loop                │
 │                                                              │

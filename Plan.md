@@ -1129,6 +1129,15 @@ deferred to post-launch (the mock tab is now removed, not just hidden). Auth
 > (`tests/test_broker_scaffold.py`). **Phase E (legal) remains the hard gate
 > before any real order; the AI never flips the flags.**
 
+> **STATUS 2026-06-23 — operator-only PAPER trading shipped end-to-end (still
+> no real-money path).** Alpaca PAPER adapter + CLI (#200/#201); web: connect
+> paper keys (encrypted, #202) → mirror followed analyst → preview (limit/
+> market) → execute → order status/cancel (#203/#204/#205); Alpaca·Live
+> intraday chart line (#207); tiles sync to the live account. All gated
+> `FEATURE_BROKER_CONNECT` (default OFF); `FEATURE_LIVE_TRADING` untouched.
+> Infra: **Cloud Scheduler→Jobs cutover LIVE (#211)** + OHLCV Yahoo fallback
+> (#210). Per-user OAuth + real-money routing remain post-Phase-E.
+
 ### Tasks
 - [~] **Broker abstraction + double-gated LiveBroker stub** — scaffolding
   shipped (`execution/broker.py`, `feature_live_trading_cleared`). Real Alpaca

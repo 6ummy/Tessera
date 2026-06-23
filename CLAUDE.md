@@ -31,6 +31,30 @@ exist from 001 §5**).
 
 ## 2. State as of 2026-06-18 — 🏁 **Phase C CLOSED · Phase D shipped & deployed (only F&F onboarding left)**
 
+> **Update 2026-06-23 — Phase F (operator-only paper trading) + infra hardening shipped:**
+> - **Alpaca PAPER control** (operator only): broker adapter + CLI (#200/#201 —
+>   `alpaca_paper account|positions|order|sync|slippage`, paper-endpoint-guarded);
+>   **web**: connect Alpaca paper keys in the profile (AES-256-GCM encrypted,
+>   #202), mirror the followed analyst's book → preview (limit/market) → execute
+>   → order-status/cancel (#203/#204/#205), **Alpaca·Live** intraday equity line
+>   on the account chart (#207), tiles sync to the live account when connected.
+>   All gated `FEATURE_BROKER_CONNECT` / `NEXT_PUBLIC_FEATURE_BROKER_CONNECT`
+>   (default OFF). **`FEATURE_LIVE_TRADING` still false — untouched.** Web→Alpaca
+>   diff logic = TS port of the worker `compute_rebalance` (`lib/broker-*.ts`).
+>   Migration **017 `broker_connections`** applied. New env: `BROKER_ENC_KEY`,
+>   `BROKER_SLIPPAGE_CAP_BPS` (default 50).
+> - **Jobs cutover LIVE (#211)**: daily ingest + weekly batch now run via
+>   **Cloud Scheduler → Cloud Run Jobs** (not Vercel cron → Service). Pause the
+>   weekly persona batch independently for cost: `gcloud scheduler jobs pause
+>   tessera-persona-batch-trigger --location=us-east1`.
+> - **OHLCV Yahoo fallback (#210)**: equity ohlcv falls back to yfinance if
+>   Alpaca is down / ≥2 trading days stale, so a single-source outage can't
+>   freeze the price plane. **Free Alpaca data is T-1** (no same-day bar at the
+>   21:30 run) — a holiday+weekend gap looks like a freeze but isn't (CS-20).
+> - **Leaderboard CDN-cached (#208)** to cut Neon compute.
+> - Deployed worker image was **6/15** until a redeploy ships the above to the
+>   nightly Jobs (`deploy_cloud_run.ps1` then `deploy_cloud_run_jobs.ps1 -ImageTag`).
+
 Phase C acceptance 4/4 green (see Plan.md §5). 90-day baseline ran
 2026-06-14: Warren Sharpe 1.28 (matches expected ~1.3), Cathie 3.21,
 Peter 2.81, Ray 1.96 — all positive, all ordered by mandate (aggressive
@@ -184,14 +208,18 @@ Prior state snapshot (pre-closure):
 
 Everything below is LIVE in prod unless marked otherwise:
 
-- **Daily 16-step ingest**, weekdays 21:30 UTC: Vercel cron →
-  `/api/cron/daily` → Cloud Run `/jobs/ingest-daily` → ohlcv (Alpaca +
-  Coinbase) → FRED → fundamentals 3-tier (FMP → SEC XBRL → FMP
-  key-metrics → yfinance shares daily / history Fri) → news → SEC
-  filings → features → coverage audit → **SPY canary** (>100bps vs
-  Yahoo fails the run; baseline 2.62bps) → **paper engine** → **mirror
-  engine** (followers) (both `FEATURE_PAPER_EXECUTION=true`).
-  Advisory-locked (dup trigger no-ops).
+- **Daily 16-step ingest**, weekdays 21:30 UTC: **Cloud Scheduler
+  (`tessera-ingest-daily-trigger`) → Cloud Run Job `tessera-ingest-daily`**
+  (cutover LIVE 2026-06-23, #211 — was Vercel cron → Service BackgroundTask,
+  which idle-reaped / `no available instance`-aborted mid-run). Steps: ohlcv
+  (Alpaca + **Yahoo fallback** if Alpaca stale/down, #210) → FRED →
+  fundamentals 3-tier (FMP → SEC XBRL → FMP key-metrics → yfinance shares
+  daily / history Fri) → news → SEC filings → features → coverage audit →
+  **SPY canary** (>100bps vs Yahoo fails the run; baseline 2.62bps) →
+  **paper engine** → **mirror engine** (followers) (both
+  `FEATURE_PAPER_EXECUTION=true`). Advisory-locked (dup trigger no-ops).
+  **Free Alpaca = T-1 bars** (same-day bar not available at the 21:30 run);
+  the `/api/cron/*` routes remain as MANUAL fallbacks only (unscheduled).
 - **Weekly persona batch**, Fri 22:00 UTC: v2 two-pass — research call
   per shortlist ticker, then ONE construction call per persona →
   `normalize_book` (deterministic sum=1.0) → **risk gateway** →
@@ -415,9 +443,12 @@ the conversation.
 
 ## 5. Architecture in one breath
 
-Vercel cron → Cloud Run FastAPI (`tessera_worker/main.py`) →
+**Cloud Scheduler → Cloud Run Jobs** (`tessera-ingest-daily` /
+`tessera-persona-batch`, runs to completion) →
 `jobs/ingest_daily.py` STEPS dict (idempotent, advisory-locked) →
-Neon. Weekly: `jobs/persona_batch.py run_batch_v2` →
+Neon. (Service `tessera_worker/main.py` still serves the HTTP read
+surface; the `/jobs/*` BackgroundTask endpoints remain as manual
+fallbacks.) Weekly: `jobs/persona_batch.py run_batch_v2` →
 `agents/portfolio_construction.py` (+ `risk/gateway.py`) →
 `analyst_reports`. Nightly: `risk/paper_engine.py` (fill/MTM/perf) →
 `persona_trades` / `persona_portfolios` / `persona_performance`.
@@ -535,7 +566,9 @@ Done 2026-06-12/13: Gateway VaR/DD/Ray + attribution endpoint + weight
 telemetry (#105–#108); **Cloud Run Jobs migration** (#116,
 `deploy_cloud_run_jobs.ps1` + `docs/runbooks/cloud-run-jobs.md` — batches
 run to completion, no more BackgroundTask reaping; the cutover
-[Cloud Scheduler on, Vercel crons off] is an operator console step; the
+[Cloud Scheduler on, Vercel crons off] **went LIVE 2026-06-23 (#211)** —
+both `tessera-{ingest-daily,persona-batch}-trigger` ENABLED, Vercel crons
+removed, scheduler→job IAM verified; the
 first test-run also surfaced CS-12, fixed in #119);
 **attribution UI table** in the detail sheet (#117); **main.py mypy
 burn-down** (#118); **equity-ingest crypto-exclusion** (#119, CS-12 —
