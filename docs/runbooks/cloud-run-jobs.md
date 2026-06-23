@@ -110,3 +110,24 @@ gcloud run jobs execute tessera-persona-batch --region us-east1 --wait
 
 This replaces the old "run it locally" fallback — it runs in the cloud
 with prod secrets, to completion.
+
+## Persona offloading — pause the weekly batch, keep data fresh
+
+The weekly persona batch is the only expensive pipeline (Sonnet calls).
+Because each pipeline has its OWN Scheduler trigger, you can suspend just
+the persona theses — for cost, or while the web Service is offlined —
+WITHOUT stopping the daily price/data ingest:
+
+```powershell
+gcloud scheduler jobs pause  tessera-persona-batch-trigger --location=us-east1   # stop weekly theses
+gcloud scheduler jobs resume tessera-persona-batch-trigger --location=us-east1   # resume
+gcloud scheduler jobs list --location=us-east1                                   # ENABLED / PAUSED
+```
+
+`tessera-ingest-daily-trigger` stays ENABLED, so OHLCV / features / paper
+marks keep updating and the dashboard + chart stay live; only NEW persona
+theses pause (existing books keep being marked nightly). Jobs are
+independent of the Service, so this is unaffected by scaling the web
+Service to zero — that's the point of the Jobs path over the old Vercel
+cron → Service one. Resuming picks up the next scheduled Friday; to catch
+up immediately, run the manual command above.
