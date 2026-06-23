@@ -187,7 +187,11 @@ export type EquityPoint = { date: string; t: number; equity: number };
  *  Alpaca's portfolio history at HOURLY granularity over the last month, so the
  *  curve is visible the same day you sync (not only after a daily close). `t`
  *  is the epoch ms for the time axis. Used for the "Alpaca · Live" chart line. */
-export async function accountHistory(keys: Keys, period = "1M", timeframe = "1H"): Promise<EquityPoint[]> {
+// 1W / 15Min: a week of 15-minute equity points. Alpaca only returns intraday
+// granularity for short periods (a longer period silently downgrades to 1D —
+// which gave a single point on sync day and no line). A week of 15-min points
+// guarantees an intraday curve that's visible the same day you sync.
+export async function accountHistory(keys: Keys, period = "1W", timeframe = "15Min"): Promise<EquityPoint[]> {
   const raw = (await api(`/v2/account/portfolio/history?period=${period}&timeframe=${timeframe}`, keys)) as {
     timestamp?: number[]; equity?: Array<number | null>;
   };
