@@ -3,7 +3,9 @@
 
 // Chart-native point shape (kept from the mock era — Sparkline and
 // CumulativeChart consume it; `value` is an index where window start = 1.0).
-export type Point = { day: number; date: string; value: number };
+// `t` (epoch ms) is optional: daily points derive it from `date`; intraday
+// series (e.g. Alpaca · Live) set it so they plot at the right time-of-day.
+export type Point = { day: number; date: string; value: number; t?: number };
 
 // One point of /api/performance/[personaId]'s equity curve. `hypothetical`
 // = frozen-book backfill (current holdings projected backwards — carries
