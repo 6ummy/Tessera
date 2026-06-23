@@ -17,11 +17,14 @@ export const slippageCapBps = (): number => {
 };
 
 type Keys = { key: string; secret: string };
+// connectedAt = when the user linked this account in Convt — the "since sync"
+// anchor for the Alpaca · Live curve (don't show equity from before they synced).
+type Connection = Keys & { connectedAt: string | null };
 
-export async function loadAlpacaKeys(uid: string): Promise<Keys | null> {
+export async function loadAlpacaKeys(uid: string): Promise<Connection | null> {
   const sql = getSql();
   const rows = await sql`
-    SELECT bc.access_token_enc, bc.refresh_token_enc
+    SELECT bc.access_token_enc, bc.refresh_token_enc, bc.connected_at::text AS connected_at
     FROM broker_connections bc JOIN users u ON u.id = bc.user_id
     WHERE u.firebase_uid = ${uid} AND bc.provider = 'alpaca' AND bc.status = 'connected'
     ORDER BY bc.updated_at DESC LIMIT 1
@@ -30,7 +33,7 @@ export async function loadAlpacaKeys(uid: string): Promise<Keys | null> {
   if (!r?.access_token_enc || !r?.refresh_token_enc) return null;
   const key = await decryptSecret(r.access_token_enc as string);
   const secret = await decryptSecret(r.refresh_token_enc as string);
-  return key && secret ? { key, secret } : null;
+  return key && secret ? { key, secret, connectedAt: (r.connected_at as string | null) ?? null } : null;
 }
 
 const hdrs = (k: Keys) => ({ "APCA-API-KEY-ID": k.key, "APCA-API-SECRET-KEY": k.secret });
