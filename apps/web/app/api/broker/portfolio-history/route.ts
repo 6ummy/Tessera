@@ -29,8 +29,15 @@ export async function GET(req: Request) {
     // The Alpaca curve should start when the user SYNCED, not from account
     // creation — drop pre-sync equity (by exact timestamp now that the points
     // are intraday) so the line reflects the mirrored period only.
-    const since = keys.connectedAt ? Date.parse(keys.connectedAt.replace(" ", "T")) : NaN;
-    const trimmed = Number.isFinite(since) ? points.filter((p) => p.t >= since) : points;
+    // Trim by exact timestamp; if connected_at can't be parsed (Postgres text
+    // offset format), fall back to a date-string compare so we never silently
+    // drop everything.
+    const cStr = keys.connectedAt ?? "";
+    const cMs = cStr ? Date.parse(cStr.replace(" ", "T")) : NaN;
+    const cDate = cStr.slice(0, 10);
+    const trimmed = cStr
+      ? points.filter((p) => (Number.isFinite(cMs) ? p.t >= cMs : p.date >= cDate))
+      : points;
     return NextResponse.json({ points: trimmed });
   } catch (err) {
     console.error("broker_portfolio_history.failed", err);
