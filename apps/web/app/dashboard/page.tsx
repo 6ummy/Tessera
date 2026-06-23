@@ -14,6 +14,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { EmailNotifyToggle } from "@/components/email-notify-toggle";
 import { ProfileEditor } from "@/components/profile-editor";
 import { BrokerConnect } from "@/components/broker-connect";
+import { BrokerSync } from "@/components/broker-sync";
 import { LiveTradingPanel } from "@/components/live-trading-panel";
 import { InvestorsLeaderboard } from "@/components/investors-leaderboard";
 import { cn, fmt, signClass } from "@/lib/utils";
@@ -385,6 +386,7 @@ function DashboardInner() {
                   {/* Phase F — connect Alpaca paper account. Hidden in the pilot
                       (gated on NEXT_PUBLIC_FEATURE_BROKER_CONNECT). */}
                   <BrokerConnect />
+                  <BrokerSync />
 
                   {/* Phase F scaffolding — renders nothing in the pilot
                       (gated on NEXT_PUBLIC_FEATURE_LIVE_TRADING). */}
