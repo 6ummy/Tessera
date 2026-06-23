@@ -181,12 +181,13 @@ export async function accountSummary(keys: Keys): Promise<AccountSummary> {
   };
 }
 
-export type EquityPoint = { date: string; equity: number };
+export type EquityPoint = { date: string; t: number; equity: number };
 
 /** The account's real equity curve (finer than our 1/day paper reconstruction).
- *  Alpaca's portfolio history — 1D bars over `period`. New accounts return only
- *  what they have. Used for the "Alpaca · Live" chart line. */
-export async function accountHistory(keys: Keys, period = "1A", timeframe = "1D"): Promise<EquityPoint[]> {
+ *  Alpaca's portfolio history at HOURLY granularity over the last month, so the
+ *  curve is visible the same day you sync (not only after a daily close). `t`
+ *  is the epoch ms for the time axis. Used for the "Alpaca · Live" chart line. */
+export async function accountHistory(keys: Keys, period = "1M", timeframe = "1H"): Promise<EquityPoint[]> {
   const raw = (await api(`/v2/account/portfolio/history?period=${period}&timeframe=${timeframe}`, keys)) as {
     timestamp?: number[]; equity?: Array<number | null>;
   };
@@ -195,7 +196,10 @@ export async function accountHistory(keys: Keys, period = "1A", timeframe = "1D"
   const out: EquityPoint[] = [];
   for (let i = 0; i < ts.length; i++) {
     const e = eq[i];
-    if (e != null && e > 0) out.push({ date: new Date(ts[i] * 1000).toISOString().slice(0, 10), equity: e });
+    if (e != null && e > 0) {
+      const ms = ts[i] * 1000;
+      out.push({ date: new Date(ms).toISOString().slice(0, 10), t: ms, equity: e });
+    }
   }
   return out;
 }

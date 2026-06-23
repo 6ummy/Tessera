@@ -5,6 +5,12 @@ import type { Point } from "@/lib/performance-types";
 
 export type Series = { id: string; name: string; color: string; data: Point[]; dashed?: boolean };
 
+const ET = "America/New_York";
+// Daily points anchor at NOON UTC so their ET calendar day is unambiguous
+// (midnight-UTC would render as the previous evening in ET). Intraday points
+// carry their own epoch `t`.
+const tOf = (p: Point) => p.t ?? Date.parse(`${p.date}T12:00:00Z`);
+
 export function CumulativeChart({
   series,
   height = 320,
@@ -14,20 +20,16 @@ export function CumulativeChart({
   height?: number;
   zoomable?: boolean;
 }) {
-  // Merge by DATE, not index: real series sit on different calendars
-  // (persona snapshots vs SPY bars vs hypothetical/live segment splits),
-  // so index-merging would silently misalign dates. Missing dates render
-  // as gaps bridged by connectNulls.
-  const dates = Array.from(
-    new Set(series.flatMap((s) => s.data.map((p) => p.date))),
-  ).sort();
-  const valueByDate = series.map(
-    (s) => new Map(s.data.map((p) => [p.date, p.value])),
-  );
-  const merged = dates.map((date) => {
-    const row: Record<string, number | string | null> = { date };
+  // Merge by TIMESTAMP, not index: real series sit on different calendars
+  // (persona snapshots vs SPY bars vs intraday Alpaca equity), and daily +
+  // intraday now coexist on one time axis. Missing points render as gaps
+  // bridged by connectNulls.
+  const stamps = Array.from(new Set(series.flatMap((s) => s.data.map(tOf)))).sort((a, b) => a - b);
+  const valueByT = series.map((s) => new Map(s.data.map((p) => [tOf(p), p.value])));
+  const merged = stamps.map((t) => {
+    const row: Record<string, number | null> = { t };
     series.forEach((s, i) => {
-      const v = valueByDate[i].get(date);
+      const v = valueByT[i].get(t);
       row[s.id] = v === undefined ? null : (v - 1) * 100;
     });
     return row;
@@ -70,9 +72,7 @@ export function CumulativeChart({
   const data = zoomable ? merged.slice(view.lo, view.hi + 1) : merged;
 
   // Y-axis FIXED to the full-data range (computed over `merged`, not the
-  // zoom slice) so wheel-zoom only changes the X window — the vertical scale
-  // stays put, like a normal finance chart. Only when zoomable; other charts
-  // keep recharts' auto-scaling.
+  // zoom slice) so wheel-zoom only changes the X window.
   const seriesIds = series.map((s) => s.id);
   const allY: number[] = [];
   for (const row of merged) {
@@ -87,34 +87,38 @@ export function CumulativeChart({
       ? [Math.floor(Math.min(...allY) - yPad), Math.ceil(Math.max(...allY) + yPad)]
       : undefined;
 
-  // X-axis ticks as MONTHS over a wide window ("Jul", "Aug", … "Jan 26"),
-  // or "Jul 5"-style day labels when zoomed in tight — instead of raw MM-DD.
-  const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  const visDates = data.map((r) => r.date as string);
-  const spanDays =
-    visDates.length > 1
-      ? (Date.parse(visDates[visDates.length - 1]) - Date.parse(visDates[0])) / 86_400_000
-      : 0;
+  // X ticks over the time axis: MONTHS on a wide window, calendar DAYS on a
+  // medium one, and clock TIME when zoomed into intraday (< 2 days).
+  const visT = data.map((r) => r.t as number);
+  const spanDays = visT.length > 1 ? (visT[visT.length - 1] - visT[0]) / 86_400_000 : 0;
   const wide = spanDays > 70;
-  const xTicks: string[] = [];
-  if (visDates.length) {
+  const intraday = spanDays > 0 && spanDays < 2;
+  const monthKey = (t: number) => new Date(t).toLocaleDateString("en-US", { year: "numeric", month: "2-digit", timeZone: ET });
+  const xTicks: number[] = [];
+  if (visT.length) {
     if (wide) {
-      const seenMonth = new Set<string>();
-      for (const d of visDates) {
-        const k = d.slice(0, 7);
-        if (!seenMonth.has(k)) { seenMonth.add(k); xTicks.push(d); }
-      }
+      const seen = new Set<string>();
+      for (const t of visT) { const k = monthKey(t); if (!seen.has(k)) { seen.add(k); xTicks.push(t); } }
     } else {
-      const step = Math.max(1, Math.floor(visDates.length / 6));
-      for (let i = 0; i < visDates.length; i += step) xTicks.push(visDates[i]);
+      const step = Math.max(1, Math.floor(visT.length / 6));
+      for (let i = 0; i < visT.length; i += step) xTicks.push(visT[i]);
     }
   }
-  const fmtTick = (v: string) => {
-    const [y, m, d] = v.split("-");
-    const mi = Math.max(0, Math.min(11, parseInt(m, 10) - 1));
-    if (wide) return mi === 0 ? `${MON[mi]} '${y.slice(2)}` : MON[mi];
-    return `${MON[mi]} ${parseInt(d, 10)}`;
+  const fmtTick = (t: number) => {
+    const d = new Date(t);
+    if (intraday) return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: ET });
+    if (wide) {
+      const mo = d.toLocaleDateString("en-US", { month: "short", timeZone: ET });
+      const isJan = d.toLocaleDateString("en-US", { month: "2-digit", timeZone: ET }) === "01";
+      return isJan ? `${mo} '${d.toLocaleDateString("en-US", { year: "2-digit", timeZone: ET })}` : mo;
+    }
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: ET });
   };
+  const fmtLabel = (t: number) =>
+    new Date(t).toLocaleString("en-US",
+      intraday
+        ? { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: ET }
+        : { year: "numeric", month: "short", day: "numeric", timeZone: ET });
 
   return (
     <div ref={wrapRef} className="relative" onDoubleClick={() => setView({ lo: 0, hi: Math.max(0, N - 1) })}>
@@ -127,7 +131,10 @@ export function CumulativeChart({
       <LineChart data={data} margin={{ top: 10, right: 12, left: 0, bottom: 0 }}>
         <CartesianGrid stroke="#1F1E1B" strokeOpacity={0.06} vertical={false} />
         <XAxis
-          dataKey="date"
+          dataKey="t"
+          type="number"
+          scale="time"
+          domain={["dataMin", "dataMax"]}
           tick={{ fontSize: 11 }}
           ticks={xTicks}
           tickFormatter={fmtTick}
@@ -153,6 +160,7 @@ export function CumulativeChart({
             boxShadow: "0 12px 36px -16px rgba(31,30,27,0.25)",
           }}
           labelStyle={{ color: "#7C7870", marginBottom: 6, fontFamily: "var(--font-mono)" }}
+          labelFormatter={(t: number) => fmtLabel(t)}
           formatter={(v: number, name: string) => [`${v >= 0 ? "+" : ""}${v.toFixed(2)}%`, name]}
         />
         {series.map((s) => (

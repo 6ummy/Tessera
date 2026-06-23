@@ -130,7 +130,7 @@ function DashboardInner() {
   // Alpaca · Live — the real connected paper account's equity curve (Phase F).
   // Null unless broker-connect is on AND an account is connected (route 400s
   // otherwise). Fetched once; the chart slices/rebases it per range.
-  const [alpacaHistory, setAlpacaHistory] = useState<{ date: string; equity: number }[] | null>(null);
+  const [alpacaHistory, setAlpacaHistory] = useState<{ date: string; t: number; equity: number }[] | null>(null);
   const [alpacaAccount, setAlpacaAccount] = useState<{ equity: number; cash: number; positionsCount: number } | null>(null);
   useEffect(() => {
     if (process.env.NEXT_PUBLIC_FEATURE_BROKER_CONNECT !== "true" || !user) {
@@ -146,7 +146,7 @@ function DashboardInner() {
           fetch("/api/broker/account", auth),
         ]);
         if (cancelled) return;
-        if (hist.ok) setAlpacaHistory(((await hist.json()) as { points: { date: string; equity: number }[] }).points ?? null);
+        if (hist.ok) setAlpacaHistory(((await hist.json()) as { points: { date: string; t: number; equity: number }[] }).points ?? null);
         if (acct.ok) setAlpacaAccount((await acct.json()) as { equity: number; cash: number; positionsCount: number });
       } catch { /* ignore */ }
     })();
@@ -292,7 +292,7 @@ function DashboardInner() {
       const ab = pts[0]?.equity || 1;
       alpacaSeries = {
         id: "alpaca", name: "Alpaca · Live", color: "#2F6F8F",
-        data: pts.map((p, i) => ({ day: i, date: p.date, value: Number((p.equity / ab).toFixed(6)) })),
+        data: pts.map((p, i) => ({ day: i, date: p.date, t: p.t, value: Number((p.equity / ab).toFixed(6)) })),
       };
     }
 

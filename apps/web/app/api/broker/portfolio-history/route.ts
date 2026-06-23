@@ -27,10 +27,10 @@ export async function GET(req: Request) {
   try {
     const points = await accountHistory(keys);
     // The Alpaca curve should start when the user SYNCED, not from account
-    // creation — drop the flat pre-sync equity so the line reflects the
-    // mirrored period only.
-    const since = keys.connectedAt?.slice(0, 10);
-    const trimmed = since ? points.filter((p) => p.date >= since) : points;
+    // creation — drop pre-sync equity (by exact timestamp now that the points
+    // are intraday) so the line reflects the mirrored period only.
+    const since = keys.connectedAt ? Date.parse(keys.connectedAt.replace(" ", "T")) : NaN;
+    const trimmed = Number.isFinite(since) ? points.filter((p) => p.t >= since) : points;
     return NextResponse.json({ points: trimmed });
   } catch (err) {
     console.error("broker_portfolio_history.failed", err);
