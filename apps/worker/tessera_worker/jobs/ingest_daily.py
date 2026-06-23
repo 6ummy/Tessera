@@ -41,6 +41,7 @@ from tessera_worker.ingestors import (
     sec_edgar,
     sec_edgar_facts,
     yf_history,
+    yf_ohlcv,
     yf_shares,
 )
 from tessera_worker.logging import configure_logging, get_logger
@@ -63,6 +64,32 @@ class StepResult:
 StepFn = Callable[[], dict[str, object]]
 
 
+def _freshest_spy_date() -> date | None:
+    """Freshest SPY bar date — the proxy for 'is the equity feed current?'."""
+    from typing import cast
+
+    from sqlalchemy import text
+
+    from tessera_worker.db import session_scope
+    q = text("SELECT MAX(ts)::date FROM ohlcv_1d WHERE ticker = 'SPY'")
+    with session_scope() as session:
+        return cast("date | None", session.execute(q).scalar())
+
+
+def _trading_days_behind(freshest: date | None, today: date) -> int:
+    """Weekdays between `freshest` and `today` (exclusive of freshest). None →
+    very stale. Counting weekdays (not calendar days) keeps weekends/long
+    weekends from tripping the fallback; ≥2 means a real gap."""
+    if freshest is None:
+        return 999
+    d, n = freshest, 0
+    while d < today:
+        d += timedelta(days=1)
+        if d.weekday() < 5:
+            n += 1
+    return n
+
+
 def _step_ohlcv_equity() -> dict[str, object]:
     """Pull last ~30 days for the equity + ETF universe. Idempotent, so
     even on weekends/holidays the call is safe — it just upserts the same
@@ -80,8 +107,34 @@ def _step_ohlcv_equity() -> dict[str, object]:
     start = end - timedelta(days=30)
     tickers = [t.ticker for t in by_asset_class("equity")]
     tickers += [t.ticker for t in by_asset_class("etf")]
-    r = alpaca_eod.ingest(tickers, start=start, end=end)
-    return {"rows": r.rows_upserted, "tickers": len(r.tickers), "ms": r.duration_ms}
+
+    # Primary: Alpaca. A whole-source outage (auth/feed) must NOT freeze the
+    # price plane — on 2026-06-18 Alpaca bars stopped while every other source
+    # kept flowing and the SPY chart silently froze for days. So: try Alpaca,
+    # then if it failed / returned nothing / left the universe stale, fall back
+    # to Yahoo (source='yahoo', fills only the gap days).
+    alpaca_rows, alpaca_ok = 0, True
+    try:
+        r = alpaca_eod.ingest(tickers, start=start, end=end)
+        alpaca_rows = r.rows_upserted
+    except Exception as exc:  # noqa: BLE001 — fall back instead of freezing
+        alpaca_ok = False
+        log.warning("ohlcv_equity.alpaca_failed", error=str(exc))
+
+    freshest = _freshest_spy_date()
+    behind = _trading_days_behind(freshest, end)
+    yahoo_rows = 0
+    if not alpaca_ok or alpaca_rows == 0 or behind >= 2:
+        log.warning("ohlcv_equity.yahoo_fallback", alpaca_ok=alpaca_ok,
+                    alpaca_rows=alpaca_rows, freshest=str(freshest), behind=behind)
+        try:
+            yahoo_rows = yf_ohlcv.ingest(tickers, start=start, end=end).rows_upserted
+        except Exception as exc:  # noqa: BLE001
+            log.error("ohlcv_equity.yahoo_fallback_failed", error=str(exc))
+            if not alpaca_ok:
+                raise  # both sources down → fail the step loudly
+    return {"alpaca_rows": alpaca_rows, "yahoo_rows": yahoo_rows,
+            "tickers": len(tickers), "freshest": str(freshest)}
 
 
 def _step_ohlcv_crypto() -> dict[str, object]:

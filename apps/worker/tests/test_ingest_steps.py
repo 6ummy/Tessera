@@ -11,6 +11,7 @@ Job surfaced it. This pins that the step's ticker list is equity+ETF only.
 
 from __future__ import annotations
 
+from datetime import date
 from unittest.mock import patch
 
 from tessera_worker.jobs import ingest_daily
@@ -21,7 +22,7 @@ def test_ohlcv_equity_step_sends_no_crypto_to_alpaca() -> None:
     captured: dict[str, list[str]] = {}
 
     class _Result:
-        rows_upserted = 0
+        rows_upserted = 5  # >0 so the Yahoo fallback isn't triggered
         tickers: list[str] = []
         duration_ms = 0
 
@@ -29,7 +30,10 @@ def test_ohlcv_equity_step_sends_no_crypto_to_alpaca() -> None:
         captured["tickers"] = list(tickers)
         return _Result()
 
-    with patch.object(ingest_daily.alpaca_eod, "ingest", _fake_ingest):
+    # Mock the freshness probe (DB) + keep the universe "fresh" so the step
+    # stays on the Alpaca path — this test only pins the ticker list.
+    with patch.object(ingest_daily.alpaca_eod, "ingest", _fake_ingest), \
+         patch.object(ingest_daily, "_freshest_spy_date", lambda: date.today()):
         ingest_daily._step_ohlcv_equity()
 
     sent = captured["tickers"]
