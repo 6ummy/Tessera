@@ -6,7 +6,7 @@
 
 import { NextResponse } from "next/server";
 import { verifyFirebaseToken } from "@/lib/firebase/verify-token";
-import { executeMirror, loadAlpacaKeys } from "@/lib/broker-mirror";
+import { executeMirror, loadAlpacaKeys, type OrderType } from "@/lib/broker-mirror";
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
@@ -25,15 +25,16 @@ export async function POST(req: Request) {
   } catch {
     return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
   }
-  const body = (await req.json().catch(() => ({}))) as { persona?: string };
+  const body = (await req.json().catch(() => ({}))) as { persona?: string; orderType?: string };
   const persona = body.persona ?? "";
   if (!PERSONAS.has(persona)) return NextResponse.json({ error: "unknown persona" }, { status: 400 });
+  const orderType: OrderType = body.orderType === "market" ? "market" : "limit";
 
   const keys = await loadAlpacaKeys(uid);
   if (!keys) return NextResponse.json({ error: "no Alpaca account connected" }, { status: 400 });
 
   try {
-    const results = await executeMirror(keys, persona);
+    const results = await executeMirror(keys, persona, orderType);
     const placed = results.filter((r) => r.ok).length;
     return NextResponse.json({ placed, total: results.length, results });
   } catch (err) {

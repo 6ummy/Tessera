@@ -113,19 +113,24 @@ export async function buildPreview(keys: Keys, persona: string): Promise<Preview
   return { persona, equity, marketOpen: !!clock.is_open, slippageCapBps: cap, skipped: target.skipped, orders };
 }
 
+export type OrderType = "limit" | "market";
 export type ExecResult = { ticker: string; side: string; qty: number; ok: boolean; detail: string };
 
 /** Re-prices from fresh data (does NOT trust a client-submitted list), then
- *  places each order as a marketable-limit order capped at slippageCapBps. */
-export async function executeMirror(keys: Keys, persona: string): Promise<ExecResult[]> {
+ *  places each order. "limit" → marketable-limit capped at slippageCapBps;
+ *  "market" → plain market order (no price cap — the user opted out). */
+export async function executeMirror(
+  keys: Keys, persona: string, orderType: OrderType = "limit",
+): Promise<ExecResult[]> {
   const preview = await buildPreview(keys, persona);
   const results: ExecResult[] = [];
   for (const o of preview.orders) {
     try {
-      const body = JSON.stringify({
-        symbol: o.ticker, qty: String(o.qty), side: o.side,
-        type: "limit", time_in_force: "day", limit_price: String(o.limitPrice),
-      });
+      const body = JSON.stringify(
+        orderType === "market"
+          ? { symbol: o.ticker, qty: String(o.qty), side: o.side, type: "market", time_in_force: "day" }
+          : { symbol: o.ticker, qty: String(o.qty), side: o.side, type: "limit", time_in_force: "day", limit_price: String(o.limitPrice) },
+      );
       const r = (await api("/v2/orders", keys, { method: "POST", body })) as { status?: string };
       results.push({ ticker: o.ticker, side: o.side, qty: o.qty, ok: true, detail: r.status ?? "accepted" });
     } catch (err) {
@@ -133,6 +138,19 @@ export async function executeMirror(keys: Keys, persona: string): Promise<ExecRe
     }
   }
   return results;
+}
+
+export type OpenOrder = { id: string; ticker: string; side: string; qty: number; type: string; limitPrice: number | null; status: string };
+
+/** Open (still-working) orders — what the Order-status view lists. */
+export async function listOpenOrders(keys: Keys): Promise<OpenOrder[]> {
+  const raw = (await api("/v2/orders?status=open&limit=100", keys)) as Array<{
+    id: string; symbol: string; side: string; qty: string; type: string; limit_price?: string; status: string;
+  }>;
+  return raw.map((o) => ({
+    id: o.id, ticker: o.symbol, side: o.side, qty: Number(o.qty), type: o.type,
+    limitPrice: o.limit_price ? Number(o.limit_price) : null, status: o.status,
+  }));
 }
 
 /** Kill switch — cancel every OPEN order (stops anything pending). */
