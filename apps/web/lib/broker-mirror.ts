@@ -140,17 +140,61 @@ export async function executeMirror(
   return results;
 }
 
-export type OpenOrder = { id: string; ticker: string; side: string; qty: number; type: string; limitPrice: number | null; status: string };
+export type BrokerOrder = {
+  id: string; ticker: string; side: string; qty: number; type: string;
+  limitPrice: number | null; status: string; filledQty: number; filledAvgPrice: number | null;
+};
 
-/** Open (still-working) orders — what the Order-status view lists. */
-export async function listOpenOrders(keys: Keys): Promise<OpenOrder[]> {
-  const raw = (await api("/v2/orders?status=open&limit=100", keys)) as Array<{
-    id: string; symbol: string; side: string; qty: string; type: string; limit_price?: string; status: string;
+const OPEN_STATUSES = new Set(["new", "accepted", "pending_new", "partially_filled", "held", "accepted_for_bidding"]);
+export const isOpenStatus = (s: string): boolean => OPEN_STATUSES.has(s);
+
+/** Recent orders (all statuses, newest first) — the Order-status list. Filled,
+ *  still-working, and cancelled all show; the open ones are what cancel-all hits. */
+export async function listRecentOrders(keys: Keys): Promise<BrokerOrder[]> {
+  const raw = (await api("/v2/orders?status=all&limit=50&direction=desc", keys)) as Array<{
+    id: string; symbol: string; side: string; qty: string; type: string; limit_price?: string;
+    status: string; filled_qty?: string; filled_avg_price?: string;
   }>;
   return raw.map((o) => ({
     id: o.id, ticker: o.symbol, side: o.side, qty: Number(o.qty), type: o.type,
     limitPrice: o.limit_price ? Number(o.limit_price) : null, status: o.status,
+    filledQty: Number(o.filled_qty ?? 0), filledAvgPrice: o.filled_avg_price ? Number(o.filled_avg_price) : null,
   }));
+}
+
+export type AccountSummary = { equity: number; cash: number; positionsCount: number };
+
+/** Live snapshot of the connected paper account — drives the dashboard tiles
+ *  once an account is linked. */
+export async function accountSummary(keys: Keys): Promise<AccountSummary> {
+  const [acct, positions] = await Promise.all([
+    api("/v2/account", keys) as Promise<{ equity?: string; cash?: string }>,
+    api("/v2/positions", keys) as Promise<unknown[]>,
+  ]);
+  return {
+    equity: Number(acct.equity ?? 0),
+    cash: Number(acct.cash ?? 0),
+    positionsCount: Array.isArray(positions) ? positions.length : 0,
+  };
+}
+
+export type EquityPoint = { date: string; equity: number };
+
+/** The account's real equity curve (finer than our 1/day paper reconstruction).
+ *  Alpaca's portfolio history — 1D bars over `period`. New accounts return only
+ *  what they have. Used for the "Alpaca · Live" chart line. */
+export async function accountHistory(keys: Keys, period = "1A", timeframe = "1D"): Promise<EquityPoint[]> {
+  const raw = (await api(`/v2/account/portfolio/history?period=${period}&timeframe=${timeframe}`, keys)) as {
+    timestamp?: number[]; equity?: Array<number | null>;
+  };
+  const ts = raw.timestamp ?? [];
+  const eq = raw.equity ?? [];
+  const out: EquityPoint[] = [];
+  for (let i = 0; i < ts.length; i++) {
+    const e = eq[i];
+    if (e != null && e > 0) out.push({ date: new Date(ts[i] * 1000).toISOString().slice(0, 10), equity: e });
+  }
+  return out;
 }
 
 /** Kill switch — cancel every OPEN order (stops anything pending). */

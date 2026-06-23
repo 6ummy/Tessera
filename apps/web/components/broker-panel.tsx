@@ -5,7 +5,7 @@
 // unless NEXT_PUBLIC_FEATURE_BROKER_CONNECT === "true". Paper money only.
 
 import { useCallback, useEffect, useState } from "react";
-import { Link2, Check, ArrowRightLeft, ListChecks, OctagonX } from "lucide-react";
+import { Link2, Check, ArrowRightLeft, ListChecks, OctagonX, ExternalLink } from "lucide-react";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { cn } from "@/lib/utils";
 
@@ -15,8 +15,10 @@ const NAME: Record<string, string> = { warren: "Warren", cathie: "Cathie", ray: 
 type PreviewOrder = { ticker: string; side: "buy" | "sell"; qty: number; refPrice: number; limitPrice: number; estValue: number };
 type Preview = { persona: string; equity: number; marketOpen: boolean; slippageCapBps: number; skipped: string[]; orders: PreviewOrder[] };
 type ExecResult = { ticker: string; side: string; qty: number; ok: boolean; detail: string };
-type OpenOrder = { id: string; ticker: string; side: string; qty: number; type: string; limitPrice: number | null; status: string };
+type BrokerOrder = { id: string; ticker: string; side: string; qty: number; type: string; limitPrice: number | null; status: string; filledQty: number; filledAvgPrice: number | null };
 type OrderType = "limit" | "market";
+
+const OPEN_STATUSES = new Set(["new", "accepted", "pending_new", "partially_filled", "held", "accepted_for_bidding"]);
 
 export function BrokerPanel({ personaId }: { personaId: string | null }) {
   const { user } = useAuth();
@@ -27,7 +29,7 @@ export function BrokerPanel({ personaId }: { personaId: string | null }) {
   const [view, setView] = useState<"none" | "preview" | "orders">("none");
   const [preview, setPreview] = useState<Preview | null>(null);
   const [orderType, setOrderType] = useState<OrderType>("limit");
-  const [openOrders, setOpenOrders] = useState<OpenOrder[] | null>(null);
+  const [openOrders, setOpenOrders] = useState<BrokerOrder[] | null>(null);
   const [results, setResults] = useState<ExecResult[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -96,7 +98,7 @@ export function BrokerPanel({ personaId }: { personaId: string | null }) {
       const res = await call("/api/broker/orders");
       const d = await res.json();
       if (!res.ok) { setError(d.error ?? "could not load orders"); return; }
-      setOpenOrders(d.orders as OpenOrder[]); setView("orders");
+      setOpenOrders(d.orders as BrokerOrder[]); setView("orders");
     } finally { setBusy(false); }
   };
 
@@ -104,9 +106,9 @@ export function BrokerPanel({ personaId }: { personaId: string | null }) {
     setBusy(true);
     try {
       const res = await call("/api/broker/cancel-all", { method: "POST" });
-      const d = await res.json();
-      if (res.ok) setOpenOrders([]);
-      else setError(d.error ?? "cancel failed");
+      if (!res.ok) { setError((await res.json()).error ?? "cancel failed"); return; }
+      const refreshed = await call("/api/broker/orders"); // reflect the now-cancelled state
+      if (refreshed.ok) setOpenOrders((await refreshed.json()).orders as BrokerOrder[]);
     } finally { setBusy(false); }
   };
 
@@ -117,6 +119,10 @@ export function BrokerPanel({ personaId }: { personaId: string | null }) {
       <div className="flex items-center gap-2">
         <Link2 className="h-4 w-4 text-coral-600" />
         <span className="text-xs font-medium uppercase tracking-[0.14em] text-coral-600">Alpaca paper account</span>
+        <a href="https://app.alpaca.markets/dashboard/overview" target="_blank" rel="noopener noreferrer"
+          className="ml-auto inline-flex items-center gap-1 text-[11px] text-ink-500 hover:text-ink-800 ring-focus">
+          Open in Alpaca <ExternalLink className="h-3 w-3" />
+        </a>
       </div>
 
       {!connected ? (
@@ -159,6 +165,10 @@ export function BrokerPanel({ personaId }: { personaId: string | null }) {
               </button>
             </div>
           </div>
+          <p className="mt-2 text-[11px] leading-relaxed text-ink-500">
+            Following or switching an analyst doesn&apos;t trade your Alpaca account on its own —
+            it&apos;s manual: hit <span className="font-medium text-ink-700">Mirror</span> to place (or update) the orders.
+          </p>
           {error && <p className="mt-2 text-xs text-ink-600">{error}</p>}
           {results && (
             <div className="mt-3 rounded-xl bg-sage-500/[0.08] p-3 text-xs text-ink-700">
@@ -254,44 +264,61 @@ function PreviewModal({ preview, orderType, setOrderType, busy, onConfirm, onCan
   );
 }
 
+function statusColor(status: string): string {
+  if (status === "filled") return "text-sage-600";
+  if (OPEN_STATUSES.has(status)) return "text-amber-600";
+  return "text-ink-400"; // canceled / expired / rejected / done
+}
+
 function OrderStatusModal({ orders, busy, onCancelAll, onClose }: {
-  orders: OpenOrder[]; busy: boolean; onCancelAll: () => void; onClose: () => void;
+  orders: BrokerOrder[]; busy: boolean; onCancelAll: () => void; onClose: () => void;
 }) {
+  const open = orders.filter((o) => OPEN_STATUSES.has(o.status));
   return (
     <div role="dialog" aria-modal="true" aria-label="Order status"
       className="fixed inset-0 z-50 grid place-items-center bg-ink-900/40 p-4 backdrop-blur-sm" onClick={onClose}>
-      <div className="w-full max-w-md rounded-3xl border border-ink-900/10 bg-cream-50 p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+      <div className="w-full max-w-lg rounded-3xl border border-ink-900/10 bg-cream-50 p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between">
-          <h2 className="display-serif text-xl text-ink-900">Order status</h2>
-          {orders.length > 0 && (
+          <div>
+            <h2 className="display-serif text-xl text-ink-900">Order status</h2>
+            <p className="text-xs text-ink-500">{open.length} open · {orders.length - open.length} done (recent)</p>
+          </div>
+          {open.length > 0 && (
             <button type="button" onClick={onCancelAll} disabled={busy}
               className="inline-flex h-8 items-center gap-1.5 rounded-full border border-coral-500/40 bg-coral-500/10 px-3 text-xs font-medium text-coral-700 hover:bg-coral-500/15 ring-focus disabled:opacity-50">
-              <OctagonX className="h-3.5 w-3.5" /> Cancel open orders
+              <OctagonX className="h-3.5 w-3.5" /> Cancel {open.length} open
             </button>
           )}
         </div>
 
         {orders.length === 0 ? (
-          <p className="mt-4 text-sm text-ink-600">No open orders. (Market orders fill immediately; filled positions live in your portfolio above.)</p>
+          <p className="mt-4 text-sm text-ink-600">No recent orders.</p>
         ) : (
-          <div className="mt-3 max-h-72 overflow-auto rounded-xl border border-ink-900/[0.06]">
+          <div className="mt-3 max-h-80 overflow-auto rounded-xl border border-ink-900/[0.06]">
             <table className="w-full text-xs">
               <thead className="text-ink-400"><tr className="border-b border-ink-900/[0.06]">
                 <th className="px-3 py-1.5 text-left font-medium">Order</th>
-                <th className="px-3 py-1.5 text-right font-medium">Limit</th>
+                <th className="px-3 py-1.5 text-right font-medium">Price</th>
                 <th className="px-3 py-1.5 text-right font-medium">Status</th>
               </tr></thead>
               <tbody>
-                {orders.map((o) => (
-                  <tr key={o.id} className="border-b border-ink-900/[0.04] last:border-0">
-                    <td className="px-3 py-1.5">
-                      <span className={cn("font-medium", o.side === "buy" ? "text-sage-600" : "text-coral-600")}>{o.side}</span>{" "}
-                      <span className="num">{o.qty}</span> {o.ticker}
-                    </td>
-                    <td className="num px-3 py-1.5 text-right">{o.limitPrice !== null ? `$${o.limitPrice.toFixed(2)}` : o.type}</td>
-                    <td className="px-3 py-1.5 text-right text-ink-500">{o.status}</td>
-                  </tr>
-                ))}
+                {orders.map((o) => {
+                  const filled = o.status === "filled" || o.filledQty > 0;
+                  const price = filled && o.filledAvgPrice !== null ? `$${o.filledAvgPrice.toFixed(2)}`
+                    : o.limitPrice !== null ? `$${o.limitPrice.toFixed(2)} lim` : "mkt";
+                  return (
+                    <tr key={o.id} className="border-b border-ink-900/[0.04] last:border-0">
+                      <td className="px-3 py-1.5">
+                        <span className={cn("font-medium", o.side === "buy" ? "text-sage-600" : "text-coral-600")}>{o.side}</span>{" "}
+                        <span className="num">{o.qty}</span> {o.ticker}
+                      </td>
+                      <td className="num px-3 py-1.5 text-right text-ink-600">{price}</td>
+                      <td className={cn("px-3 py-1.5 text-right font-medium", statusColor(o.status))}>
+                        {o.status === "partially_filled" ? `part (${o.filledQty}/${o.qty})` : o.status}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

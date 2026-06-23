@@ -8,7 +8,7 @@ import { rebase, usePerformance, toPoints } from "@/lib/performance-data";
 import { buildAccountIndex, segmentNodes, type FollowEvent, ACCOUNT_CASH_KEY, ACCOUNT_MIXED_KEY } from "@/lib/account-curve";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { Header } from "@/components/header";
-import { CumulativeChart } from "@/components/cumulative-chart";
+import { CumulativeChart, type Series } from "@/components/cumulative-chart";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { EmailNotifyToggle } from "@/components/email-notify-toggle";
@@ -25,7 +25,7 @@ const ACCENT_HEX: Record<Persona["accent"], string> = {
 // Account-curve range selector.
 type RangeKey = "inception" | "1m" | "3m" | "1y";
 const RANGE_DAYS: Record<Exclude<RangeKey, "inception">, number> = { "1m": 30, "3m": 90, "1y": 365 };
-const RANGE_LABEL: Record<RangeKey, string> = { inception: "Since inception", "1m": "1M", "3m": "3M", "1y": "1Y" };
+const RANGE_LABEL: Record<RangeKey, string> = { inception: "Since follow", "1m": "1M", "3m": "3M", "1y": "1Y" };
 
 type Portfolio = {
   personaId: string;
@@ -126,6 +126,32 @@ function DashboardInner() {
     })();
     return () => { cancelled = true; };
   }, [user, profileNonce]);
+
+  // Alpaca · Live — the real connected paper account's equity curve (Phase F).
+  // Null unless broker-connect is on AND an account is connected (route 400s
+  // otherwise). Fetched once; the chart slices/rebases it per range.
+  const [alpacaHistory, setAlpacaHistory] = useState<{ date: string; equity: number }[] | null>(null);
+  const [alpacaAccount, setAlpacaAccount] = useState<{ equity: number; cash: number; positionsCount: number } | null>(null);
+  useEffect(() => {
+    if (process.env.NEXT_PUBLIC_FEATURE_BROKER_CONNECT !== "true" || !user) {
+      setAlpacaHistory(null); setAlpacaAccount(null); return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await user.getIdToken();
+        const auth = { headers: { authorization: `Bearer ${token}` }, cache: "no-store" as const };
+        const [hist, acct] = await Promise.all([
+          fetch("/api/broker/portfolio-history", auth),
+          fetch("/api/broker/account", auth),
+        ]);
+        if (cancelled) return;
+        if (hist.ok) setAlpacaHistory(((await hist.json()) as { points: { date: string; equity: number }[] }).points ?? null);
+        if (acct.ok) setAlpacaAccount((await acct.json()) as { equity: number; cash: number; positionsCount: number });
+      } catch { /* ignore */ }
+    })();
+    return () => { cancelled = true; };
+  }, [user, reloadNonce]);
 
   // Single-follow: at most one analyst. Clicking a name follows/switches;
   // clicking the followed one unfollows (back to cash).
@@ -256,11 +282,39 @@ function DashboardInner() {
 
     const benchWin = benchmark.filter((p) => p.date >= cutoff);
     const benchData = rebase(benchWin.length >= 2 ? benchWin : benchmark);
+
+    // Alpaca · Live — slice to the window + rebase to its own first point (the
+    // real account starts when it was funded, later than the paper inception).
+    let alpacaSeries: Series | null = null;
+    if (alpacaHistory && alpacaHistory.length >= 2) {
+      const win = alpacaHistory.filter((p) => p.date >= cutoff);
+      const pts = win.length >= 2 ? win : alpacaHistory;
+      const ab = pts[0]?.equity || 1;
+      alpacaSeries = {
+        id: "alpaca", name: "Alpaca · Live", color: "#2F6F8F",
+        data: pts.map((p, i) => ({ day: i, date: p.date, value: Number((p.equity / ab).toFixed(6)) })),
+      };
+    }
+
     return [
       ...youSeries,
       { id: "sp500", name: "S&P 500", color: "#A8A39A", data: benchData, dashed: true },
+      ...(alpacaSeries ? [alpacaSeries] : []),
     ];
-  }, [seriesAndAxis, benchmark, events, range]);
+  }, [seriesAndAxis, benchmark, events, range, alpacaHistory]);
+
+  // Empty-state hero: all 4 analysts vs S&P 500 (same as the landing chart) —
+  // shown when the user follows no one yet, so they can pick from the curves.
+  const heroSeries = useMemo<Series[]>(() => {
+    const s: Series[] = PERSONAS.flatMap((p) => {
+      const data = perf[p.id];
+      return data && data.series.length > 0
+        ? [{ id: p.id, name: p.name, color: ACCENT_HEX[p.accent], data: toPoints(data) }]
+        : [];
+    });
+    if (benchmark) s.push({ id: "sp500", name: "S&P 500", color: "#A8A39A", data: benchmark, dashed: true });
+    return s;
+  }, [perf, benchmark]);
 
   const selectedPositions = useMemo(() => {
     if (!selected) return [];
@@ -392,11 +446,22 @@ function DashboardInner() {
                   <LiveTradingPanel />
 
                   {portfolios.length === 0 ? (
-                    <EmptyState
-                      title="You're not following anyone yet"
-                      body="Hit Follow on an analyst above — Convt seeds a $100K paper book that mirrors their moves."
-                      action={<Link href="/"><Button size="md">Meet the analysts</Button></Link>}
-                    />
+                    <div className="space-y-4">
+                      <div className="rounded-3xl border border-ink-900/[0.06] bg-cream-50 p-6">
+                        <div className="text-xs uppercase tracking-[0.16em] text-ink-500">Paper track</div>
+                        <h2 className="display-serif mt-1 text-2xl text-ink-900">All analysts vs S&amp;P 500</h2>
+                        {heroSeries.length > 0 ? (
+                          <div className="mt-3"><CumulativeChart height={260} series={heroSeries} /></div>
+                        ) : (
+                          <div className="mt-3 h-[260px] w-full animate-pulse rounded-2xl bg-ink-900/[0.04]" />
+                        )}
+                      </div>
+                      <EmptyState
+                        title="You're not following anyone yet"
+                        body="Hit Follow on an analyst above — Convt seeds a $100K paper book that mirrors their moves."
+                        action={<Link href="/"><Button size="md">Meet the analysts</Button></Link>}
+                      />
+                    </div>
                   ) : (
                   <>
                   {portfolios.length > 1 && (
@@ -425,13 +490,13 @@ function DashboardInner() {
                     <div className="rounded-3xl border border-ink-900/[0.06] bg-cream-50 p-6">
                       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                         <div>
-                          <div className="text-xs uppercase tracking-[0.16em] text-ink-500">{RANGE_LABEL[range]} · paper</div>
+                          <div className="text-xs uppercase tracking-[0.16em] text-ink-500">{RANGE_LABEL[range]} · {alpacaAccount ? "Alpaca paper" : "paper"}</div>
                           <h2 className="display-serif mt-1 text-2xl text-ink-900">
                             Your account vs S&amp;P 500
                           </h2>
                         </div>
                         <div className="inline-flex h-9 w-fit items-center gap-1 rounded-full bg-ink-900/[0.05] p-1 text-sm">
-                          <BoardBtn active={range === "inception"} onClick={() => setRange("inception")}>Since inception</BoardBtn>
+                          <BoardBtn active={range === "inception"} onClick={() => setRange("inception")}>Since follow</BoardBtn>
                           <BoardBtn active={range === "1m"} onClick={() => setRange("1m")}>1M</BoardBtn>
                           <BoardBtn active={range === "3m"} onClick={() => setRange("3m")}>3M</BoardBtn>
                           <BoardBtn active={range === "1y"} onClick={() => setRange("1y")}>1Y</BoardBtn>
@@ -449,11 +514,23 @@ function DashboardInner() {
 
                     <div className="space-y-4">
                       <Tile label="Starting capital" value="$100,000" />
-                      <Tile label="Total value" value={`$${Math.round(totalValue).toLocaleString("en-US")}`}
-                        sub={`${fmt.pct(aggReturn)} since first follow`} />
-                      <Tile label="Cash" value={`$${Math.round(selected!.currentCash * bookScale).toLocaleString("en-US")}`}
-                        sub={`${fmt.pctAbs(selected!.totalValue > 0 ? selected!.currentCash / selected!.totalValue : 0)} allocation`} />
-                      <Tile label="Open positions" value={`${selectedPositions.length}`} sub={`Following ${selectedPersona?.name}`} />
+                      {alpacaAccount ? (
+                        <>
+                          <Tile label="Total value" value={`$${Math.round(alpacaAccount.equity).toLocaleString("en-US")}`}
+                            sub={`${fmt.pct(alpacaAccount.equity / 100_000 - 1)} · Alpaca paper`} />
+                          <Tile label="Cash" value={`$${Math.round(alpacaAccount.cash).toLocaleString("en-US")}`}
+                            sub={`${fmt.pctAbs(alpacaAccount.equity > 0 ? alpacaAccount.cash / alpacaAccount.equity : 0)} allocation · Alpaca`} />
+                          <Tile label="Open positions" value={`${alpacaAccount.positionsCount}`} sub="Live on Alpaca paper" />
+                        </>
+                      ) : (
+                        <>
+                          <Tile label="Total value" value={`$${Math.round(totalValue).toLocaleString("en-US")}`}
+                            sub={`${fmt.pct(aggReturn)} since first follow`} />
+                          <Tile label="Cash" value={`$${Math.round(selected!.currentCash * bookScale).toLocaleString("en-US")}`}
+                            sub={`${fmt.pctAbs(selected!.totalValue > 0 ? selected!.currentCash / selected!.totalValue : 0)} allocation`} />
+                          <Tile label="Open positions" value={`${selectedPositions.length}`} sub={`Following ${selectedPersona?.name}`} />
+                        </>
+                      )}
                     </div>
                   </div>
 
