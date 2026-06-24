@@ -8,16 +8,20 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Users, Trophy, Settings, LogOut, Menu, X, LogIn } from "lucide-react";
+import { LayoutDashboard, Users, FileText, Trophy, HelpCircle, LogOut, Menu, X, LogIn } from "lucide-react";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { cn } from "@/lib/utils";
 
+// Mirrors the marketing top-nav (Desk / Proposals / How it works) plus the app
+// views (Dashboard / Leaderboard) in one place. No "Settings" item — it's just
+// a section of the dashboard; reach it from there.
 type NavItem = { href: string; label: string; icon: typeof LayoutDashboard };
 const NAV: NavItem[] = [
+  { href: "/", label: "Desk", icon: Users },
+  { href: "/proposals", label: "Proposals", icon: FileText },
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/proposals", label: "Analysts", icon: Users },
   { href: "/dashboard?tab=leaderboard", label: "Leaderboard", icon: Trophy },
-  { href: "/dashboard#profile-settings", label: "Settings", icon: Settings },
+  { href: "/how-it-works", label: "How it works", icon: HelpCircle },
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
