@@ -267,7 +267,7 @@ def main() -> int:
                    help="Number of trading days to replay (default 10)")
     p.add_argument("--personas", nargs="+",
                    default=["warren", "cathie", "peter"],
-                   choices=["warren", "cathie", "ray", "peter"],
+                   choices=["warren", "cathie", "ray", "peter", "michael"],
                    help="Personas to replay (ray uses regime schema; not yet wired here)")
     p.add_argument("--tickers", nargs="+", required=True,
                    help="Tickers to replay")

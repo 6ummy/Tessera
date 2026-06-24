@@ -17,10 +17,10 @@ from tessera_worker.agents.persona_loader import (
 # ─── Chat spec parsing ────────────────────────────────────────────────
 
 
-def test_load_chat_specs_returns_four_personas():
+def test_load_chat_specs_returns_all_personas():
     clear_cache()
     specs = load_chat_specs()
-    assert set(specs.keys()) == {"warren", "cathie", "ray", "peter"}
+    assert set(specs.keys()) == {"warren", "cathie", "ray", "peter", "michael"}
 
 
 def test_chat_spec_contains_signature_phrases_section():

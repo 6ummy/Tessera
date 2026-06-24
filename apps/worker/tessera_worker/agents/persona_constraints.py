@@ -22,7 +22,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-PersonaId = Literal["warren", "cathie", "peter", "ray"]
+PersonaId = Literal["warren", "cathie", "peter", "ray", "michael"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -187,6 +187,28 @@ PERSONA_CONSTRAINTS: dict[PersonaId, PortfolioConstraints] = {
         target_position_count_max=8,
         max_var99_1d=0.025,   # measured 1.0% — allocator must stay low-risk
         max_drawdown=0.15,
+    ),
+    # ── Michael — Contrarian bear / tail-risk hedger ───────────────────
+    # Long-only expression of a short book: high cash + inverse ETFs +
+    # gold/Treasuries + deep value. The gateway must NOT punish the bear:
+    # a generous drawdown floor (40%) so a melt-up doesn't auto-pause him
+    # while he's "early." VaR is higher (5.0%) than a value book because
+    # inverse ETFs — especially the −2x QID — are volatile, and the cap
+    # must leave room to actually carry a hedge (it self-limits position
+    # size). Concentrated (3–8 names), single-name 25% for his biggest
+    # conviction short. No sector cap (1.0): inverse/hedge + real assets
+    # legitimately cluster. Cash up to 80% is the default posture.
+    "michael": PortfolioConstraints(
+        max_single_name=0.25,
+        max_sector=1.00,
+        cash_min=0.00,
+        cash_max=0.80,
+        min_active_conviction=0.55,
+        min_strong_conviction=0.75,
+        target_position_count_min=3,
+        target_position_count_max=8,
+        max_var99_1d=0.050,
+        max_drawdown=0.40,
     ),
 }
 
