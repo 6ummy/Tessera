@@ -5,7 +5,7 @@ import { ArrowLeft, Sparkles, Users } from "lucide-react";
 import { PERSONAS, PERSONA_BY_ID, ACCENT_CLASS, type Persona } from "@/lib/mock/personas";
 import { fetchProposal, fetchReports } from "@/lib/analyst-data";
 import type { Proposal, Report } from "@/lib/thesis-types";
-import { Header } from "@/components/header";
+import { AppShell } from "@/components/app-shell";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { PositionFeatures } from "@/components/position-features";
@@ -159,8 +159,7 @@ export default function ProposalsPage() {
   }, [proposals]);
 
   return (
-    <main className="min-h-screen">
-      <Header variant="solid" />
+    <AppShell>
 
       <section className="border-b border-ink-900/[0.06] bg-cream-50/40 py-12">
         <div className="mx-auto max-w-7xl px-6">
@@ -450,7 +449,7 @@ export default function ProposalsPage() {
         open={!!openId}
         onOpenChange={(o) => !o && setOpenId(null)}
       />
-    </main>
+    </AppShell>
   );
 }
 
