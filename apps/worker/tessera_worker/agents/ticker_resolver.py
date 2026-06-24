@@ -132,6 +132,14 @@ for t in _UNIVERSE_RAW:
 for alias, ticker in ALIASES.items():
     _NAME_INDEX[alias.lower()] = ticker
 
+# Inverse/hedge ETF tickers are deliberate near-homographs of their underlying
+# (TSLS ≈ "Tesls", NVDD ≈ "NVDA") — as fuzzy candidates they hijack typos of the
+# real company ("Tesls" → TSLS instead of TSLA). Exclude them from FUZZY matching
+# only; an exact ticker still resolves via the regex level (L1-2).
+_FUZZY_EXCLUDE: set[str] = {
+    t.ticker for t in _UNIVERSE_RAW if t.sector == "Inverse/Hedge ETF"
+}
+
 
 # ─────────────────────────────────────────────────────────────────────────
 # Resolution chain
@@ -187,8 +195,12 @@ def _fuzzy_match(text: str, threshold: int = 85) -> set[str]:
     # lowercase candidate map: lower → canonical ticker
     cand_to_ticker: dict[str, str] = {}
     for t in _UNIVERSE_TICKERS:
+        if t in _FUZZY_EXCLUDE:
+            continue
         cand_to_ticker[t.lower()] = t
     for name, t in _NAME_INDEX.items():
+        if t in _FUZZY_EXCLUDE:
+            continue
         cand_to_ticker[name.lower()] = t
     candidates = list(cand_to_ticker.keys())
     # Tokenize on Unicode word chars (3-15 length to avoid noise)

@@ -21,7 +21,7 @@ Sector = Literal[
     "Technology", "Financials", "Healthcare", "Consumer Discretionary",
     "Consumer Staples", "Communication Services", "Industrials", "Energy",
     "Utilities", "Materials", "Real Estate",
-    "Equity ETF", "Bond ETF", "Commodity ETF", "Crypto",
+    "Equity ETF", "Bond ETF", "Commodity ETF", "Inverse/Hedge ETF", "Crypto",
 ]
 
 
@@ -108,6 +108,19 @@ _RAW: list[TickerMeta] = [
     TickerMeta("TIP",   "iShares TIPS",                   "Bond ETF",              "etf"),
     TickerMeta("GLD",   "SPDR Gold",                      "Commodity ETF",         "etf"),
     TickerMeta("DBC",   "Invesco DB Commodity Index",     "Commodity ETF",         "etf"),
+    # ─── Michael's hedge book — inverse ETFs (no fundamentals; price-only
+    #     features). Broad/theme are −1x except QID (−2x); single-stock are
+    #     Direxion Daily Bear 1X (−1x). NVDD/TSLS season earlier; AVS/PLTD
+    #     launched 2025 so their history is short — the coverage audit will
+    #     flag thin data and the Yahoo fallback (#210) backstops Alpaca. ───
+    TickerMeta("SH",    "ProShares Short S&P 500 (-1x)",       "Inverse/Hedge ETF", "etf"),
+    TickerMeta("PSQ",   "ProShares Short QQQ (-1x)",           "Inverse/Hedge ETF", "etf"),
+    TickerMeta("SARK",  "AXS Short Innovation (-1x ARKK)",     "Inverse/Hedge ETF", "etf"),
+    TickerMeta("QID",   "ProShares UltraShort QQQ (-2x)",      "Inverse/Hedge ETF", "etf"),
+    TickerMeta("NVDD",  "Direxion Daily NVDA Bear 1X",         "Inverse/Hedge ETF", "etf"),
+    TickerMeta("TSLS",  "Direxion Daily TSLA Bear 1X",         "Inverse/Hedge ETF", "etf"),
+    TickerMeta("AVS",   "Direxion Daily AVGO Bear 1X",         "Inverse/Hedge ETF", "etf"),
+    TickerMeta("PLTD",  "Direxion Daily PLTR Bear 1X",         "Inverse/Hedge ETF", "etf"),
 ]
 
 
