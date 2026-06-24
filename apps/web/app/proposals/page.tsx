@@ -149,7 +149,27 @@ export default function ProposalsPage() {
     return rows;
   }, [proposals]);
 
-  // Display "as of" — latest date across all 4 personas.
+  // Sortable: default Avg-conv descending (#4 feedback). Clicking a header
+  // toggles direction; the overlap badges (#3) keep multi-analyst names
+  // legible in any sort order.
+  const [sortKey, setSortKey] = useState<"conv" | "ticker">("conv");
+  const [sortDir, setSortDir] = useState<"desc" | "asc">("desc");
+  const toggleSort = (key: "conv" | "ticker") => {
+    if (key === sortKey) setSortDir((d) => (d === "desc" ? "asc" : "desc"));
+    else { setSortKey(key); setSortDir(key === "ticker" ? "asc" : "desc"); }
+  };
+  const sortedConsensus = useMemo<ConsensusRow[]>(() => {
+    const sign = sortDir === "desc" ? -1 : 1;
+    return [...consensus].sort((a, b) =>
+      sortKey === "ticker"
+        ? sign * a.ticker.localeCompare(b.ticker)
+        // Avg-conv sort keeps multi-analyst names as the tiebreak so consensus
+        // still bubbles up within equal conviction.
+        : sign * (a.avgConviction - b.avgConviction) || b.mentions.length - a.mentions.length,
+    );
+  }, [consensus, sortKey, sortDir]);
+
+  // Display "as of" — latest date across all personas.
   const asOfDisplay = useMemo(() => {
     const dates = Object.values(proposals)
       .map((p) => p?.asOf)
@@ -366,14 +386,20 @@ export default function ProposalsPage() {
             <TabsContent value="consensus">
               <div className="overflow-hidden rounded-3xl border border-ink-900/[0.06] bg-cream-50">
                 <div className="grid grid-cols-[2fr_repeat(4,1fr)_1fr] border-b border-ink-900/[0.06] bg-ink-900/[0.025] px-5 py-3 text-[10px] uppercase tracking-[0.14em] text-ink-500">
-                  <div>Ticker</div>
+                  <button type="button" onClick={() => toggleSort("ticker")}
+                    className="flex items-center gap-1 text-left uppercase tracking-[0.14em] ring-focus hover:text-ink-800">
+                    Ticker <SortCaret active={sortKey === "ticker"} dir={sortDir} />
+                  </button>
                   {PERSONAS.map((p) => (
                     <div key={p.id} className="flex items-center gap-1.5">
                       <span className="h-1.5 w-1.5 rounded-full" style={{ background: ACCENT_HEX[p.accent] }} />
                       {p.name}
                     </div>
                   ))}
-                  <div className="text-right">Avg conv.</div>
+                  <button type="button" onClick={() => toggleSort("conv")}
+                    className="flex items-center justify-end gap-1 uppercase tracking-[0.14em] ring-focus hover:text-ink-800">
+                    Avg conv. <SortCaret active={sortKey === "conv"} dir={sortDir} />
+                  </button>
                 </div>
 
                 {loading ? (
@@ -382,12 +408,12 @@ export default function ProposalsPage() {
                       <div key={i} className="h-12 animate-pulse bg-ink-900/[0.02]" />
                     ))}
                   </div>
-                ) : consensus.length === 0 ? (
+                ) : sortedConsensus.length === 0 ? (
                   <div className="px-5 py-8 text-center text-sm text-ink-500">
                     No proposals published yet. Cron runs Friday close.
                   </div>
                 ) : (
-                  consensus.map((row) => {
+                  sortedConsensus.map((row) => {
                     const mentionsByPersona = Object.fromEntries(
                       row.mentions.map((m) => [m.personaId, m]),
                     );
@@ -397,16 +423,18 @@ export default function ProposalsPage() {
                         key={row.ticker}
                         className={cn(
                           "grid grid-cols-[2fr_repeat(4,1fr)_1fr] border-b border-ink-900/[0.05] px-5 py-3.5 last:border-b-0 transition-colors hover:bg-ink-900/[0.02]",
-                          mentionCount >= 3 && "bg-coral-50/40",
+                          mentionCount >= 3 ? "bg-coral-50/50" : mentionCount === 2 && "bg-coral-50/25",
                         )}
                       >
                         <div className="flex items-center gap-3 min-w-0">
                           <div className="num text-sm font-medium text-ink-900">{row.ticker}</div>
                           <div className="truncate text-xs text-ink-500">{row.name}</div>
-                          {mentionCount >= 3 && (
-                            <Badge tone="coral" className="ml-auto sm:ml-0">
-                              Consensus
-                            </Badge>
+                          {mentionCount >= 2 && (
+                            <span title={`${mentionCount} analysts hold this name`} className="ml-auto sm:ml-0">
+                              <Badge tone="coral" className="inline-flex items-center gap-1">
+                                <Users className="h-3 w-3" /> {mentionCount}
+                              </Badge>
+                            </span>
                           )}
                         </div>
                         {PERSONAS.map((p) => {
@@ -438,7 +466,9 @@ export default function ProposalsPage() {
               </div>
 
               <p className="mt-4 text-xs text-ink-500">
-                Rows highlighted in coral are mentioned by 3 or more analysts — strong desk-wide signal.
+                The <span className="text-coral-600">●N</span> badge marks names held by 2+ analysts —
+                rarer than it looks (the desk's mandates diverge by design), so overlap is real signal.
+                Click <span className="text-ink-700">Ticker</span> or <span className="text-ink-700">Avg conv.</span> to sort.
               </p>
             </TabsContent>
           </Tabs>
@@ -451,6 +481,18 @@ export default function ProposalsPage() {
         onOpenChange={(o) => !o && setOpenId(null)}
       />
     </main>
+  );
+}
+
+function SortCaret({ active, dir }: { active: boolean; dir: "asc" | "desc" }) {
+  return (
+    <ChevronDown
+      className={cn(
+        "h-3 w-3 transition-transform",
+        active ? "text-ink-700" : "text-ink-300",
+        active && dir === "asc" && "rotate-180",
+      )}
+    />
   );
 }
 
