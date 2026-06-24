@@ -62,7 +62,7 @@ log = get_logger(__name__)
 DEFAULT_WEEKS = 13          # ~90 calendar days
 DEFAULT_TICKERS_PER_PERSONA = 5
 TRADING_DAYS_PER_YEAR = 252
-PERSONAS: tuple[str, ...] = ("warren", "cathie", "peter", "ray")
+PERSONAS: tuple[str, ...] = ("warren", "cathie", "peter", "ray", "michael")
 
 # Representative Ray ETF book for dry-run only (no LLM available). Mirrors
 # the typical regime-thesis output (broad equity + intl + duration + gold)

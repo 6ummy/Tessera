@@ -11,9 +11,9 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Final, Literal
 
-PersonaId = Literal["warren", "cathie", "ray", "peter"]
+PersonaId = Literal["warren", "cathie", "ray", "peter", "michael"]
 
-_PERSONA_IDS: Final[tuple[PersonaId, ...]] = ("warren", "cathie", "ray", "peter")
+_PERSONA_IDS: Final[tuple[PersonaId, ...]] = ("warren", "cathie", "ray", "peter", "michael")
 
 # Display names in personalities.md operational section headers.
 _NAME_BY_ID: Final[dict[PersonaId, str]] = {
@@ -21,10 +21,11 @@ _NAME_BY_ID: Final[dict[PersonaId, str]] = {
     "cathie": "Cathie",
     "ray": "Ray",
     "peter": "Peter",
+    "michael": "Michael",
 }
 
 _OPERATIONAL_HEADER = re.compile(
-    r"^##\s+(Warren|Cathie|Ray|Peter)\s+—\s+Operational system prompt\s*$",
+    r"^##\s+(Warren|Cathie|Ray|Peter|Michael)\s+—\s+Operational system prompt\s*$",
     re.MULTILINE,
 )
 
@@ -113,7 +114,7 @@ def clear_cache() -> None:
 # ─────────────────────────────────────────────────────────────────────────
 
 _CHAT_HEADER = re.compile(
-    r"^##\s+\d+\.\s+(Warren|Cathie|Ray|Peter)\s+—\s+Chat fine-tuning spec\s*$",
+    r"^##\s+\d+\.\s+(Warren|Cathie|Ray|Peter|Michael)\s+—\s+Chat fine-tuning spec\s*$",
     re.MULTILINE,
 )
 

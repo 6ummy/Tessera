@@ -225,7 +225,7 @@ async def chat_stream(
     chat cannot blow the daily LLM cap. Also gated by `FEATURE_REAL_LLM`.
     """
     _require_webhook_auth(authorization)
-    if persona_id not in ("warren", "cathie", "ray", "peter"):
+    if persona_id not in ("warren", "cathie", "ray", "peter", "michael"):
         raise HTTPException(status_code=400, detail=f"unknown persona: {persona_id}")
 
     body = await request.json()
@@ -285,7 +285,7 @@ async def get_persona_reports(
     body paragraphs, tickers, numerics, what_would_make_me_wrong list.
     """
     _require_webhook_auth(authorization)
-    if persona_id not in ("warren", "cathie", "ray", "peter"):
+    if persona_id not in ("warren", "cathie", "ray", "peter", "michael"):
         raise HTTPException(400, f"unknown persona: {persona_id}")
     limit = max(1, min(limit, 20))
 
@@ -352,7 +352,7 @@ async def get_persona_proposal(
     most recent as_of_date participates, and _aggregate_book for the
     aggregation rules."""
     _require_webhook_auth(authorization)
-    if persona_id not in ("warren", "cathie", "ray", "peter"):
+    if persona_id not in ("warren", "cathie", "ray", "peter", "michael"):
         raise HTTPException(400, f"unknown persona: {persona_id}")
 
     from sqlalchemy import text as _sql
@@ -750,7 +750,7 @@ async def get_persona_performance(
     curve; sharpe/mdd from the latest persona_performance row (real row
     preferred, hypothetical fallback while the live track is young)."""
     _require_webhook_auth(authorization)
-    if persona_id not in ("warren", "cathie", "ray", "peter"):
+    if persona_id not in ("warren", "cathie", "ray", "peter", "michael"):
         raise HTTPException(400, f"unknown persona: {persona_id}")
     days = max(30, min(days, 800))
 
@@ -804,7 +804,7 @@ async def get_persona_portfolio(
     weight + cash). Hypothetical snapshots are never served here — this
     endpoint answers "what does the persona actually hold on paper"."""
     _require_webhook_auth(authorization)
-    if persona_id not in ("warren", "cathie", "ray", "peter"):
+    if persona_id not in ("warren", "cathie", "ray", "peter", "michael"):
         raise HTTPException(400, f"unknown persona: {persona_id}")
 
     from sqlalchemy import text as _sql
@@ -870,7 +870,7 @@ async def get_persona_attribution(
     period's total return. Spans hypothetical + live snapshots
     transparently (the frozen backfill is a constant-qty book)."""
     _require_webhook_auth(authorization)
-    if persona_id not in ("warren", "cathie", "ray", "peter"):
+    if persona_id not in ("warren", "cathie", "ray", "peter", "michael"):
         raise HTTPException(400, f"unknown persona: {persona_id}")
     from datetime import date as _date
     from datetime import timedelta as _timedelta

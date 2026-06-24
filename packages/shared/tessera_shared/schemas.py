@@ -17,7 +17,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 # ── Type aliases ──────────────────────────────────────────────────────────
-PersonaId = Literal["warren", "cathie", "ray", "peter"]
+PersonaId = Literal["warren", "cathie", "ray", "peter", "michael"]
 RiskLabel = Literal["Conservative", "Balanced", "Aggressive"]
 Side = Literal["buy", "sell", "hold", "trim", "add"]
 

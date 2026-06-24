@@ -125,10 +125,10 @@ def test_llm_disabled_aborts_immediately(monkeypatch) -> None:
     assert result.attempted == 1
 
 
-def test_persona_shortlists_cover_4_personas() -> None:
-    """Schema sanity: all 3 stock-picker personas have shortlists, ray is
-    intentionally not in the dict (handled separately)."""
-    assert set(PERSONA_SHORTLISTS) == {"warren", "cathie", "peter"}
+def test_persona_shortlists_cover_stock_pickers() -> None:
+    """Schema sanity: the stock-picker personas have shortlists; ray is
+    intentionally not in the dict (regime allocator, handled separately)."""
+    assert set(PERSONA_SHORTLISTS) == {"warren", "cathie", "peter", "michael"}
     for persona, tickers in PERSONA_SHORTLISTS.items():
         assert len(tickers) >= 5, f"{persona} shortlist suspiciously short"
         assert len(tickers) <= 15, f"{persona} shortlist over budget"

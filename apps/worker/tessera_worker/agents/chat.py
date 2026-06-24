@@ -45,7 +45,7 @@ from tessera_worker.logging import get_logger
 
 log = get_logger(__name__)
 
-PersonaId = Literal["warren", "cathie", "ray", "peter"]
+PersonaId = Literal["warren", "cathie", "ray", "peter", "michael"]
 
 
 class ChatMessage(TypedDict):

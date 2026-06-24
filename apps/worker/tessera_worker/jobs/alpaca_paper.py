@@ -180,10 +180,12 @@ def main() -> int:
     o.add_argument("--side", choices=["buy", "sell"], required=True)
     o.add_argument("--qty", type=float, required=True)
     sy = sub.add_parser("sync")
-    sy.add_argument("--persona", required=True, choices=["warren", "cathie", "ray", "peter"])
+    sy.add_argument("--persona", required=True,
+                    choices=["warren", "cathie", "ray", "peter", "michael"])
     sy.add_argument("--execute", action="store_true", help="place the orders (default: dry-run)")
     sl = sub.add_parser("slippage")
-    sl.add_argument("--persona", required=True, choices=["warren", "cathie", "ray", "peter"])
+    sl.add_argument("--persona", required=True,
+                    choices=["warren", "cathie", "ray", "peter", "michael"])
     args = parser.parse_args()
 
     try:

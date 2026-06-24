@@ -85,11 +85,21 @@ PERSONA_SHORTLISTS: dict[str, list[str]] = {
         "COST", "HD", "DECK", "BKNG", "URI",
         "LRCX", "TSM", "AMZN", "META", "NOW",
     ],
+    "michael": [
+        # Hedges he sizes by his bubble signal (long-only inverse ETFs):
+        "SH", "PSQ", "SARK", "QID", "NVDD", "TSLS", "AVS", "PLTD",
+        # Real-asset / deep-value sleeve (cash is the residual):
+        "GLD", "TLT", "XOM",
+        # Bubble underlyings — researched to READ the froth (run-up +
+        # collapsing fcf_yield) that sets his conviction on the matching
+        # single-stock inverse; usually proposed sell/0, not bought.
+        "NVDA", "TSLA", "AVGO", "PLTR",
+    ],
     # Ray runs once per batch via run_regime_thesis (no ticker shortlist).
 }
 
 
-PersonaId = Literal["warren", "cathie", "peter", "ray"]
+PersonaId = Literal["warren", "cathie", "peter", "ray", "michael"]
 
 
 @dataclass
@@ -206,7 +216,7 @@ def run_batch_v2(
     N-rows-per-persona pattern). Aggregator at /api/proposals already
     handles this — most-recent row wins.
     """
-    personas = personas or ["warren", "cathie", "peter", "ray"]
+    personas = personas or ["warren", "cathie", "peter", "ray", "michael"]
     as_of = as_of or date.today()
     result = BatchResult()
 
@@ -327,7 +337,7 @@ def run_batch(
     """The actual batch runner. Returns a BatchResult; never raises on per-cell
     errors. Raises only on system-level abort (budget exceeded, feature flag).
     """
-    personas = personas or ["warren", "cathie", "peter", "ray"]
+    personas = personas or ["warren", "cathie", "peter", "ray", "michael"]
     as_of = as_of or date.today()
     result = BatchResult()
 
@@ -377,7 +387,7 @@ def print_summary(result: BatchResult) -> None:
         print(f"  aborted:          {result.aborted_reason}")
     print()
     print(f"{'persona':<10} attempted persisted errors cost_usd")
-    for p in ("warren", "cathie", "peter", "ray"):
+    for p in ("warren", "cathie", "peter", "ray", "michael"):
         b = result.by_persona.get(p)
         if not b:
             continue
@@ -389,7 +399,7 @@ def print_summary(result: BatchResult) -> None:
 def main() -> int:
     p = argparse.ArgumentParser(description="Tessera persona thesis batch")
     p.add_argument("--personas", nargs="+",
-                   choices=("warren", "cathie", "peter", "ray"),
+                   choices=("warren", "cathie", "peter", "ray", "michael"),
                    default=None,
                    help="Subset to run (default: all 4)")
     p.add_argument("--dry-run", action="store_true",

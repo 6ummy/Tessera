@@ -65,7 +65,7 @@ STALE_PRICE_DAYS = 7
 # real ingest outage.
 REFUSE_WRITE_STALE_DAYS = 14
 
-PERSONAS: tuple[str, ...] = ("warren", "cathie", "ray", "peter")
+PERSONAS: tuple[str, ...] = ("warren", "cathie", "ray", "peter", "michael")
 
 # Adjusted-price policy (Plan §5 line 808): we use UNADJUSTED OHLCV from
 # Alpaca IEX (equities + ETFs) and Coinbase Exchange (crypto). Splits +
