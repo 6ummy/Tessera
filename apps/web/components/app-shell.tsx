@@ -1,40 +1,35 @@
 "use client";
-// App shell for the authenticated/product surface (Dashboard, Analysts,
-// Leaderboard, Settings) — a persistent left sidebar that visually separates
-// the app from the marketing site (which keeps the public Header). Social Feed
-// is intentionally excluded (deactivated 2026-06-19). Mobile: the sidebar
-// collapses to a top bar with a slide-in drawer.
+// App shell for the authenticated/product surface — a persistent left sidebar
+// (Desk / Proposals / Dashboard / Leaderboard / How it works) plus the shared
+// top-right account dropdown (ProfileMenu), so the product feels separate from
+// the marketing site (which keeps the public Header). Mobile: sidebar collapses
+// to a top bar + slide-in drawer; the account dropdown stays top-right.
 
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Users, Trophy, Settings, LogOut, Menu, X, LogIn } from "lucide-react";
-import { useAuth } from "@/lib/firebase/auth-context";
+import { LayoutDashboard, Users, FileText, Trophy, HelpCircle, Menu, X } from "lucide-react";
+import { ProfileMenu } from "@/components/profile-menu";
 import { cn } from "@/lib/utils";
 
+// Mirrors the marketing top-nav (Desk / Proposals / How it works) plus the app
+// views (Dashboard / Leaderboard) in one place. No "Settings" item — it's just
+// a section of the dashboard; reach it from there (or the account dropdown).
 type NavItem = { href: string; label: string; icon: typeof LayoutDashboard };
 const NAV: NavItem[] = [
+  { href: "/", label: "Desk", icon: Users },
+  { href: "/proposals", label: "Proposals", icon: FileText },
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/proposals", label: "Analysts", icon: Users },
   { href: "/dashboard?tab=leaderboard", label: "Leaderboard", icon: Trophy },
-  { href: "/dashboard#profile-settings", label: "Settings", icon: Settings },
+  { href: "/how-it-works", label: "How it works", icon: HelpCircle },
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const { configured, user, signInWithGoogle, signOut } = useAuth();
   const [drawer, setDrawer] = useState(false);
 
-  const signedIn = configured && !!user;
-  const displayName = user?.displayName || user?.email || (configured ? "Account" : "jshin");
-  const initial = (displayName.trim()[0] ?? "J").toUpperCase();
-  const photoUrl = user?.photoURL ?? null;
-
   // Active by base path (avoids useSearchParams + its Suspense requirement).
-  const isActive = (href: string) => {
-    const base = href.split(/[?#]/)[0];
-    return pathname === base;
-  };
+  const isActive = (href: string) => pathname === href.split(/[?#]/)[0];
 
   const nav = (
     <nav className="flex flex-col gap-0.5" aria-label="Product">
@@ -50,27 +45,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     </nav>
   );
 
-  const userFooter = signedIn ? (
-    <div className="flex items-center gap-2.5 border-t border-ink-900/[0.08] px-2 pt-3">
-      {photoUrl
-        // eslint-disable-next-line @next/next/no-img-element
-        ? <img src={photoUrl} alt="" className="h-8 w-8 rounded-full object-cover" referrerPolicy="no-referrer" />
-        : <div className="grid h-8 w-8 place-items-center rounded-full bg-ink-900 text-xs font-medium text-cream-50">{initial}</div>}
-      <div className="min-w-0 flex-1">
-        <div className="truncate text-sm font-medium text-ink-900">{displayName}</div>
-      </div>
-      <button type="button" onClick={() => void signOut()} title="Sign out"
-        className="grid h-8 w-8 place-items-center rounded-lg text-ink-500 hover:bg-ink-900/[0.05] hover:text-ink-900 ring-focus">
-        <LogOut className="h-4 w-4" />
-      </button>
-    </div>
-  ) : (
-    <button type="button" onClick={() => void signInWithGoogle()}
-      className="flex w-full items-center justify-center gap-2 rounded-xl bg-ink-900 px-3 py-2.5 text-sm font-medium text-cream-50 hover:bg-ink-800 ring-focus">
-      <LogIn className="h-4 w-4" /> Sign in
-    </button>
-  );
-
   const brand = (
     <Link href="/" className="flex items-center gap-2 rounded-md px-1 ring-focus">
       <span className="display-serif text-lg text-ink-900">Convt</span>
@@ -80,20 +54,24 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen md:pl-60">
-      {/* Desktop sidebar */}
+      {/* Desktop sidebar (nav only — account lives in the top-right dropdown) */}
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-60 flex-col border-r border-ink-900/[0.08] bg-cream-50/60 px-3 py-5 backdrop-blur md:flex">
         <div className="px-2">{brand}</div>
         <div className="mt-7 flex-1">{nav}</div>
-        <div className="mt-4">{userFooter}</div>
       </aside>
 
-      {/* Mobile top bar */}
-      <header className="sticky top-0 z-30 flex items-center justify-between border-b border-ink-900/[0.08] bg-cream-50/80 px-4 py-3 backdrop-blur md:hidden">
-        {brand}
-        <button type="button" onClick={() => setDrawer(true)} aria-label="Open menu"
-          className="grid h-9 w-9 place-items-center rounded-lg text-ink-700 hover:bg-ink-900/[0.05] ring-focus">
-          <Menu className="h-5 w-5" />
-        </button>
+      {/* Top bar — mobile: hamburger + brand on the left; the account dropdown
+          stays top-right on every breakpoint (kept alongside the sidebar). */}
+      <header className="sticky top-0 z-30 flex items-center justify-between gap-2 border-b border-ink-900/[0.08] bg-cream-50/80 px-4 py-3 backdrop-blur">
+        <div className="flex items-center gap-2 md:hidden">
+          <button type="button" onClick={() => setDrawer(true)} aria-label="Open menu"
+            className="grid h-9 w-9 place-items-center rounded-lg text-ink-700 hover:bg-ink-900/[0.05] ring-focus">
+            <Menu className="h-5 w-5" />
+          </button>
+          {brand}
+        </div>
+        <div className="hidden md:block" />
+        <ProfileMenu />
       </header>
 
       {/* Mobile drawer */}
@@ -109,7 +87,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </button>
             </div>
             <div className="mt-6 flex-1">{nav}</div>
-            <div className="mt-4">{userFooter}</div>
           </div>
         </div>
       )}

@@ -1,7 +1,6 @@
 "use client";
 import { Fragment, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
-import { ArrowLeft, Sparkles, Users } from "lucide-react";
+import { Sparkles, Users } from "lucide-react";
 import { PERSONAS, PERSONA_BY_ID, ACCENT_CLASS, type Persona } from "@/lib/mock/personas";
 import { fetchProposal, fetchReports } from "@/lib/analyst-data";
 import type { Proposal, Report } from "@/lib/thesis-types";
@@ -183,10 +182,7 @@ export default function ProposalsPage() {
 
       <section className="border-b border-ink-900/[0.06] bg-cream-50/40 py-12">
         <div className="mx-auto max-w-7xl px-6">
-          <Link href="/" className="inline-flex items-center gap-1.5 text-xs text-ink-500 hover:text-ink-800">
-            <ArrowLeft className="h-3.5 w-3.5" /> Back to the desk
-          </Link>
-          <div className="mt-4 flex flex-col items-start justify-between gap-6 lg:flex-row lg:items-end">
+          <div className="flex flex-col items-start justify-between gap-6 lg:flex-row lg:items-end">
             <div>
               <div className="text-xs font-medium uppercase tracking-[0.18em] text-coral-600">This week's research</div>
               <h1 className="display-serif mt-3 text-5xl tracking-tightest text-ink-900 sm:text-6xl">
