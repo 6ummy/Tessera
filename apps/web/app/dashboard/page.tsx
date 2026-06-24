@@ -290,10 +290,19 @@ function DashboardInner() {
       const win = alpacaHistory.filter((p) => p.date >= cutoff);
       const pts = win.length >= 2 ? win : alpacaHistory;
       const ab = pts[0]?.equity || 1;
-      alpacaSeries = {
-        id: "alpaca", name: "Alpaca · Live", color: "#2F6F8F",
-        data: pts.map((p, i) => ({ day: i, date: p.date, t: p.t, value: Number((p.equity / ab).toFixed(6)) })),
-      };
+      const data = pts.map((p, i) => ({
+        day: i, date: p.date, t: p.t, value: Number((p.equity / ab).toFixed(6)),
+      }));
+      // Carry the last mark FLAT to the account line's right edge so Alpaca
+      // aligns instead of stopping short — equity doesn't change while the
+      // market is closed, so a constant line to "now" is both tidy and honest.
+      const endDate = reb[reb.length - 1]?.date;
+      const endT = endDate ? Date.parse(`${endDate}T12:00:00Z`) : 0;
+      const last = data[data.length - 1];
+      if (last && endT > (last.t ?? 0)) {
+        data.push({ day: data.length, date: endDate as string, t: endT, value: last.value });
+      }
+      alpacaSeries = { id: "alpaca", name: "Alpaca · Live", color: "#2F6F8F", data };
     }
 
     return [
