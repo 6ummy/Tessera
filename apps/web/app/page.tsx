@@ -56,8 +56,8 @@ export default function Page() {
             </h1>
 
             <p className="mx-auto mt-6 max-w-xl text-[17px] leading-relaxed text-ink-600 animate-fade-up">
-              They invest by <span className="font-medium text-ink-800">conviction</span>, not
-              consensus. Follow the one that thinks like you — your portfolio mirrors their book.
+              <span className="font-medium text-ink-800">Built to disagree.</span> Follow the AI fund
+              manager that thinks like you — your portfolio mirrors their book.
             </p>
 
             <div className="mt-8 flex items-center justify-center gap-3 animate-fade-up">
