@@ -11,7 +11,7 @@ import { PositionFeatures } from "@/components/position-features";
 import { RelatedThesis, type RelatedThesisEntry } from "@/components/related-thesis";
 import { PersonaDetailSheet } from "@/components/persona-detail-sheet";
 import { FollowButton } from "@/components/follow-button";
-import { ArrowUpRight, ChevronDown } from "lucide-react";
+import { ArrowUpRight, ChevronDown, X } from "lucide-react";
 import { cn, fmt } from "@/lib/utils";
 
 // Consensus grid: 1 ticker col + one col per analyst + 1 avg-conv col. Built
@@ -40,17 +40,16 @@ export default function ProposalsPage() {
   // Persona detail sheet — same panel the landing page opens, shared here
   // so clicking an analyst in proposals shows the full thesis/chat/follow.
   const [openId, setOpenId] = useState<string | null>(null);
-  // Expanded position key: "${personaId}:${ticker}" so the same ticker
-  // can be open independently across personas.
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const toggleExpand = (key: string) => {
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  };
+  // Clicking a ticker (in a portfolio or the consensus table) opens a centered
+  // detail modal instead of expanding inline.
+  const [modalPos, setModalPos] = useState<{ ticker: string; name: string; accentText: string } | null>(null);
+  useEffect(() => {
+    if (!modalPos) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setModalPos(null); };
+    document.addEventListener("keydown", onKey);
+    document.body.style.overflow = "hidden";
+    return () => { document.removeEventListener("keydown", onKey); document.body.style.overflow = ""; };
+  }, [modalPos]);
   const [proposals, setProposals] = useState<Record<string, Proposal | null>>({});
   const [reportsByPersona, setReportsByPersona] = useState<Record<string, Report[]>>({});
   const [loading, setLoading] = useState(true);
@@ -338,8 +337,6 @@ export default function ProposalsPage() {
                             const isWatch = pos.weight < ACTIVE_THRESHOLD;
                             const showWatchHeader =
                               isWatch && i === active.length && active.length > 0;
-                            const key = `${persona.id}:${pos.ticker}`;
-                            const isOpen = expanded.has(key);
                             return (
                               <Fragment key={pos.ticker}>
                                 {showWatchHeader && (
@@ -361,9 +358,8 @@ export default function ProposalsPage() {
                                 )}
                               >
                                 <button
-                                  onClick={() => toggleExpand(key)}
+                                  onClick={() => setModalPos({ ticker: pos.ticker, name: pos.name, accentText: ACCENT_CLASS[persona.accent].text })}
                                   className="block w-full text-left px-5 py-3"
-                                  aria-expanded={isOpen}
                                 >
                                   <div className="flex items-center justify-between gap-3">
                                     <div className="min-w-0 flex-1">
@@ -377,12 +373,7 @@ export default function ProposalsPage() {
                                     <span className="num text-sm font-medium text-ink-800">
                                       {fmt.pctAbs(pos.weight)}
                                     </span>
-                                    <ChevronDown
-                                      className={cn(
-                                        "h-3.5 w-3.5 text-ink-400 transition-transform",
-                                        isOpen && "rotate-180",
-                                      )}
-                                    />
+                                    <ArrowUpRight className="h-3.5 w-3.5 text-ink-400" />
                                   </div>
                                   <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-ink-900/[0.05]">
                                     <div
@@ -399,20 +390,6 @@ export default function ProposalsPage() {
                                     {pos.thesis}
                                   </p>
                                 </button>
-                                {isOpen && (
-                                  <div className="space-y-3 px-5 pb-4">
-                                    <PositionFeatures
-                                      ticker={pos.ticker}
-                                      open={isOpen}
-                                      accent={cn(ACCENT_CLASS[persona.accent].text)}
-                                    />
-                                    <RelatedThesis
-                                      ticker={pos.ticker}
-                                      entries={thesisByTicker[pos.ticker.toUpperCase()] ?? []}
-                                      loading={reportsLoading}
-                                    />
-                                  </div>
-                                )}
                               </div>
                               </Fragment>
                             );
@@ -475,9 +452,12 @@ export default function ProposalsPage() {
                     return (
                       <div
                         key={row.ticker}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => setModalPos({ ticker: row.ticker, name: row.name, accentText: "text-ink-700" })}
                         style={{ gridTemplateColumns: consensusGrid }}
                         className={cn(
-                          "grid border-b border-ink-900/[0.05] px-3 py-3.5 last:border-b-0 transition-colors hover:bg-ink-900/[0.02] sm:px-5",
+                          "grid cursor-pointer border-b border-ink-900/[0.05] px-3 py-3.5 last:border-b-0 transition-colors hover:bg-ink-900/[0.02] sm:px-5",
                           mentionCount >= 3 ? "bg-coral-50/50" : mentionCount === 2 && "bg-coral-50/25",
                         )}
                       >
@@ -532,6 +512,45 @@ export default function ProposalsPage() {
         open={!!openId}
         onOpenChange={(o) => !o && setOpenId(null)}
       />
+
+      {modalPos && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6">
+          <button
+            type="button"
+            aria-label="Close"
+            onClick={() => setModalPos(null)}
+            className="absolute inset-0 bg-ink-900/40 backdrop-blur-sm animate-fade-up"
+          />
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="relative z-10 max-h-[85vh] w-full max-w-lg overflow-auto rounded-3xl border border-ink-900/10 bg-cream-50 p-5 shadow-[0_40px_90px_-30px_rgba(31,30,27,0.45)] animate-fade-up"
+          >
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div className="flex items-baseline gap-2 min-w-0">
+                <span className="num text-lg font-semibold text-ink-900">{modalPos.ticker}</span>
+                <span className="truncate text-sm text-ink-500">{modalPos.name}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setModalPos(null)}
+                aria-label="Close"
+                className="-mr-1 rounded-full p-1.5 text-ink-500 hover:bg-ink-900/[0.06] ring-focus"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="space-y-3">
+              <PositionFeatures ticker={modalPos.ticker} open accent={modalPos.accentText} />
+              <RelatedThesis
+                ticker={modalPos.ticker}
+                entries={thesisByTicker[modalPos.ticker.toUpperCase()] ?? []}
+                loading={reportsLoading}
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
