@@ -146,6 +146,9 @@ export async function executeMirror(
 export type BrokerOrder = {
   id: string; ticker: string; side: string; qty: number; type: string;
   limitPrice: number | null; status: string; filledQty: number; filledAvgPrice: number | null;
+  // ISO timestamps from Alpaca — createdAt = when placed, filledAt = when it
+  // filled (null while still working). Drive the date/time column.
+  createdAt: string | null; filledAt: string | null;
 };
 
 const OPEN_STATUSES = new Set(["new", "accepted", "pending_new", "partially_filled", "held", "accepted_for_bidding"]);
@@ -157,11 +160,13 @@ export async function listRecentOrders(keys: Keys): Promise<BrokerOrder[]> {
   const raw = (await api("/v2/orders?status=all&limit=50&direction=desc", keys)) as Array<{
     id: string; symbol: string; side: string; qty: string; type: string; limit_price?: string;
     status: string; filled_qty?: string; filled_avg_price?: string;
+    created_at?: string; filled_at?: string;
   }>;
   return raw.map((o) => ({
     id: o.id, ticker: o.symbol, side: o.side, qty: Number(o.qty), type: o.type,
     limitPrice: o.limit_price ? Number(o.limit_price) : null, status: o.status,
     filledQty: Number(o.filled_qty ?? 0), filledAvgPrice: o.filled_avg_price ? Number(o.filled_avg_price) : null,
+    createdAt: o.created_at ?? null, filledAt: o.filled_at ?? null,
   }));
 }
 

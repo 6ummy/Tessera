@@ -15,7 +15,19 @@ const NAME: Record<string, string> = { warren: "Warren", cathie: "Cathie", ray: 
 type PreviewOrder = { ticker: string; side: "buy" | "sell"; qty: number; refPrice: number; limitPrice: number; estValue: number };
 type Preview = { persona: string; equity: number; marketOpen: boolean; slippageCapBps: number; skipped: string[]; orders: PreviewOrder[] };
 type ExecResult = { ticker: string; side: string; qty: number; ok: boolean; detail: string };
-type BrokerOrder = { id: string; ticker: string; side: string; qty: number; type: string; limitPrice: number | null; status: string; filledQty: number; filledAvgPrice: number | null };
+type BrokerOrder = { id: string; ticker: string; side: string; qty: number; type: string; limitPrice: number | null; status: string; filledQty: number; filledAvgPrice: number | null; createdAt: string | null; filledAt: string | null };
+
+// Compact ET date+time ("06/25 14:32") for the order list. Filled orders show
+// the fill time; still-working ones show when they were placed.
+function fmtOrderTime(iso: string | null): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleString("en-US", {
+    timeZone: "America/New_York", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hour12: false,
+  }).replace(",", "");
+}
 type OrderType = "limit" | "market";
 
 const OPEN_STATUSES = new Set(["new", "accepted", "pending_new", "partially_filled", "held", "accepted_for_bidding"]);
@@ -299,6 +311,7 @@ function OrderStatusModal({ orders, busy, onCancelAll, onClose }: {
               <thead className="text-ink-400"><tr className="border-b border-ink-900/[0.06]">
                 <th className="px-3 py-1.5 text-left font-medium">Order</th>
                 <th className="px-3 py-1.5 text-right font-medium">Price</th>
+                <th className="px-3 py-1.5 text-right font-medium">Time (ET)</th>
                 <th className="px-3 py-1.5 text-right font-medium">Status</th>
               </tr></thead>
               <tbody>
@@ -313,6 +326,9 @@ function OrderStatusModal({ orders, busy, onCancelAll, onClose }: {
                         <span className="num">{o.qty}</span> {o.ticker}
                       </td>
                       <td className="num px-3 py-1.5 text-right text-ink-600">{price}</td>
+                      <td className="num px-3 py-1.5 text-right text-ink-500" title={(o.filledAt ?? o.createdAt) ?? ""}>
+                        {fmtOrderTime(o.filledAt ?? o.createdAt)}
+                      </td>
                       <td className={cn("px-3 py-1.5 text-right font-medium", statusColor(o.status))}>
                         {o.status === "partially_filled" ? `part (${o.filledQty}/${o.qty})` : o.status}
                       </td>
