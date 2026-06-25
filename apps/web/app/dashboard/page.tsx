@@ -528,7 +528,7 @@ function DashboardInner() {
                         <div className="h-[280px] w-full animate-pulse rounded-2xl bg-ink-900/[0.04]" />
                       )}
                       <p className="mt-2 text-[11px] leading-relaxed text-ink-500">
-                        Tracks each analyst&apos;s book while you follow them (recolored at every follow / unfollow).
+                        Tracks each analyst&apos;s book while you follow them. Once you connect Alpaca, it continues as your live account.
                       </p>
                     </div>
 

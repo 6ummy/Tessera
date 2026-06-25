@@ -113,8 +113,7 @@ export function InvestorsLeaderboard({
       )}
       <p className="mt-3 text-[11px] leading-relaxed text-ink-500">
         Ranked by <span className="text-ink-700">return since first follow</span> — gains carry across
-        analyst switches. 1y / 90d are blank until the account is that old. Nicknames only — emails and
-        real names are never shown.
+        analyst switches. 1y / 90d are blank until the account is that old.
       </p>
     </div>
   );
