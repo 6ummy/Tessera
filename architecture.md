@@ -109,6 +109,14 @@ system prompts when wiring real LLM calls.
 
 ## 6. Current state (what is actually built)
 
+> **2026-06-25:** the desk is now **5 personas** — Warren / Cathie / Ray /
+> Peter + **Michael** (contrarian bear: long-only via inverse/hedge ETFs +
+> cash/gold sized on a deterministic bubble signal; oxblood accent, VaR99 5% /
+> drawdown 40% / no sector cap). Adding a persona touches many id-keyed maps
+> across web + worker (case-studies CS-21). Phase F Alpaca paper trading +
+> a mobile-responsive pass + ticker-detail modal also shipped. The persona
+> tables/diagrams below still show the original 4 for brevity.
+
 As of 2026-06-15 this is a **working LLM research desk on real data with
 a credibility-anchored 90-day backtest**: Phases A + B + C all shipped.
 Real Sonnet 4.6 theses land weekly behind a full risk gateway, chat

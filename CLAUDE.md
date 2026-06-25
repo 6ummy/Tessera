@@ -12,8 +12,10 @@ any prior conversation.
 
 ## 1. What this product is
 
-4 AI analyst personas — Warren (value), Cathie (disruptive growth +
-crypto), Ray (macro regime allocator, ETF book), Peter (GARP) — write
+5 AI analyst personas — Warren (value), Cathie (disruptive growth +
+crypto), Ray (macro regime allocator, ETF book), Peter (GARP), and
+Michael (contrarian bear — long-only via inverse ETFs + cash/gold on a
+deterministic bubble signal; accent oxblood, added 2026-06-25) — write
 weekly Sonnet 4.6 investment theses over a shared market-data plane.
 A deterministic paper engine executes each persona's book against a
 $100K virtual account; the Next.js site shows their books, P&L, and a
@@ -24,12 +26,39 @@ Monorepo: `apps/web` (Next.js 14 App Router, Vercel) · `apps/worker`
 (Python 3.11 FastAPI on Cloud Run `tessera-worker`, us-east1, project
 `tessera-498200`) · `packages/shared` (Pydantic schemas) ·
 `migrations/` (plain SQL → Neon Postgres + Timescale + pgvector,
-**001–015 applied to prod (012 = additive `users` ALTER; 013 =
+**001–017 applied to prod (012 = additive `users` ALTER; 013 =
 `follow_events`; 014 = `fcm_tokens`, now unused — FCM dropped; 015 =
-`users.nickname` + `is_public`). users/user_portfolios already
-exist from 001 §5**).
+`users.nickname` + `is_public`; 016/017 = broker_connections). users/
+user_portfolios already exist from 001 §5. ⚠️ `009_cost_namespace` was
+NOT actually applied until 2026-06-25 — the 6/25 worker redeploy that
+shipped the cost_namespace code took prod LLM (chat + batch) down until
+the column was added (CS-22). Verify a migration is really applied with
+`information_schema`, not the doc record, before shipping code that reads
+its columns**).
 
 ## 2. State as of 2026-06-18 — 🏁 **Phase C CLOSED · Phase D shipped & deployed (only F&F onboarding left)**
+
+> **Update 2026-06-25 — 5th persona (Michael) + mobile pass + chart fixes:**
+> - **Michael (contrarian bear)** shipped end-to-end: `personalities.md` spec +
+>   `PERSONA_CONSTRAINTS`/`PERSONA_SHORTLISTS` (8 inverse/hedge ETFs SH/PSQ/SARK/
+>   QID/NVDD/TSLS/AVS/PLTD + GLD/TLT/XOM + NVDA/TSLA/AVGO/PLTR; no sector cap,
+>   VaR99 5%, drawdown 40%, cash_max 0.80) + loader/schemas/`RENDER_RULES` +
+>   web (oxblood accent, `STARTERS`, all id-keyed maps). First book generated
+>   2026-06-25 (7 positions, gateway passed). **Adding a persona touches MANY
+>   id-keyed maps** — front `STARTERS`, worker `RENDER_RULES`, 9 web Edge
+>   `VALID_PERSONAS` allowlists, broker `NAME` — miss one → silent crash/empty
+>   (CS-21). Guard test: `set(RENDER_RULES) == set(PERSONA_CONSTRAINTS)`.
+> - **`backfill_alpaca` crypto exclusion** — was sending the full universe
+>   (crypto incl.) to Alpaca stock-bars → 400 on the whole batch (CS-12 recurrence
+>   in the backfill path); now equity+ETF only.
+> - **Mobile responsive pass** across landing / cards / consensus (ticker-only,
+>   matchMedia grid) / by-analyst accordion (top-3, exclusive open) / how-it-works;
+>   profile chip = bare avatar on mobile, dropdown shows full name, chip first-name.
+> - **Account chart**: Alpaca segment rebases to its OWN 0% at sync (matches the
+>   Total-value tile) with a connector from the follow curve — follow history is
+>   kept, the line just resets at the hand-off. **Ticker click → centered modal**
+>   (PositionFeatures + related thesis) in portfolio + consensus.
+> - **⚠️ 009 cost_namespace migration was unapplied** — see §1 / CS-22.
 
 > **Update 2026-06-23 — Phase F (operator-only paper trading) + infra hardening shipped:**
 > - **Alpaca PAPER control** (operator only): broker adapter + CLI (#200/#201 —
@@ -312,8 +341,9 @@ Everything below is LIVE in prod unless marked otherwise:
 - **Every book passes `risk/gateway.py` pre-persist** — stock-pickers
   via `gate()`, Ray via `gate_regime()`: universe membership, sum=1.0,
   single-name + sector caps, parametric VaR99 vs calibrated persona
-  caps (3.5/8.5/4.5/2.5%), drawdown floor on the LIVE track
-  (20/35/25/15%). Rejection reasons feed the construction retry.
+  caps (warren/cathie/ray/peter/michael = 3.5/8.5/4.5/2.5/5.0%),
+  drawdown floor on the LIVE track (20/35/25/15/40%). Rejection reasons
+  feed the construction retry.
   "VaR unmeasurable" (<60 aligned obs) is soft — never rejects.
   Active position COUNT is also hard-gated in construction (each
   persona's [min,max]; Cathie's max is 12 since 2026-06-15).
