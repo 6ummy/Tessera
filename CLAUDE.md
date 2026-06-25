@@ -58,6 +58,19 @@ its columns**).
 >   Total-value tile) with a connector from the follow curve — follow history is
 >   kept, the line just resets at the hand-off. **Ticker click → centered modal**
 >   (PositionFeatures + related thesis) in portfolio + consensus.
+> - **Leaderboard reflects the live Alpaca account** (#239): a connected user
+>   ranks by their REAL paper-account return (`users.preferences.broker_return`),
+>   not the paper-follow reconstruction. Refreshed two ways — instantly when the
+>   user opens their dashboard (`/api/broker/account`) AND nightly for everyone
+>   via **`/api/cron/broker-sync`** (`CRON_SECRET`-gated; Cloud Scheduler hits the
+>   Vercel URL `30 22 * * *`). **Security (CS-23)**: store only the RETURN fraction
+>   (the metric the board already shows publicly), never raw $ equity; **decryption
+>   stays in ONE place** (the web's `listAlpacaConnections`, in-memory, never
+>   logged) — deliberately chose a web cron over a worker decryptor so NO second
+>   service ever holds the keys; API keys stay AES-256-GCM at rest with
+>   `BROKER_ENC_KEY` in env (a DB leak alone can't decrypt); paper-only.
+>   New env: `CRON_SECRET` (already on Vercel). Live trading → upgrade to
+>   Cloud KMS + Alpaca OAuth scoped tokens + decrypt audit log.
 > - **⚠️ 009 cost_namespace migration was unapplied** — see §1 / CS-22.
 
 > **Update 2026-06-23 — Phase F (operator-only paper trading) + infra hardening shipped:**
@@ -496,7 +509,13 @@ NOT proxied to the worker): `/api/auth/sync`, `/api/follow`,
 `/api/me/portfolios` (live-projected positions), `/api/me/timeline`,
 `/api/me/profile` (nickname + public/private), `/api/me/preferences`
 (email opt-out + sends the confirmation email), `/api/leaderboard/users`
-(PUBLIC, since-first-follow ranks), `/api/unsubscribe` (PUBLIC, HMAC).
+(PUBLIC, since-first-follow ranks — uses `preferences.broker_return` when a
+user has Alpaca connected), `/api/unsubscribe` (PUBLIC, HMAC),
+`/api/broker/account` (live Alpaca summary + persists `broker_return`),
+`/api/broker/{sync-preview,execute,cancel-all,orders,portfolio-history}`
+(broker-connect, `FEATURE_BROKER_CONNECT`), `/api/cron/broker-sync`
+(PUBLIC, `CRON_SECRET` Bearer — nightly refresh of every connected account's
+`broker_return`; decryption stays web-side only, CS-23).
 
 Key tables: `ohlcv_1d`, `ticker_features` (the only numbers LLMs see;
 `fcf_yield` / `fcf_yield_normalized` / `gross_margin_qtr_yoy_chg` /
