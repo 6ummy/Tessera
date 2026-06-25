@@ -7,7 +7,7 @@ import { ACCENT_CLASS, PERSONAS, PERSONA_BY_ID, type Persona } from "@/lib/mock/
 import { rebase, usePerformance, toPoints } from "@/lib/performance-data";
 import { buildAccountIndex, segmentNodes, type FollowEvent, ACCOUNT_CASH_KEY, ACCOUNT_MIXED_KEY } from "@/lib/account-curve";
 import { useAuth } from "@/lib/firebase/auth-context";
-import { AppShell } from "@/components/app-shell";
+import { Header } from "@/components/header";
 import { CumulativeChart, type Series } from "@/components/cumulative-chart";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -337,7 +337,8 @@ function DashboardInner() {
   }, [selected, bookScale]);
 
   return (
-    <AppShell>
+    <main className="min-h-screen">
+      <Header variant="solid" />
 
       <section className="border-b border-ink-900/[0.06] bg-cream-50/40 py-10">
         <div className="mx-auto max-w-7xl px-6">
@@ -640,7 +641,7 @@ function DashboardInner() {
           </Tabs>
         </div>
       </section>
-    </AppShell>
+    </main>
   );
 }
 

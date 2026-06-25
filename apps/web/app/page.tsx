@@ -134,7 +134,7 @@ export default function Page() {
             </Link>
           </div>
 
-          <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-5">
             {PERSONAS.map((p, i) => (
               <div
                 key={p.id}
