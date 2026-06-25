@@ -288,20 +288,25 @@ function DashboardInner() {
     const benchWin = benchmark.filter((p) => p.date >= cutoff);
     const benchData = rebase(benchWin.length >= 2 ? benchWin : benchmark);
 
-    // Alpaca · Live — CONTINUES the follow line: scale so it starts at the
-    // follow curve's value on the connect date (seamless join). If the connect
-    // predates the visible window there's no follow line to join, so rebase to
-    // the first visible point instead.
+    // Alpaca · Live — its OWN account: rebased to its first visible point so it
+    // starts at 0% (matching the "Total value · Alpaca" tile). A connector from
+    // the follow curve's last value joins the two so the switch reads as one
+    // path — the follow history isn't lost, the line just resets to 0% at sync.
     let alpacaSeries: Series | null = null;
     if (alpacaHistory && alpacaHistory.length >= 2) {
       const win = alpacaHistory.filter((p) => p.date >= cutoff);
       const pts = win.length >= 2 ? win : alpacaHistory;
-      const equityAtConnect = alpacaHistory[0].equity || 1;
-      const followAtConnect = followNodes.length ? followNodes[followNodes.length - 1].value : null;
-      const scale = followAtConnect !== null ? followAtConnect / equityAtConnect : 1 / (pts[0]?.equity || 1);
+      const ab = pts[0]?.equity || 1;
       const data = pts.map((p, i) => ({
-        day: i, date: p.date, t: p.t, value: Number((p.equity * scale).toFixed(6)),
+        day: i, date: p.date, t: p.t, value: Number((p.equity / ab).toFixed(6)),
       }));
+      // Connector: prepend the follow curve's endpoint so the line joins it,
+      // then drops/steps to Alpaca's 0% start (just before the first mark).
+      const fe = followNodes.length ? followNodes[followNodes.length - 1] : null;
+      if (fe && data.length) {
+        const firstT = data[0].t ?? Date.parse(`${fe.date}T12:00:00Z`);
+        data.unshift({ day: -1, date: fe.date, t: firstT - 1, value: fe.value });
+      }
       // Carry the last mark FLAT to the account line's right edge so Alpaca
       // aligns instead of stopping short — equity doesn't change while the
       // market is closed, so a constant line to "now" is both tidy and honest.

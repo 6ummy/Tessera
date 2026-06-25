@@ -59,7 +59,7 @@ export function ProfileMenu() {
   return (
     <div className="relative">
       <button type="button" onClick={() => setOpen((o) => !o)}
-        className="group flex items-center gap-2 rounded-full bg-cream-50 px-1 py-1 pl-3 ring-1 ring-ink-900/10 hover:ring-ink-900/20 ring-focus"
+        className="group flex items-center gap-2 rounded-full ring-focus sm:bg-cream-50 sm:px-1 sm:py-1 sm:pl-3 sm:ring-1 sm:ring-ink-900/10 sm:hover:ring-ink-900/20"
         aria-expanded={open} aria-haspopup="menu" aria-controls={menuId} aria-label="Account menu">
         <span className="hidden max-w-[14ch] truncate text-sm font-medium text-ink-800 sm:inline">{chipName}</span>
         <ChevronDown className={cn("hidden h-3.5 w-3.5 text-ink-500 transition-transform sm:inline", open && "rotate-180")} />
