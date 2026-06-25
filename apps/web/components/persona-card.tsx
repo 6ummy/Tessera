@@ -33,7 +33,7 @@ export function PersonaCard({
   return (
     <button
       onClick={() => onOpen(persona.id)}
-      className="group relative flex h-full flex-col overflow-hidden rounded-3xl border border-ink-900/[0.06] bg-cream-50 p-6 text-left transition-all hover:-translate-y-0.5 hover:border-ink-900/[0.12] hover:shadow-[0_24px_60px_-20px_rgba(31,30,27,0.18)] ring-focus"
+      className="group relative flex h-full flex-col overflow-hidden rounded-3xl border border-ink-900/[0.06] bg-cream-50 p-5 text-left transition-all hover:-translate-y-0.5 hover:border-ink-900/[0.12] hover:shadow-[0_24px_60px_-20px_rgba(31,30,27,0.18)] ring-focus"
     >
       {/* corner accent — inline accent colour (some accents like plum are
           too muted as a Tailwind bg to read at blur+opacity), brighter on hover */}
@@ -43,7 +43,7 @@ export function PersonaCard({
       />
 
       <div className="flex items-start justify-between gap-3">
-        <PersonaAvatar persona={persona} size="lg" ring />
+        <PersonaAvatar persona={persona} size="md" ring />
         <Badge tone={persona.accent === "ink" ? "default" : persona.accent}>{persona.riskLabel}</Badge>
       </div>
 
@@ -53,11 +53,11 @@ export function PersonaCard({
           {persona.archetype} · Age {persona.age}
         </span>
       </div>
-      <h3 className="display-serif mt-1 text-3xl text-ink-900">{persona.name}</h3>
+      <h3 className="display-serif mt-1 text-2xl text-ink-900">{persona.name}</h3>
 
-      <p className="mt-2 text-[15px] leading-relaxed text-ink-700">{persona.tagline}</p>
+      <p className="mt-2 text-sm leading-relaxed text-ink-700">{persona.tagline}</p>
 
-      <div className="mt-6 grid grid-cols-3 gap-3">
+      <div className="mt-5 grid grid-cols-3 gap-2">
         <Metric
           label="1y"
           value={m?.return1y != null ? fmt.pct(m.return1y) : "—"}
@@ -74,7 +74,7 @@ export function PersonaCard({
         />
       </div>
 
-      <div className="mt-5 h-12">
+      <div className="mt-4 h-12">
         {spark.length > 1 ? (
           <Sparkline data={spark} color={ACCENT_HEX[persona.accent]} height={48} />
         ) : (
@@ -82,7 +82,7 @@ export function PersonaCard({
         )}
       </div>
 
-      <div className="mt-5 flex items-center justify-between border-t border-ink-900/[0.06] pt-4 text-xs">
+      <div className="mt-4 flex items-center justify-between border-t border-ink-900/[0.06] pt-4 text-xs">
         <span className="text-ink-500">
           Horizon · <span className="text-ink-700">{persona.horizon}</span>
         </span>
@@ -99,7 +99,7 @@ function Metric({ label, value, sign }: { label: string; value: string; sign?: n
   return (
     <div>
       <div className="text-[10px] uppercase tracking-[0.16em] text-ink-500">{label}</div>
-      <div className={cn("num mt-1 text-base font-medium", sign !== undefined ? signClass(sign) : "text-ink-900")}>
+      <div className={cn("num mt-1 text-sm font-medium", sign !== undefined ? signClass(sign) : "text-ink-900")}>
         {value}
       </div>
     </div>
