@@ -33,7 +33,7 @@ export function PersonaCard({
   return (
     <button
       onClick={() => onOpen(persona.id)}
-      className="group relative flex h-full flex-col overflow-hidden rounded-3xl border border-ink-900/[0.06] bg-cream-50 p-5 text-left transition-all hover:-translate-y-0.5 hover:border-ink-900/[0.12] hover:shadow-[0_24px_60px_-20px_rgba(31,30,27,0.18)] ring-focus"
+      className="group relative flex h-full flex-col overflow-hidden rounded-3xl border border-ink-900/[0.06] bg-cream-50 p-4 text-left transition-all hover:-translate-y-0.5 hover:border-ink-900/[0.12] hover:shadow-[0_24px_60px_-20px_rgba(31,30,27,0.18)] ring-focus sm:p-5"
     >
       {/* corner accent — inline accent colour (some accents like plum are
           too muted as a Tailwind bg to read at blur+opacity), brighter on hover */}
@@ -74,7 +74,7 @@ export function PersonaCard({
         />
       </div>
 
-      <div className="mt-4 h-12">
+      <div className="mt-4 hidden h-12 sm:block">
         {spark.length > 1 ? (
           <Sparkline data={spark} color={ACCENT_HEX[persona.accent]} height={48} />
         ) : (

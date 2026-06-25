@@ -48,7 +48,7 @@ export default function Page() {
 
         <div className="mx-auto max-w-7xl px-6">
           <div className="mx-auto max-w-3xl text-center">
-            <h1 className="display-serif text-[56px] leading-[1.02] tracking-tightest text-ink-900 sm:text-[72px] animate-fade-up">
+            <h1 className="display-serif text-[40px] leading-[1.05] tracking-tightest text-ink-900 sm:text-[72px] sm:leading-[1.02] animate-fade-up">
               Five analysts.
               <br />
               <span className="italic text-ink-700">One conviction</span>{" "}
@@ -77,14 +77,14 @@ export default function Page() {
           </div>
 
           {/* Floating mini chart */}
-          <div className="relative mx-auto mt-16 max-w-5xl">
-            <div className="rounded-[28px] border border-ink-900/[0.06] bg-cream-50 p-6 shadow-[0_40px_80px_-30px_rgba(31,30,27,0.25)] animate-fade-up">
+          <div className="relative mx-auto mt-10 max-w-5xl sm:mt-16">
+            <div className="rounded-[28px] border border-ink-900/[0.06] bg-cream-50 p-4 shadow-[0_40px_80px_-30px_rgba(31,30,27,0.25)] animate-fade-up sm:p-6">
               <div className="mb-4 flex items-center justify-between">
                 <div>
-                  <div className="text-xs uppercase tracking-[0.16em] text-ink-500">Cumulative return · 365 days</div>
-                  <div className="display-serif mt-1 text-2xl text-ink-900">All analysts vs S&amp;P 500</div>
+                  <div className="hidden text-xs uppercase tracking-[0.16em] text-ink-500 sm:block">Cumulative return · 365 days</div>
+                  <div className="display-serif mt-1 text-lg text-ink-900 sm:text-2xl">All analysts vs S&amp;P 500</div>
                 </div>
-                <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] text-ink-500">
+                <div className="hidden flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] text-ink-500 sm:flex">
                   {PERSONAS.map((p) => (
                     <span key={p.id} className="inline-flex items-center gap-1.5">
                       <span className="h-2 w-2 rounded-full" style={{ background: ACCENT_HEX[p.accent] }} />
@@ -101,9 +101,9 @@ export default function Page() {
                 </div>
               </div>
               {loading || heroSeries.length === 0 ? (
-                <div className="h-[260px] w-full animate-pulse rounded-2xl bg-ink-900/[0.04]" />
+                <div className="h-[200px] w-full animate-pulse rounded-2xl bg-ink-900/[0.04]" />
               ) : (
-                <CumulativeChart height={260} series={heroSeries} />
+                <CumulativeChart height={200} series={heroSeries} />
               )}
               <p className="mt-3 text-[11px] leading-relaxed text-ink-500">
                 Live track — real fills since{" "}
@@ -115,12 +115,12 @@ export default function Page() {
       </section>
 
       {/* ─────────────────────────── ANALYSTS GRID ─────────────────────────── */}
-      <section id="analysts" className="relative py-24 sm:py-32">
+      <section id="analysts" className="relative py-14 sm:py-32">
         <div className="mx-auto max-w-7xl px-6">
           <div className="flex flex-col items-start justify-between gap-6 sm:flex-row sm:items-end">
             <div className="max-w-2xl">
               <div className="text-xs font-medium uppercase tracking-[0.18em] text-coral-600">The Desk</div>
-              <h2 className="display-serif mt-3 text-5xl tracking-tightest text-ink-900">
+              <h2 className="display-serif mt-3 text-3xl tracking-tightest text-ink-900 sm:text-5xl">
                 Meet your analysts.
               </h2>
               <p className="mt-4 max-w-xl text-[15px] leading-relaxed text-ink-600">
@@ -134,7 +134,7 @@ export default function Page() {
             </Link>
           </div>
 
-          <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="mt-8 grid gap-5 sm:mt-12 sm:grid-cols-2 lg:grid-cols-5">
             {PERSONAS.map((p, i) => (
               <div
                 key={p.id}
@@ -149,11 +149,11 @@ export default function Page() {
       </section>
 
       {/* ─────────────────────────── HOW IT WORKS (teaser) ─────────────────────────── */}
-      <section className="relative border-t border-ink-900/[0.06] bg-cream-50/60 py-24">
+      <section className="relative border-t border-ink-900/[0.06] bg-cream-50/60 py-14 sm:py-24">
         <div className="mx-auto max-w-5xl px-6">
           <div className="text-center">
             <div className="text-xs font-medium uppercase tracking-[0.18em] text-coral-600">The process</div>
-            <h2 className="display-serif mt-3 text-5xl leading-[1.04] tracking-tightest text-ink-900">
+            <h2 className="display-serif mt-3 text-3xl leading-[1.06] tracking-tightest text-ink-900 sm:text-5xl sm:leading-[1.04]">
               Research is the loop.
               <br />
               <span className="italic text-ink-700">You make the call.</span>
@@ -164,9 +164,9 @@ export default function Page() {
             </p>
           </div>
 
-          <div className="mt-12 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="mt-8 grid gap-3 sm:mt-12 sm:grid-cols-2 lg:grid-cols-4">
             <MiniStep n={1} title="Ingest" icon={<Database className="h-4 w-4" />} desc="Fundamentals, filings, macro." />
-            <MiniStep n={2} title="Analysts write" icon={<FileText className="h-4 w-4" />} desc="Four philosophies, four portfolios." />
+            <MiniStep n={2} title="Analysts write" icon={<FileText className="h-4 w-4" />} desc="Five philosophies, five portfolios." />
             <MiniStep n={3} title="Compare side-by-side" icon={<GitBranch className="h-4 w-4" />} desc="See where the desk agrees — and disagrees." />
             <MiniStep n={4} title="Risk gateway" icon={<ShieldCheck className="h-4 w-4" />} desc="Deterministic safety checks." />
           </div>
