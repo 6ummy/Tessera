@@ -4,6 +4,9 @@
 > for self + 2 friends-and-family users. **6 weeks part-time, 3–4 weeks
 > full-time.** Solo developer scope. Compressed-pace plan — each phase
 > assumes focused, uninterrupted execution.
+>
+> **Checkbox legend:** `[x]` done · `[ ]` not started · `[~]` partial /
+> scaffolded only (local convention — GitHub renders `[~]` as unchecked).
 
 ---
 
@@ -1294,7 +1297,7 @@ deferred to post-launch (the mock tab is now removed, not just hidden). Auth
 
 The pilot is "done" (ready to consider expansion or shutdown) when:
 
-- [x] **All 4 personas** writing real Sonnet 4.6 theses on the agreed cadence (✅ weekly batch live since 2026-06-05; v2 + gateway since 06-11/12) (**weekly Fri close** per 2026-06-04 decision; daily reserved for Phase F live mode), validated by passing the same <2% schema-fail gate the backtest harness measures
+- [x] **All 5 personas** (Warren / Cathie / Ray / Peter / Michael) writing real Sonnet 4.6 theses on the agreed cadence (✅ weekly batch live since 2026-06-05; v2 + gateway since 06-11/12; Michael added 2026-06-25) (**weekly Fri close** per 2026-06-04 decision; daily reserved for Phase F live mode), validated by passing the same <2% schema-fail gate the backtest harness measures
 - [ ] **30+ days** of paper P&L track record, accurate Sharpe/MDD displayed
 - [ ] **Self** running paper successfully for 30+ days, no manual intervention required
 - [ ] **3 F&F users** onboarded, each following a different persona, with their own dashboard

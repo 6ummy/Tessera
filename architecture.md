@@ -21,7 +21,7 @@
 
 1. **LLMs write theses. Code computes numbers.** Language models hallucinate prices, returns, P&L — so they don't compute them. Every percentage, weight, and chart is calculated by deterministic Python on raw data. The model writes the *why*, not the *what*.
 2. **Paper-first, live-ready.** The same code path serves paper and live execution. Live trading is one feature flag away once compliance and capital allow it.
-3. **Distinct philosophies, not consensus.** The four analysts are designed to disagree. A value investor and a disruptive-growth investor *should* reach opposite conclusions about the same name. Their disagreement is the signal.
+3. **Distinct philosophies, not consensus.** The analysts (five as of 2026-06-25) are designed to disagree. A value investor and a disruptive-growth investor *should* reach opposite conclusions about the same name. Their disagreement is the signal.
 4. **Cost scales with the desk, not with users.** Persona analysis is batched once per session on shared market data. Three users or three hundred, the LLM bill is the same.
 5. **Developer-experience matters.** Tools chosen so the operator manages one Vercel dashboard, one Firebase console, one Cloud Run service, one Neon DB — no AWS/GCP console mazes.
 
@@ -88,7 +88,7 @@
 | LLM | **Anthropic Claude** | Haiku 4.5 (1st-pass screen) + Sonnet 4.6 (thesis & chat) + Opus 4.7 (weekly meta-review) |
 | Observability | Sentry + Grafana Cloud free tier | Sufficient for pilot |
 
-## 5. The four analysts
+## 5. The analysts (five — Michael added 2026-06-25; tables below show the original four)
 
 | | Warren | Cathie | Ray | Peter |
 |---|---|---|---|---|
