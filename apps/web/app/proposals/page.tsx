@@ -11,13 +11,16 @@ import { PositionFeatures } from "@/components/position-features";
 import { RelatedThesis, type RelatedThesisEntry } from "@/components/related-thesis";
 import { PersonaDetailSheet } from "@/components/persona-detail-sheet";
 import { FollowButton } from "@/components/follow-button";
-import { ArrowUpRight, ChevronDown, X } from "lucide-react";
+import { ArrowUpRight, X } from "lucide-react";
 import { cn, fmt } from "@/lib/utils";
 
 // Consensus grid: 1 ticker col + one col per analyst + 1 avg-conv col. Built
 // from PERSONAS.length (inline style, not a Tailwind arbitrary value) so it
 // stays correct as personas are added (e.g. Michael → 5).
 const CONSENSUS_GRID = `2fr repeat(${PERSONAS.length}, minmax(0, 1fr)) 1fr`;
+
+// weight < 0.1% = watchlist (LLM analyzed but isn't buying now).
+const ACTIVE_THRESHOLD = 0.001;
 
 const ACCENT_HEX: Record<Persona["accent"], string> = {
   coral: "#D97757",
@@ -174,33 +177,18 @@ export default function ProposalsPage() {
     ? `minmax(0,1.4fr) repeat(${PERSONAS.length}, minmax(0,1fr))`
     : CONSENSUS_GRID;
 
-  // Mobile by-analyst: each portfolio collapses to an accordion (one body open
-  // at a time) and only the first 3 show until "Show all". Desktop = full grid.
-  const [openCard, setOpenCard] = useState<string | null>(null);
-  const [showAllPortfolios, setShowAllPortfolios] = useState(false);
+  // Mobile by-analyst: all cards show; each lists its first 3 positions with a
+  // "Show all positions" toggle. Desktop = full grid, all positions.
+  const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
+  const toggleCard = (id: string) =>
+    setExpandedCards((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
 
-  // Sortable: default Avg-conv descending (#4 feedback). Clicking a header
-  // toggles direction; the overlap badges (#3) keep multi-analyst names
-  // legible in any sort order.
-  // Default "consensus" = #analysts → avg allocation % → avg conviction (the
-  // base `consensus` order). Clicking a header overrides with that column.
-  const [sortKey, setSortKey] = useState<"consensus" | "conv" | "ticker">("consensus");
-  const [sortDir, setSortDir] = useState<"desc" | "asc">("desc");
-  const toggleSort = (key: "conv" | "ticker") => {
-    if (key === sortKey) setSortDir((d) => (d === "desc" ? "asc" : "desc"));
-    else { setSortKey(key); setSortDir(key === "ticker" ? "asc" : "desc"); }
-  };
-  const sortedConsensus = useMemo<ConsensusRow[]>(() => {
-    if (sortKey === "consensus") return consensus; // already 3-level sorted
-    const sign = sortDir === "desc" ? -1 : 1;
-    return [...consensus].sort((a, b) =>
-      sortKey === "ticker"
-        ? sign * a.ticker.localeCompare(b.ticker)
-        // Avg-conv sort keeps multi-analyst names as the tiebreak so consensus
-        // still bubbles up within equal conviction.
-        : sign * (a.avgConviction - b.avgConviction) || b.mentions.length - a.mentions.length,
-    );
-  }, [consensus, sortKey, sortDir]);
+  // Consensus is shown in its fixed default order (most analysts → avg
+  // allocation % → avg conviction). No re-sort — the default is the useful view.
 
   // Display "as of" — latest date across all personas.
   const asOfDisplay = useMemo(() => {
@@ -254,16 +242,18 @@ export default function ProposalsPage() {
 
             <TabsContent value="by-persona">
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-                {PERSONAS.map((persona, idx) => {
+                {PERSONAS.map((persona) => {
                   const a = ACCENT_CLASS[persona.accent];
                   const prop = proposals[persona.id];
+                  const positions = prop?.positions ?? [];
+                  const active = positions.filter((p) => p.weight >= ACTIVE_THRESHOLD);
+                  const watchlist = positions.filter((p) => p.weight < ACTIVE_THRESHOLD);
+                  const combined = [...active, ...watchlist];
+                  const expanded = expandedCards.has(persona.id);
                   return (
                     <div
                       key={persona.id}
-                      className={cn(
-                        "flex flex-col overflow-hidden rounded-3xl border border-ink-900/[0.06] bg-cream-50",
-                        idx >= 3 && !showAllPortfolios && "hidden sm:flex",
-                      )}
+                      className="flex flex-col overflow-hidden rounded-3xl border border-ink-900/[0.06] bg-cream-50"
                     >
                       <div className="border-b border-ink-900/[0.06] p-5">
                         <div className="flex items-center gap-2">
@@ -293,54 +283,30 @@ export default function ProposalsPage() {
                         <div className="mt-4">
                           <FollowButton personaId={persona.id} personaName={persona.name} />
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => setOpenCard((cur) => (cur === persona.id ? null : persona.id))}
-                          aria-expanded={openCard === persona.id}
-                          className="mt-3 flex w-full items-center justify-between rounded-xl bg-ink-900/[0.03] px-3 py-2 text-xs font-medium text-ink-700 sm:hidden"
-                        >
-                          {openCard === persona.id ? "Hide positions" : "Show positions"}
-                          <ChevronDown className={cn("h-4 w-4 transition-transform", openCard === persona.id && "rotate-180")} />
-                        </button>
                       </div>
 
-                      <div className={cn("flex-1 divide-y divide-ink-900/[0.05]", openCard !== persona.id && "hidden sm:block")}>
+                      <div className="flex-1 divide-y divide-ink-900/[0.05]">
                         {loading && !prop ? (
                           <div className="space-y-px">
                             {[0, 1, 2].map((i) => (
                               <div key={i} className="h-20 animate-pulse bg-ink-900/[0.02]" />
                             ))}
                           </div>
-                        ) : !prop || prop.positions.length === 0 ? (
+                        ) : combined.length === 0 ? (
                           <div className="px-5 py-6 text-center text-xs text-ink-500">
                             No positions published yet for {persona.name}.
                           </div>
                         ) : (
-                          (() => {
-                            // Split active (target_weight > 0) from
-                            // watchlist (weight = 0 — LLM analyzed but
-                            // decided "not buying right now"). Some
-                            // personas like Warren are picky enough that
-                            // most of their shortlist lands as watchlist;
-                            // surfacing those as 0% positions inflates the
-                            // card without information. Watchlist sits at
-                            // the bottom under a divider so the active
-                            // book is what the eye lands on.
-                            const ACTIVE_THRESHOLD = 0.001; // < 0.1% = watchlist
-                            const active = prop.positions.filter(
-                              (p) => p.weight >= ACTIVE_THRESHOLD,
-                            );
-                            const watchlist = prop.positions.filter(
-                              (p) => p.weight < ACTIVE_THRESHOLD,
-                            );
-                            return [...active, ...watchlist].map((pos, i, arr) => {
+                          combined.map((pos, i) => {
                             const isWatch = pos.weight < ACTIVE_THRESHOLD;
                             const showWatchHeader =
                               isWatch && i === active.length && active.length > 0;
+                            // Mobile: show only the first 3 until the card is expanded.
+                            const hideOnMobile = i >= 3 && !expanded;
                             return (
                               <Fragment key={pos.ticker}>
                                 {showWatchHeader && (
-                                  <div className="border-t-2 border-dashed border-ink-900/[0.08] bg-ink-900/[0.02] px-5 py-2">
+                                  <div className={cn("border-t-2 border-dashed border-ink-900/[0.08] bg-ink-900/[0.02] px-5 py-2", hideOnMobile && "hidden sm:block")}>
                                     <div className="text-[10px] uppercase tracking-[0.16em] text-ink-500">
                                       Watchlist · not buying now
                                     </div>
@@ -352,6 +318,7 @@ export default function ProposalsPage() {
                                 className={cn(
                                   "transition-colors",
                                   isWatch && "opacity-55",
+                                  hideOnMobile && "hidden sm:block",
                                   highlight === pos.ticker
                                     ? "bg-coral-50"
                                     : "hover:bg-ink-900/[0.025]",
@@ -393,43 +360,36 @@ export default function ProposalsPage() {
                               </div>
                               </Fragment>
                             );
-                          });
-                          })()
+                          })
+                        )}
+                        {combined.length > 3 && (
+                          <button
+                            type="button"
+                            onClick={() => toggleCard(persona.id)}
+                            className="block w-full px-5 py-2.5 text-center text-xs font-medium text-ink-600 hover:bg-ink-900/[0.03] sm:hidden"
+                          >
+                            {expanded ? "Show fewer" : `Show all ${combined.length} positions`}
+                          </button>
                         )}
                       </div>
                     </div>
                   );
                 })}
               </div>
-              {!showAllPortfolios && (
-                <button
-                  type="button"
-                  onClick={() => setShowAllPortfolios(true)}
-                  className="mt-4 w-full rounded-full border border-ink-900/10 py-2.5 text-sm font-medium text-ink-700 hover:bg-ink-900/[0.04] ring-focus sm:hidden"
-                >
-                  Show all {PERSONAS.length} analysts
-                </button>
-              )}
             </TabsContent>
 
             <TabsContent value="consensus">
               <div className="overflow-hidden rounded-3xl border border-ink-900/[0.06] bg-cream-50">
                 <div className="grid border-b border-ink-900/[0.06] bg-ink-900/[0.025] px-3 py-3 text-[10px] uppercase tracking-[0.14em] text-ink-500 sm:px-5" style={{ gridTemplateColumns: consensusGrid }}>
-                  <button type="button" onClick={() => toggleSort("ticker")}
-                    className="flex items-center gap-1 text-left uppercase tracking-[0.14em] ring-focus hover:text-ink-800">
-                    Ticker <SortCaret active={sortKey === "ticker"} dir={sortDir} />
-                  </button>
+                  <div className="uppercase tracking-[0.14em]">Ticker</div>
                   {PERSONAS.map((p) => (
                     <div key={p.id} className="flex items-center gap-1.5">
-                      <span className="h-1.5 w-1.5 rounded-full" style={{ background: ACCENT_HEX[p.accent] }} />
-                      <span className="hidden sm:inline">{p.name}</span>
+                      <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: ACCENT_HEX[p.accent] }} />
+                      <span className="truncate">{p.name}</span>
                     </div>
                   ))}
                   {!isMobile && (
-                    <button type="button" onClick={() => toggleSort("conv")}
-                      className="flex items-center justify-end gap-1 uppercase tracking-[0.14em] ring-focus hover:text-ink-800">
-                      Avg conv. <SortCaret active={sortKey === "conv"} dir={sortDir} />
-                    </button>
+                    <div className="text-right uppercase tracking-[0.14em]">Avg conv.</div>
                   )}
                 </div>
 
@@ -439,12 +399,12 @@ export default function ProposalsPage() {
                       <div key={i} className="h-12 animate-pulse bg-ink-900/[0.02]" />
                     ))}
                   </div>
-                ) : sortedConsensus.length === 0 ? (
+                ) : consensus.length === 0 ? (
                   <div className="px-5 py-8 text-center text-sm text-ink-500">
                     No proposals published yet. Cron runs Friday close.
                   </div>
                 ) : (
-                  sortedConsensus.map((row) => {
+                  consensus.map((row) => {
                     const mentionsByPersona = Object.fromEntries(
                       row.mentions.map((m) => [m.personaId, m]),
                     );
@@ -552,18 +512,6 @@ export default function ProposalsPage() {
         </div>
       )}
     </main>
-  );
-}
-
-function SortCaret({ active, dir }: { active: boolean; dir: "asc" | "desc" }) {
-  return (
-    <ChevronDown
-      className={cn(
-        "h-3 w-3 transition-transform",
-        active ? "text-ink-700" : "text-ink-300",
-        active && dir === "asc" && "rotate-180",
-      )}
-    />
   );
 }
 
