@@ -643,3 +643,29 @@ nontrivial fix) → `docs/runbooks/` (observability, Cloud Run IAM)
 (persona specs — TEAM-OWNED, big voice changes need a 카톡 heads-up).
 CONTRIBUTING.md has the team/track map (5 people; you mostly interact
 with 정우).
+
+## 10. External services & cost surface
+
+Every external dependency that can bill — so an invoice never surprises us.
+**Tiers/amounts are NOT verified here; check each provider's dashboard.**
+Per-call $ projections live in `architecture.md` (monthly cost-estimate table).
+
+| Service | Used for | Env / key | Billing |
+|---|---|---|---|
+| **Anthropic API** | Sonnet 4.6 theses + chat, Haiku screen | `ANTHROPIC_API_KEY` | usage — hard-capped $5/day global + $2/day chat (`check_daily_budget`) |
+| **Neon** | Postgres (Timescale + pgvector) | `DATABASE_URL` | paid plan (compute + storage) |
+| **Google Cloud** | Cloud Run worker + Jobs + Scheduler + Artifact Registry + Secret Manager + Logging | SA / `GCP_SA_KEY_B64` | usage (small at pilot scale) |
+| **Vercel** | web app + Edge routes + cron targets | — | Hobby free / Pro ~$20/mo — **confirm tier** |
+| **FMP** (Financial Modeling Prep) | fundamentals 3-tier #1 source | `FMP_API_KEY` | **paid subscription** — core data dep |
+| **NewsAPI** | news ingest | `NEWSAPI_API_KEY` | free = non-commercial; paid for prod |
+| **Voyage** | pgvector embeddings | `VOYAGE_API_KEY` | free 200M tok/mo; pilot ≈ $0 |
+| **Domain** `convt.xyz` | domain | — | annual registration |
+| Resend | email notify | `RESEND_API_KEY` + `EMAIL_FROM` | free 3k/mo |
+| Firebase Auth | Google SSO | `NEXT_PUBLIC_FIREBASE_*` | free at pilot scale |
+| Sentry / Grafana Cloud / Slack | errors / LLM-cost dashboard / spend alerts | `SENTRY_DSN`, webhook | free tiers |
+| GitHub + Actions CI | repo + CI | — | free (public repo) |
+| **$0 data** | Alpaca (paper + IEX), FRED, SEC EDGAR, yfinance, Tiingo(free) | resp. keys | free tiers |
+
+The Anthropic line is bounded by `LLM_MAX_DAILY_COST_USD` + the Slack $5/$10/$20
+spend alerts; the rest is fixed/subscription. **If trimming cost, review FMP +
+Vercel tiers first** (most likely the real monthly line items beyond Anthropic).
