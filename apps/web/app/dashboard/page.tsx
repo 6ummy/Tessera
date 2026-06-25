@@ -2,7 +2,7 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, Check, LogIn } from "lucide-react";
+import { ArrowLeft, Check, LogIn, ExternalLink } from "lucide-react";
 import { ACCENT_CLASS, PERSONAS, PERSONA_BY_ID, type Persona } from "@/lib/mock/personas";
 import { rebase, usePerformance, toPoints } from "@/lib/performance-data";
 import { buildAccountIndex, segmentNodes, type FollowEvent, ACCOUNT_CASH_KEY, ACCOUNT_MIXED_KEY } from "@/lib/account-curve";
@@ -89,7 +89,7 @@ export default function DashboardPage() {
   );
 }
 
-const VALID_TABS = ["portfolio", "leaderboard"] as const;
+const VALID_TABS = ["portfolio", "leaderboard", "setting"] as const;
 
 function DashboardInner() {
   const params = useSearchParams();
@@ -409,6 +409,7 @@ function DashboardInner() {
             <TabsList>
               <TabsTrigger value="portfolio">My portfolio</TabsTrigger>
               <TabsTrigger value="leaderboard">Leaderboard</TabsTrigger>
+              <TabsTrigger value="setting">Setting</TabsTrigger>
             </TabsList>
 
             {/* ───── PORTFOLIO ───── */}
@@ -456,21 +457,7 @@ function DashboardInner() {
                         );
                       })}
                     </div>
-                    <EmailNotifyToggle />
                   </div>
-
-                  <div id="profile-settings" className="mb-4 scroll-mt-24">
-                    <ProfileEditor onSaved={() => setProfileNonce((n) => n + 1)} />
-                  </div>
-
-                  {/* Phase F — connect + mirror to the Alpaca paper account.
-                      Mirrors the selected/followed analyst. Hidden in the pilot
-                      (gated on NEXT_PUBLIC_FEATURE_BROKER_CONNECT). */}
-                  <BrokerPanel personaId={selected?.personaId ?? null} />
-
-                  {/* Phase F scaffolding — renders nothing in the pilot
-                      (gated on NEXT_PUBLIC_FEATURE_LIVE_TRADING). */}
-                  <LiveTradingPanel />
 
                   {portfolios.length === 0 ? (
                     <div className="space-y-4">
@@ -522,11 +509,19 @@ function DashboardInner() {
                             Your account vs S&amp;P 500
                           </h2>
                         </div>
-                        <div className="inline-flex h-9 w-fit items-center gap-1 rounded-full bg-ink-900/[0.05] p-1 text-sm">
-                          <BoardBtn active={range === "inception"} onClick={() => setRange("inception")}>Since follow</BoardBtn>
-                          <BoardBtn active={range === "1m"} onClick={() => setRange("1m")}>1M</BoardBtn>
-                          <BoardBtn active={range === "3m"} onClick={() => setRange("3m")}>3M</BoardBtn>
-                          <BoardBtn active={range === "1y"} onClick={() => setRange("1y")}>1Y</BoardBtn>
+                        <div className="flex flex-col items-start gap-1.5 sm:items-end">
+                          {alpacaAccount && (
+                            <a href="https://app.alpaca.markets/dashboard/overview" target="_blank" rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-[11px] text-ink-500 hover:text-ink-800 ring-focus">
+                              Open in Alpaca <ExternalLink className="h-3 w-3" />
+                            </a>
+                          )}
+                          <div className="inline-flex h-9 w-fit items-center gap-1 rounded-full bg-ink-900/[0.05] p-1 text-sm">
+                            <BoardBtn active={range === "inception"} onClick={() => setRange("inception")}>Since follow</BoardBtn>
+                            <BoardBtn active={range === "1m"} onClick={() => setRange("1m")}>1M</BoardBtn>
+                            <BoardBtn active={range === "3m"} onClick={() => setRange("3m")}>3M</BoardBtn>
+                            <BoardBtn active={range === "1y"} onClick={() => setRange("1y")}>1Y</BoardBtn>
+                          </div>
                         </div>
                       </div>
                       {accountChart ? (
@@ -586,6 +581,27 @@ function DashboardInner() {
                 </>
                   )}
                 </>
+              )}
+            </TabsContent>
+
+            {/* ───── SETTING ───── */}
+            <TabsContent value="setting">
+              {configured && !user ? (
+                <EmptyState
+                  title="Sign in to manage settings"
+                  body="Your public profile, email alerts, and Alpaca connection live here."
+                  action={<Button size="md" onClick={() => void signInWithGoogle()}><LogIn className="h-4 w-4" /> Sign in</Button>}
+                />
+              ) : (
+                <div className="space-y-4">
+                  <ProfileEditor onSaved={() => setProfileNonce((n) => n + 1)} />
+                  <div className="rounded-2xl border border-ink-900/[0.06] bg-cream-50 px-4 py-3">
+                    <div className="mb-2 text-[10px] uppercase tracking-[0.16em] text-ink-500">Email alerts</div>
+                    <EmailNotifyToggle />
+                  </div>
+                  <BrokerPanel personaId={selected?.personaId ?? null} />
+                  <LiveTradingPanel />
+                </div>
               )}
             </TabsContent>
 

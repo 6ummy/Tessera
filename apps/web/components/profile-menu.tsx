@@ -81,7 +81,7 @@ export function ProfileMenu() {
             </div>
             <div className="p-1.5">
               <MenuLink href="/dashboard" icon={<LayoutDashboard className="h-4 w-4" />} label="My dashboard" sub="P&L · positions" onNavigate={close} />
-              <MenuLink href="/dashboard#profile-settings" icon={<Settings className="h-4 w-4" />} label="Profile settings" sub="Nickname · visibility" onNavigate={close} />
+              <MenuLink href="/dashboard?tab=setting" icon={<Settings className="h-4 w-4" />} label="Setting" sub="Profile · email · Alpaca" onNavigate={close} />
               <MenuLink href="/dashboard?tab=leaderboard" icon={<Trophy className="h-4 w-4" />} label="Leaderboard" sub="Persona rankings" onNavigate={close} />
               <MenuItemSoon icon={<Users className="h-4 w-4" />} label="Social feed" sub="Forks · followers" />
               <NotificationsToggle onDone={close} />
