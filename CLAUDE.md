@@ -63,7 +63,11 @@ its columns**).
 >   not the paper-follow reconstruction. Refreshed two ways — instantly when the
 >   user opens their dashboard (`/api/broker/account`) AND nightly for everyone
 >   via **`/api/cron/broker-sync`** (`CRON_SECRET`-gated; Cloud Scheduler hits the
->   Vercel URL `30 22 * * *`). **Security (CS-23)**: store only the RETURN fraction
+>   Vercel URL `30 22 * * *`). **Scheduler job LIVE 2026-06-25**: `gcloud scheduler
+>   jobs {run,pause,update} tessera-broker-sync --location=us-east1` (sibling of
+>   `tessera-{ingest-daily,persona-batch}-trigger`; sends `Authorization: Bearer
+>   $CRON_SECRET` — rotate via `--update-headers` if the secret changes).
+>   **Security (CS-23)**: store only the RETURN fraction
 >   (the metric the board already shows publicly), never raw $ equity; **decryption
 >   stays in ONE place** (the web's `listAlpacaConnections`, in-memory, never
 >   logged) — deliberately chose a web cron over a worker decryptor so NO second
