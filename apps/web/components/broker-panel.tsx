@@ -163,12 +163,12 @@ export function BrokerPanel({ personaId }: { personaId: string | null }) {
             <div className="ml-auto flex items-center gap-2">
               <button type="button" onClick={() => void openPreview()} disabled={busy || !personaId}
                 title={personaId ? `Mirror ${personaName}'s book` : "Follow an analyst to mirror"}
-                className="inline-flex h-9 items-center gap-1.5 rounded-full bg-ink-900 px-4 text-sm font-medium text-cream-50 hover:bg-ink-800 ring-focus disabled:opacity-50">
-                <ArrowRightLeft className="h-4 w-4" /> {personaId ? `Mirror ${personaName}` : "Mirror"}
+                className="inline-flex h-9 items-center gap-1.5 whitespace-nowrap rounded-full bg-ink-900 px-3 text-xs font-medium text-cream-50 hover:bg-ink-800 ring-focus disabled:opacity-50 sm:px-4 sm:text-sm">
+                <ArrowRightLeft className="h-4 w-4 shrink-0" /> {personaId ? `Mirror ${personaName}` : "Mirror"}
               </button>
               <button type="button" onClick={() => void openOrderStatus()} disabled={busy}
-                className="inline-flex h-9 items-center gap-1.5 rounded-full border border-ink-900/10 px-3 text-sm text-ink-700 hover:bg-ink-900/[0.04] ring-focus disabled:opacity-50">
-                <ListChecks className="h-4 w-4" /> Order status
+                className="inline-flex h-9 items-center gap-1.5 whitespace-nowrap rounded-full border border-ink-900/10 px-3 text-xs text-ink-700 hover:bg-ink-900/[0.04] ring-focus disabled:opacity-50 sm:text-sm">
+                <ListChecks className="h-4 w-4 shrink-0" /> Order status
               </button>
               <button type="button" onClick={() => void disconnect()} disabled={busy}
                 className="h-9 rounded-full border border-ink-900/10 px-3 text-xs text-ink-600 hover:bg-ink-900/[0.04] ring-focus disabled:opacity-50">
@@ -177,8 +177,13 @@ export function BrokerPanel({ personaId }: { personaId: string | null }) {
             </div>
           </div>
           <p className="mt-2 text-[11px] leading-relaxed text-ink-500">
-            Following or switching an analyst doesn&apos;t trade your Alpaca account on its own —
-            it&apos;s manual: hit <span className="font-medium text-ink-700">Mirror</span>.
+            <span className="sm:hidden">
+              Manual — hit <span className="font-medium text-ink-700">Mirror</span> to trade.
+            </span>
+            <span className="hidden sm:inline">
+              Following or switching an analyst doesn&apos;t trade your Alpaca account on its own —
+              it&apos;s manual: hit <span className="font-medium text-ink-700">Mirror</span>.
+            </span>
           </p>
           {error && <p className="mt-2 text-xs text-ink-600">{error}</p>}
           {results && (
