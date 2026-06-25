@@ -31,23 +31,27 @@ from datetime import date, timedelta
 from tessera_worker.ingestors import alpaca_eod, coinbase_eod, fred_macro
 from tessera_worker.logging import configure_logging, get_logger
 from tessera_worker.observability import init_sentry
-from tessera_worker.universe import TICKERS, by_asset_class
+from tessera_worker.universe import by_asset_class
 
 configure_logging()
 log = get_logger(__name__)
 
 
 def backfill_alpaca(years: int = 7) -> None:
-    """Pull Alpaca EOD for the equity universe going back N years.
+    """Pull Alpaca EOD for the equity + ETF universe going back N years.
 
-    Alpaca free tier nominally allows up to 7 yrs (IEX feed only).
-    Chunked internally so we don't hit the per-request bar cap.
+    Equity + ETF only — Alpaca's stock-bars endpoint rejects a crypto pair
+    (e.g. AVAX/USD) and 400s the WHOLE batch request (CS-12); crypto history
+    comes from backfill_coinbase. Alpaca free tier nominally allows up to
+    7 yrs (IEX feed only).
     """
     end = date.today()
     start = end - timedelta(days=365 * years + 30)
+    tickers = [t.ticker for t in by_asset_class("equity")]
+    tickers += [t.ticker for t in by_asset_class("etf")]
     log.info("backfill.alpaca.start", start=str(start), end=str(end),
-             n_tickers=len(TICKERS))
-    r = alpaca_eod.ingest(TICKERS, start=start, end=end)
+             n_tickers=len(tickers))
+    r = alpaca_eod.ingest(tickers, start=start, end=end)
     log.info("backfill.alpaca.done", rows=r.rows_upserted,
              tickers=len(r.tickers), ms=r.duration_ms)
 
