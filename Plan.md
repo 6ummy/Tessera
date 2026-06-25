@@ -1147,28 +1147,37 @@ deferred to post-launch (the mock tab is now removed, not just hidden). Auth
 > (#210). Per-user OAuth + real-money routing remain post-Phase-E.
 
 ### Tasks
+> **Status 2026-06-25:** the **PAPER** half of Phase F is essentially done —
+> per-user Alpaca *paper* connect + execution shipped behind
+> `FEATURE_BROKER_CONNECT`. The **real-money** half (LiveBroker routing, OAuth
+> scoped tokens, kill-switch, 7-day live run) stays gated until Phase E legal
+> clearance — `FEATURE_LIVE_TRADING` still false.
+
 - [~] **Broker abstraction + double-gated LiveBroker stub** — scaffolding
-  shipped (`execution/broker.py`, `feature_live_trading_cleared`). Real Alpaca
-  order routing is a later, post-Phase-E PR.
-- [~] **Alpaca broker adapter** — `execution/alpaca_broker.py` places orders
-  against the operator's Alpaca **PAPER** account (simulated money). DOUBLE-
-  guarded: `feature_alpaca_paper_execution` (distinct from the real-money
-  `feature_live_trading`, still false) + a paper-endpoint check that refuses
-  `api.alpaca.markets` outright. Driven by the operator CLI
-  `jobs/alpaca_paper.py` (account / positions / order / cancel-all),
-  human-in-the-loop, operator-only (one account, no per-user routing). REAL
-  money (`api.alpaca.markets` + `feature_live_trading`) is a later change.
-- [~] **OAuth flow** — scaffolding shipped: migration 017 `broker_connections`
-  (encrypted token cols) + `lib/broker.ts` (gate + authorize-URL) +
-  `/api/broker/status` (read-only) + `/api/broker/connect` (HARD-gated 403).
-  No token exchange / order path — post-Phase-E.
-- [~] **Order confirmation modal** + **Kill switch UI** — scaffolding shipped
-  (`order-confirm-modal.tsx`, `kill-switch.tsx`, `live-trading-panel.tsx`),
-  display-only, hidden in the pilot (gated on `NEXT_PUBLIC_FEATURE_LIVE_TRADING`).
-  No execution path wired.
+  shipped (`execution/broker.py`, `feature_live_trading_cleared`). Real-money
+  order routing is a later, post-Phase-E PR. `FEATURE_LIVE_TRADING` still false.
+- [x] **Alpaca PAPER execution — operator CLI + per-user (web)** — DONE for paper.
+  `execution/alpaca_broker.py` + operator CLI `jobs/alpaca_paper.py`
+  (account/positions/order/cancel), AND **per-user web paper trading** behind
+  `FEATURE_BROKER_CONNECT` (#202–#205, #207, #234, #239): connect paper keys
+  (AES-256-GCM), mirror the followed analyst → preview (limit/market) → execute →
+  order-status/cancel; Alpaca·Live equity on the chart + tiles + leaderboard
+  return + nightly `/api/cron/broker-sync`. DOUBLE-guarded
+  (`feature_alpaca_paper_execution` + paper-endpoint check refusing
+  `api.alpaca.markets`). Real money is post-E.
+- [x] **Per-user broker connect — DIRECT KEY (OAuth deferred to real-money)** —
+  product decision 2026-06-23: direct paper-key entry, NOT OAuth. Migration 017
+  `broker_connections` (AES-256-GCM token cols); key-based connect + the full
+  paper order path are live behind `FEATURE_BROKER_CONNECT`. Alpaca OAuth (scoped
+  tokens) is the real-money path, post-E — the old `/api/broker/connect`
+  403-gated OAuth stub is superseded by the key flow.
+- [~] **Order confirmation modal** + **Kill switch UI** — PAPER flow LIVE: the
+  broker panel does preview → execute → order-status → cancel (#203–#205). The
+  REAL-money kill-switch / live-trading panel stay scaffolding + hidden
+  (`NEXT_PUBLIC_FEATURE_LIVE_TRADING`), no real-money path wired.
 - [~] **Compare live fills vs. paper fills → slippage** — harness shipped
-  (`execution/slippage.py`), pure/observation; empty until live runs.
-- [ ] **Self runs live for 7 days** with full monitoring
+  (`execution/slippage.py`), pure/observation; empty until real-money live runs.
+- [ ] **Self runs live for 7 days** with full monitoring (real money — post-E)
 - [ ] Only after self proves stable: enable for F&F users (if lawyer cleared)
 
 ### Acceptance criteria
