@@ -119,8 +119,7 @@ export function BrokerPanel({ personaId }: { personaId: string | null }) {
     try {
       const res = await call("/api/broker/cancel-all", { method: "POST" });
       if (!res.ok) { setError((await res.json()).error ?? "cancel failed"); return; }
-      const refreshed = await call("/api/broker/orders"); // reflect the now-cancelled state
-      if (refreshed.ok) setOpenOrders((await refreshed.json()).orders as BrokerOrder[]);
+      setView("none"); // cancelled — close the panel so it doesn't look stuck
     } finally { setBusy(false); }
   };
 
@@ -179,7 +178,7 @@ export function BrokerPanel({ personaId }: { personaId: string | null }) {
           </div>
           <p className="mt-2 text-[11px] leading-relaxed text-ink-500">
             Following or switching an analyst doesn&apos;t trade your Alpaca account on its own —
-            it&apos;s manual: hit <span className="font-medium text-ink-700">Mirror</span> to place (or update) the orders.
+            it&apos;s manual: hit <span className="font-medium text-ink-700">Mirror</span>.
           </p>
           {error && <p className="mt-2 text-xs text-ink-600">{error}</p>}
           {results && (
@@ -298,7 +297,7 @@ function OrderStatusModal({ orders, busy, onCancelAll, onClose }: {
           {open.length > 0 && (
             <button type="button" onClick={onCancelAll} disabled={busy}
               className="inline-flex h-8 items-center gap-1.5 rounded-full border border-coral-500/40 bg-coral-500/10 px-3 text-xs font-medium text-coral-700 hover:bg-coral-500/15 ring-focus disabled:opacity-50">
-              <OctagonX className="h-3.5 w-3.5" /> Cancel {open.length} open
+              <OctagonX className="h-3.5 w-3.5" /> {busy ? "Cancelling…" : `Cancel ${open.length} open`}
             </button>
           )}
         </div>

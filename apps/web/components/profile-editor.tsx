@@ -105,7 +105,7 @@ export function ProfileEditor({ onSaved }: { onSaved?: () => void }) {
         {needsNickname
           ? "Add a nickname to appear on the leaderboard — or switch to Private."
           : isPublic
-          ? "You appear on the Investors leaderboard by nickname (return only — never your email or name)."
+          ? "Public — you appear on the leaderboard by nickname and return only. Never share personal info here."
           : "Hidden from the public leaderboard."}
       </p>
     </div>
