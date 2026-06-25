@@ -4,12 +4,20 @@ from __future__ import annotations
 
 from datetime import UTC
 
+from tessera_worker.agents.persona_constraints import PERSONA_CONSTRAINTS
 from tessera_worker.agents.prompt_assembler import (
+    RENDER_RULES,
     build_user_message,
     compute_inputs_hash,
     render_features,
     render_news,
 )
+
+
+def test_render_rules_cover_every_persona() -> None:
+    # assemble_prompt does RENDER_RULES[persona] (hard index) — a persona
+    # missing here KeyErrors the whole research call (Michael hit this).
+    assert set(RENDER_RULES) == set(PERSONA_CONSTRAINTS)
 
 
 def test_render_features_minimal() -> None:

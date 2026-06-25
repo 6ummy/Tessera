@@ -78,6 +78,16 @@ RENDER_RULES: dict[PersonaId, dict[str, Any]] = {
         "include_price_history": True,
         "include_financials_trend": True,
     },
+    "michael": {
+        # Contrarian bear: the bubble signal is a fast run-up paired with a
+        # collapsing FCF yield, so price history + financials trend are core;
+        # news for sentiment froth; filings add little to a tactical hedge.
+        "news_limit": 10,
+        "news_lookback_days": 7,
+        "include_filing": False,
+        "include_price_history": True,
+        "include_financials_trend": True,
+    },
 }
 
 SERIES_FORMATTERS: dict[str, tuple[str, str]] = {
