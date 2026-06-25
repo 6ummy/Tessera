@@ -43,6 +43,11 @@ const config: Config = {
           500: "#8B6B8E",
           600: "#6F5572",
         },
+        // Michael (contrarian bear) accent — oxblood.
+        oxblood: {
+          500: "#9A3B2E",
+          600: "#7E2E23",
+        },
       },
       fontFamily: {
         serif: ["var(--font-serif)", "Georgia", "serif"],

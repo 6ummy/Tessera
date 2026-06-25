@@ -19,7 +19,7 @@ import { InvestorsLeaderboard } from "@/components/investors-leaderboard";
 import { cn, fmt, signClass } from "@/lib/utils";
 
 const ACCENT_HEX: Record<Persona["accent"], string> = {
-  coral: "#D97757", sage: "#6B8E6B", plum: "#8B6B8E", ink: "#1F1E1B",
+  coral: "#D97757", sage: "#6B8E6B", plum: "#8B6B8E", ink: "#1F1E1B", oxblood: "#9A3B2E",
 };
 
 // Account-curve range selector.

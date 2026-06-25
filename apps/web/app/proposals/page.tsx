@@ -14,11 +14,16 @@ import { FollowButton } from "@/components/follow-button";
 import { ArrowUpRight, ChevronDown } from "lucide-react";
 import { cn, fmt } from "@/lib/utils";
 
+// Consensus grid: 1 ticker col + one col per analyst + 1 avg-conv col. Built
+// from PERSONAS.length (inline style, not a Tailwind arbitrary value) so it
+// stays correct as personas are added (e.g. Michael → 5).
+const CONSENSUS_GRID = `2fr repeat(${PERSONAS.length}, minmax(0, 1fr)) 1fr`;
+
 const ACCENT_HEX: Record<Persona["accent"], string> = {
   coral: "#D97757",
   sage: "#6B8E6B",
   plum: "#8B6B8E",
-  ink: "#1F1E1B",
+  ink: "#1F1E1B", oxblood: "#9A3B2E",
 };
 
 type ConsensusRow = {
@@ -380,7 +385,7 @@ export default function ProposalsPage() {
 
             <TabsContent value="consensus">
               <div className="overflow-hidden rounded-3xl border border-ink-900/[0.06] bg-cream-50">
-                <div className="grid grid-cols-[2fr_repeat(4,1fr)_1fr] border-b border-ink-900/[0.06] bg-ink-900/[0.025] px-5 py-3 text-[10px] uppercase tracking-[0.14em] text-ink-500">
+                <div className="grid border-b border-ink-900/[0.06] bg-ink-900/[0.025] px-5 py-3 text-[10px] uppercase tracking-[0.14em] text-ink-500" style={{ gridTemplateColumns: CONSENSUS_GRID }}>
                   <button type="button" onClick={() => toggleSort("ticker")}
                     className="flex items-center gap-1 text-left uppercase tracking-[0.14em] ring-focus hover:text-ink-800">
                     Ticker <SortCaret active={sortKey === "ticker"} dir={sortDir} />
@@ -416,8 +421,9 @@ export default function ProposalsPage() {
                     return (
                       <div
                         key={row.ticker}
+                        style={{ gridTemplateColumns: CONSENSUS_GRID }}
                         className={cn(
-                          "grid grid-cols-[2fr_repeat(4,1fr)_1fr] border-b border-ink-900/[0.05] px-5 py-3.5 last:border-b-0 transition-colors hover:bg-ink-900/[0.02]",
+                          "grid border-b border-ink-900/[0.05] px-5 py-3.5 last:border-b-0 transition-colors hover:bg-ink-900/[0.02]",
                           mentionCount >= 3 ? "bg-coral-50/50" : mentionCount === 2 && "bg-coral-50/25",
                         )}
                       >
