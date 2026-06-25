@@ -10,7 +10,7 @@ import { useAuth } from "@/lib/firebase/auth-context";
 import { cn } from "@/lib/utils";
 
 const ENABLED = process.env.NEXT_PUBLIC_FEATURE_BROKER_CONNECT === "true";
-const NAME: Record<string, string> = { warren: "Warren", cathie: "Cathie", ray: "Ray", peter: "Peter" };
+const NAME: Record<string, string> = { warren: "Warren", cathie: "Cathie", ray: "Ray", peter: "Peter", michael: "Michael" };
 
 type PreviewOrder = { ticker: string; side: "buy" | "sell"; qty: number; refPrice: number; limitPrice: number; estValue: number };
 type Preview = { persona: string; equity: number; marketOpen: boolean; slippageCapBps: number; skipped: string[]; orders: PreviewOrder[] };

@@ -16,7 +16,12 @@ const HISTORY_TURNS = 10; // last N messages sent back as conversation context
 
 export function AnalystChat({ persona }: { persona: Persona }) {
   const a = ACCENT_CLASS[persona.accent];
-  const starter = STARTERS[persona.id];
+  // Fall back to a generic opener so a persona missing from STARTERS can never
+  // crash the chat (a 4-entry map once threw on Michael's id).
+  const starter = STARTERS[persona.id] ?? {
+    greeting: `Hi, I'm ${persona.name}. Ask me anything about my book or how I think about the market.`,
+    suggestions: [],
+  };
 
   const [messages, setMessages] = useState<ChatMessage[]>([
     { id: "greet", role: "analyst", content: starter.greeting, ts: Date.now() },

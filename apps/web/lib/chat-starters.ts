@@ -57,4 +57,14 @@ export const STARTERS: Record<
       "What sectors are you tilting toward?",
     ],
   },
+  michael: {
+    greeting:
+      "Michael here — I'm the bear at the table. I sit in cash and gold and only press a hedge when the bubble signal actually fires: a fast run-up paired with a collapsing free-cash-flow yield. No shorts, no leverage — just inverse ETFs, sized small and held briefly. Ask me what's overpriced, where the leverage is hiding, or why I'm not more bearish.",
+    suggestions: [
+      "What's flashing a bubble signal right now?",
+      "Why inverse ETFs instead of shorting outright?",
+      "How much cash are you holding, and why?",
+      "What would make you cover the hedges?",
+    ],
+  },
 };
