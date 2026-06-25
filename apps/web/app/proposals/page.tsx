@@ -32,6 +32,7 @@ type ConsensusRow = {
   sector: string;
   mentions: { personaId: string; weight: number; conviction: number | null }[];
   avgConviction: number;
+  avgWeight: number;
 };
 
 export default function ProposalsPage() {
@@ -138,6 +139,7 @@ export default function ProposalsPage() {
               conviction: pos.conviction,
             }],
             avgConviction: 0,
+            avgWeight: 0,
           });
         }
       }
@@ -145,10 +147,16 @@ export default function ProposalsPage() {
     const rows = Array.from(byTicker.values()).map((row) => {
       const convs = row.mentions.map((m) => m.conviction).filter((c): c is number => c !== null);
       row.avgConviction = convs.length ? convs.reduce((a, b) => a + b, 0) / convs.length : 0;
+      row.avgWeight = row.mentions.reduce((a, m) => a + m.weight, 0) / row.mentions.length;
       return row;
     });
+    // Default order: most analysts first, then highest avg allocation %, then
+    // highest avg conviction.
     rows.sort(
-      (a, b) => b.mentions.length - a.mentions.length || b.avgConviction - a.avgConviction,
+      (a, b) =>
+        b.mentions.length - a.mentions.length ||
+        b.avgWeight - a.avgWeight ||
+        b.avgConviction - a.avgConviction,
     );
     return rows;
   }, [proposals]);
@@ -156,13 +164,16 @@ export default function ProposalsPage() {
   // Sortable: default Avg-conv descending (#4 feedback). Clicking a header
   // toggles direction; the overlap badges (#3) keep multi-analyst names
   // legible in any sort order.
-  const [sortKey, setSortKey] = useState<"conv" | "ticker">("conv");
+  // Default "consensus" = #analysts → avg allocation % → avg conviction (the
+  // base `consensus` order). Clicking a header overrides with that column.
+  const [sortKey, setSortKey] = useState<"consensus" | "conv" | "ticker">("consensus");
   const [sortDir, setSortDir] = useState<"desc" | "asc">("desc");
   const toggleSort = (key: "conv" | "ticker") => {
     if (key === sortKey) setSortDir((d) => (d === "desc" ? "asc" : "desc"));
     else { setSortKey(key); setSortDir(key === "ticker" ? "asc" : "desc"); }
   };
   const sortedConsensus = useMemo<ConsensusRow[]>(() => {
+    if (sortKey === "consensus") return consensus; // already 3-level sorted
     const sign = sortDir === "desc" ? -1 : 1;
     return [...consensus].sort((a, b) =>
       sortKey === "ticker"
