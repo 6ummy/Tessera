@@ -101,13 +101,13 @@ export function ProfileEditor({ onSaved }: { onSaved?: () => void }) {
           {saving ? "Saving…" : savedAt ? "Saved ✓" : "Save"}
         </button>
       </div>
-      <p className={cn("mt-2 text-xs", needsNickname ? "text-coral-700" : "text-ink-500")}>
-        {needsNickname
-          ? "Add a nickname to appear on the leaderboard — or switch to Private."
-          : isPublic
-          ? "Public — you appear on the leaderboard by nickname and return only. Never share personal info here."
-          : "Hidden from the public leaderboard."}
-      </p>
+      {needsNickname ? (
+        <p className="mt-2 text-xs text-coral-700">
+          Add a nickname to appear on the leaderboard — or switch to Private.
+        </p>
+      ) : savedAt ? (
+        <p className="mt-2 text-xs text-ink-500">Saved — never share personal info here.</p>
+      ) : null}
     </div>
   );
 }

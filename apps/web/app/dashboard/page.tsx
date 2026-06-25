@@ -369,7 +369,7 @@ function DashboardInner() {
                 {hasFollows ? (
                   portfolios!.length === 1 ? (
                     <>
-                      Paper portfolio · Following{" "}
+                      Following{" "}
                       <span className="font-medium text-ink-800">
                         {PERSONA_BY_ID[portfolios![0].personaId].name}
                       </span>{" "}
@@ -377,7 +377,7 @@ function DashboardInner() {
                     </>
                   ) : (
                     <>
-                      Paper portfolio · Following{" "}
+                      Following{" "}
                       <span className="font-medium text-ink-800">{portfolios!.length} analysts</span>
                     </>
                   )
@@ -390,10 +390,12 @@ function DashboardInner() {
               <div className="text-right">
                 <div className="text-[10px] uppercase tracking-[0.16em] text-ink-500">Portfolio value</div>
                 <div className="num mt-1 text-4xl font-medium text-ink-900">
-                  ${totalValue.toLocaleString("en-US", { maximumFractionDigits: 0 })}
+                  ${(alpacaAccount ? alpacaAccount.equity : totalValue).toLocaleString("en-US", { maximumFractionDigits: 0 })}
                 </div>
-                <div className={cn("num mt-0.5 text-sm", signClass(aggReturn))}>
-                  {fmt.pct(aggReturn)} since first follow
+                <div className={cn("num mt-0.5 text-sm", signClass(alpacaAccount ? alpacaAccount.equity / 100_000 - 1 : aggReturn))}>
+                  {alpacaAccount
+                    ? `${fmt.pct(alpacaAccount.equity / 100_000 - 1)} · Alpaca`
+                    : `${fmt.pct(aggReturn)} since first follow`}
                 </div>
               </div>
             )}
