@@ -4,7 +4,7 @@ import { Sparkles, Users } from "lucide-react";
 import { PERSONAS, PERSONA_BY_ID, ACCENT_CLASS, type Persona } from "@/lib/mock/personas";
 import { fetchProposal, fetchReports } from "@/lib/analyst-data";
 import type { Proposal, Report } from "@/lib/thesis-types";
-import { AppShell } from "@/components/app-shell";
+import { Header } from "@/components/header";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { PositionFeatures } from "@/components/position-features";
@@ -183,7 +183,8 @@ export default function ProposalsPage() {
   }, [proposals]);
 
   return (
-    <AppShell>
+    <main className="min-h-screen">
+      <Header variant="solid" />
 
       <section className="border-b border-ink-900/[0.06] bg-cream-50/40 py-12">
         <div className="mx-auto max-w-7xl px-6">
@@ -223,7 +224,7 @@ export default function ProposalsPage() {
             </TabsList>
 
             <TabsContent value="by-persona">
-              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
                 {PERSONAS.map((persona) => {
                   const a = ACCENT_CLASS[persona.accent];
                   const prop = proposals[persona.id];
@@ -481,7 +482,7 @@ export default function ProposalsPage() {
         open={!!openId}
         onOpenChange={(o) => !o && setOpenId(null)}
       />
-    </AppShell>
+    </main>
   );
 }
 
