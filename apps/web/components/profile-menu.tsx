@@ -4,7 +4,7 @@
 // Leaderboard / Social feed (soon) / Notifications / Sign out). Renders the
 // Sign-in CTA when signed out. Self-managed open state.
 
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import Link from "next/link";
 import { LayoutDashboard, Trophy, Settings, Users, LogOut, LogIn, ChevronDown } from "lucide-react";
 import { useAuth } from "@/lib/firebase/auth-context";
@@ -14,12 +14,34 @@ import { cn } from "@/lib/utils";
 export function ProfileMenu() {
   const { configured, user, signInWithGoogle, signOut } = useAuth();
   const [open, setOpen] = useState(false);
+  const [nickname, setNickname] = useState<string | null>(null);
   const menuId = useId();
 
+  // The user's chosen nickname (if any) replaces their name in the chip.
+  useEffect(() => {
+    if (!user) { setNickname(null); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await user.getIdToken();
+        const res = await fetch("/api/me/profile", { headers: { authorization: `Bearer ${token}` } });
+        if (!res.ok || cancelled) return;
+        const d = (await res.json()) as { nickname: string | null };
+        if (!cancelled) setNickname(d.nickname ?? null);
+      } catch { /* ignore — fall back to the name */ }
+    })();
+    return () => { cancelled = true; };
+  }, [user]);
+
   const signedIn = configured && !!user;
-  const displayName = user?.displayName || user?.email || (configured ? "Account" : "jshin");
+  const fullName = user?.displayName || user?.email || (configured ? "Account" : "jshin");
+  // First name only (or the email local part) so the chip stays compact;
+  // a set nickname takes precedence over the real name everywhere.
+  const firstName = fullName.includes("@") ? fullName.split("@")[0] : fullName.trim().split(/\s+/)[0];
+  const chipName = nickname?.trim() || firstName;
+  const headerName = nickname?.trim() || fullName;
   const subtitle = user?.email || (configured ? "Signed in" : "Pilot account");
-  const initial = (displayName.trim()[0] ?? "J").toUpperCase();
+  const initial = (chipName.trim()[0] ?? "J").toUpperCase();
   const photoUrl = user?.photoURL ?? null;
   const close = () => setOpen(false);
 
@@ -38,7 +60,7 @@ export function ProfileMenu() {
       <button type="button" onClick={() => setOpen((o) => !o)}
         className="group flex items-center gap-2 rounded-full bg-cream-50 px-1 py-1 pl-3 ring-1 ring-ink-900/10 hover:ring-ink-900/20 ring-focus"
         aria-expanded={open} aria-haspopup="menu" aria-controls={menuId} aria-label="Account menu">
-        <span className="hidden max-w-[10ch] truncate text-sm font-medium text-ink-800 sm:inline">{displayName}</span>
+        <span className="hidden max-w-[14ch] truncate text-sm font-medium text-ink-800 sm:inline">{chipName}</span>
         <ChevronDown className={cn("hidden h-3.5 w-3.5 text-ink-500 transition-transform sm:inline", open && "rotate-180")} />
         {photoUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
@@ -53,7 +75,7 @@ export function ProfileMenu() {
           <button type="button" tabIndex={-1} className="fixed inset-0 z-30 cursor-default" onClick={close} aria-label="Close account menu" />
           <div id={menuId} role="menu" className="absolute right-0 z-40 mt-2 w-64 origin-top-right overflow-hidden rounded-2xl border border-ink-900/10 bg-cream-50 shadow-[0_24px_60px_-20px_rgba(31,30,27,0.25)] animate-fade-up">
             <div className="border-b border-ink-900/[0.06] p-4">
-              <div className="truncate text-sm font-medium text-ink-900">{displayName}</div>
+              <div className="truncate text-sm font-medium text-ink-900">{headerName}</div>
               <div className="truncate text-xs text-ink-500">{subtitle}</div>
             </div>
             <div className="p-1.5">

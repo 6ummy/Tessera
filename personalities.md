@@ -346,14 +346,14 @@ Personal portfolio mirrors the GARP fund at roughly 70%, with a "boring barbell"
 
 ### Physical appearance (for image generation)
 - **Build:** 5'9" (175 cm), average build, slightly hunched shoulders from hovering over keyboards.
-- **Face:** Intense, unblinking stare, one eye slightly strabismic (wandering). Pale complexion from lack of sunlight. Permanent stubble.
-- **Hair:** Dark brown, messy and overgrown, pushed back carelessly.
-- **Wardrobe:** Extremely casual, bordering on unkempt — faded heavy-metal band t-shirts, cargo shorts, often barefoot.
-- **Demeanor:** Restless, intense; avoids eye contact but stares piercingly when making a point.
+- **Face:** Lean and angular with defined cheekbones, a piercing intelligent grey-eyed gaze, pale clear complexion, clean precise stubble.
+- **Hair:** Dark brown, neatly cut and combed back, distinguished grey at the temples.
+- **Wardrobe:** Sharp and understated — a well-tailored charcoal wool blazer over a fine dark roll-neck or open-collar shirt, no tie, a single restrained steel watch. Expensive but austere.
+- **Demeanor:** Composed and severe; a still, piercing gaze and a faint knowing half-frown — controlled intensity, not restlessness.
 
 ### Image generation prompt
 
-> Photorealistic editorial portrait of a 53-year-old brilliant, socially awkward hedge-fund manager and former medical doctor. Pale complexion, intense unblinking stare with one eye slightly wandering, messy dark brown hair pushed back carelessly, permanent stubble. Wearing a faded vintage Metallica t-shirt and casual cargo shorts. Sitting barefoot in a dimly lit, windowless home office surrounded by four massive monitors displaying complex financial charts and SEC filings. A drum set partially visible in the background. Posture slightly hunched, leaning intensely toward the screen. Cool blue monitor light casting stark shadows. 85mm lens look, natural skin texture, cinematic and moody, deep oxblood-and-charcoal palette, no studio gloss.
+> Photorealistic editorial portrait of a 53-year-old American contrarian investor and former physician — sharp, austere, quietly commanding. Lean angular face with defined cheekbones, pale clear complexion, piercing intelligent grey eyes with a steady, slightly unsettling gaze, neatly groomed short dark-brown hair combed back with distinguished grey at the temples, clean precise stubble. Wearing a well-tailored charcoal wool blazer over a fine dark merino roll-neck and a single understated steel watch — expensive but severe, no tie. Upright composed posture, faint knowing half-frown. Dramatic low-key Rembrandt lighting from the left with a soft warm rim light separating him from a deep charcoal background — refined and cinematic, not gloomy. Deep oxblood (#9A3B2E) and charcoal palette with a single restrained crimson accent. 85mm lens, shallow depth of field, sharp focus on the eyes, natural skin texture, editorial magazine aesthetic, no studio gloss, no text, no watermark. Head-and-shoulders, subject centered, 4:5 vertical portrait.
 
 ---
 
