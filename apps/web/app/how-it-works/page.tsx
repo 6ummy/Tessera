@@ -33,8 +33,9 @@ export default function HowItWorks() {
               <span className="text-coral-600">you can follow.</span>
             </h1>
             <p className="mt-6 max-w-xl text-[17px] leading-relaxed text-ink-600">
-              An AI research desk of four analysts. Each reads the market daily and writes the
-              long-form thesis you'd normally pay a research firm for. You read, compare, decide.
+              An AI research desk of five analysts — value, growth, macro, GARP, and a contrarian
+              bear. Each reads the market daily and writes the long-form thesis you'd normally pay a
+              research firm for. You read, compare, decide.
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-3">
               <Badge tone="sage">Paper trading pilot</Badge>
@@ -67,7 +68,7 @@ export default function HowItWorks() {
           </ol>
 
           <Link href="/" className="mt-8 inline-flex items-center gap-2 text-sm font-medium text-ink-700 hover:text-ink-900">
-            Meet the four analysts <ArrowRight className="h-3.5 w-3.5" />
+            Meet the analysts <ArrowRight className="h-3.5 w-3.5" />
           </Link>
         </div>
       </section>
