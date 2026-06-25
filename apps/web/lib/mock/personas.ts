@@ -138,7 +138,7 @@ export const PERSONAS: Persona[] = [
     horizon: "Weeks–1 year",
     riskLabel: "Aggressive",
     age: 53,
-    photo: "/personas/michael.jpg",
+    photo: "/personas/michael.png",
     metrics: {
       return1y: -0.021,
       return90d: 0.014,
