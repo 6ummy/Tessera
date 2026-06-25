@@ -128,7 +128,7 @@ export function CumulativeChart({
         </div>
       )}
     <ResponsiveContainer width="100%" height={height}>
-      <LineChart data={data} margin={{ top: 10, right: 12, left: 0, bottom: 0 }}>
+      <LineChart data={data} margin={{ top: 10, right: 28, left: 0, bottom: 0 }}>
         <CartesianGrid stroke="#1F1E1B" strokeOpacity={0.06} vertical={false} />
         <XAxis
           dataKey="t"

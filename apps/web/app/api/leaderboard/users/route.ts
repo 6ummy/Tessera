@@ -32,11 +32,19 @@ export async function GET() {
   try {
     const sql = getSql();
 
-    // Public users + their handles.
-    const users = await sql`SELECT id::text, nickname FROM users WHERE is_public = true`;
+    // Public users + their handles. `broker_return` (persisted by
+    // /api/broker/account on dashboard load — a fraction, already the public
+    // metric) lets a connected user rank by their real Alpaca paper account
+    // instead of the paper-follow reconstruction.
+    const users = await sql`SELECT id::text, nickname, preferences->>'broker_return' AS broker_return FROM users WHERE is_public = true`;
     if (users.length === 0) return cached({ investors: [] });
     const nickById = new Map(
       users.map((u) => [u.id as string, ((u.nickname as string | null) ?? "").trim()]),
+    );
+    const brokerReturnById = new Map(
+      users
+        .filter((u) => u.broker_return != null)
+        .map((u) => [u.id as string, Number(u.broker_return)]),
     );
 
     // Their full follow/unfollow history (account-curve source of truth).
@@ -84,11 +92,13 @@ export async function GET() {
         events, seriesByPersona, axis,
       );
       if (!firstFollow) continue; // never actually followed → nothing to rank
+      // Connected Alpaca account takes priority over the paper reconstruction.
+      const brokerReturn = brokerReturnById.get(uid);
       investors.push({
         nickname: (nickById.get(uid) || "") || "Anonymous",
         personaId: currentPersonaId, // null = currently in cash
         startedAt: firstFollow,
-        returnPct: metrics.sinceInception ?? 0,
+        returnPct: brokerReturn ?? metrics.sinceInception ?? 0,
         return1y: metrics.return1y,
         return90d: metrics.return90d,
         sharpe30d: metrics.sharpe30d,
