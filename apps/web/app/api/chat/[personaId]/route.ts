@@ -25,7 +25,7 @@ import { buildWorkerAuthHeader, workerBaseUrl } from "@/lib/gcp-auth";
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
 
-const VALID_PERSONAS = new Set(["warren", "cathie", "ray", "peter"]);
+const VALID_PERSONAS = new Set(["warren", "cathie", "ray", "peter", "michael"]);
 
 // ── Abuse guards (2026-06-11 audit Step 2) ────────────────────────────
 // This endpoint is public until Phase D auth lands. Three layers:

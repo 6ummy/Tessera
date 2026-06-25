@@ -9,7 +9,7 @@ import { buildPreview, loadAlpacaKeys } from "@/lib/broker-mirror";
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
 
-const PERSONAS = new Set(["warren", "cathie", "ray", "peter"]);
+const PERSONAS = new Set(["warren", "cathie", "ray", "peter", "michael"]);
 
 export async function GET(req: Request) {
   if (process.env.FEATURE_BROKER_CONNECT !== "true") {
