@@ -260,11 +260,6 @@ function DashboardInner() {
       : key === ACCOUNT_MIXED_KEY ? "You · mixed"
       : `You · ${PERSONA_BY_ID[key].name}`;
 
-    // Once an Alpaca account is connected, IT is "You" — the followed-portfolio
-    // (paper-mirror) reconstruction is ignored on the chart. The live account is
-    // what the user actually trades from that point on.
-    const alpacaConnected = !!(alpacaHistory && alpacaHistory.length >= 2);
-
     const allNodes = buildAccountIndex(events, seriesAndAxis.seriesByPersona, seriesAndAxis.axis);
     if (allNodes.length === 0) return null;
     const lastDate = allNodes[allNodes.length - 1].date;
@@ -281,24 +276,31 @@ function DashboardInner() {
     if (nodes.length < 2) nodes = allNodes.slice(-2);
     const base = nodes[0]?.value || 1;
     const reb = nodes.map((n) => ({ ...n, value: Number((n.value / base).toFixed(6)) }));
-    // Drop the follow-based "You" segments when Alpaca is connected — the
-    // Alpaca series below becomes "You" instead.
-    const youSeries = alpacaConnected ? [] : segmentNodes(reb, colorFor).map((seg, i) => ({
+    // Follow history STAYS (persona-coloured). Once Alpaca is connected the
+    // follow curve runs up to the connect date, then the Alpaca line continues
+    // from there in its own colour — one continuous line, not a wipe.
+    const connectDate = alpacaHistory && alpacaHistory.length >= 2 ? alpacaHistory[0].date : null;
+    const followNodes = connectDate ? reb.filter((n) => n.date <= connectDate) : reb;
+    const youSeries = segmentNodes(followNodes, colorFor).map((seg, i) => ({
       id: `you-${i}`, name: label(seg.key), color: seg.color, data: seg.data,
     }));
 
     const benchWin = benchmark.filter((p) => p.date >= cutoff);
     const benchData = rebase(benchWin.length >= 2 ? benchWin : benchmark);
 
-    // Alpaca · Live — slice to the window + rebase to its own first point (the
-    // real account starts when it was funded, later than the paper inception).
+    // Alpaca · Live — CONTINUES the follow line: scale so it starts at the
+    // follow curve's value on the connect date (seamless join). If the connect
+    // predates the visible window there's no follow line to join, so rebase to
+    // the first visible point instead.
     let alpacaSeries: Series | null = null;
     if (alpacaHistory && alpacaHistory.length >= 2) {
       const win = alpacaHistory.filter((p) => p.date >= cutoff);
       const pts = win.length >= 2 ? win : alpacaHistory;
-      const ab = pts[0]?.equity || 1;
+      const equityAtConnect = alpacaHistory[0].equity || 1;
+      const followAtConnect = followNodes.length ? followNodes[followNodes.length - 1].value : null;
+      const scale = followAtConnect !== null ? followAtConnect / equityAtConnect : 1 / (pts[0]?.equity || 1);
       const data = pts.map((p, i) => ({
-        day: i, date: p.date, t: p.t, value: Number((p.equity / ab).toFixed(6)),
+        day: i, date: p.date, t: p.t, value: Number((p.equity * scale).toFixed(6)),
       }));
       // Carry the last mark FLAT to the account line's right edge so Alpaca
       // aligns instead of stopping short — equity doesn't change while the
