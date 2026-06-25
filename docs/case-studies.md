@@ -302,6 +302,24 @@
 
 ---
 
+### CS-21. 5번째 persona(Michael) 추가 — id-키 맵 누락이 만든 연쇄 침묵 버그 (#214/#223/#225/#226)
+
+- **증상**: Michael을 등록(#214 — universe + constraints + shortlist + loader + schemas)했는데도 여러 곳에서 따로따로 깨졌다: (1) 채팅 클릭 시 클라이언트 예외, (2) 주간 배치가 michael만 research 15/15 KeyError(LLM 호출 0, $0)로 빈손 "완료", (3) 채팅/proposals/thesis/performance가 전부 `unknown persona: michael`.
+- **추적**: 셋 다 서로 다른 **id 기준 하드코딩 맵**이 michael 키를 안 가진 것이었다 — 프론트 `STARTERS`(채팅 오프너), 워커 `RENDER_RULES`(`assemble_prompt`이 `[persona]`로 직접 인덱싱 → `KeyError`), web Edge 9개 라우트의 `VALID_PERSONAS = new Set([...4명])`(worker로 proxy하기 전에 400), broker `NAME`. 등록 PR은 이 맵들을 건드리지 않았다.
+- **수정**: 누락된 맵 전부에 michael 추가. 재발 방지로 `set(RENDER_RULES) == set(PERSONA_CONSTRAINTS)` 가드 테스트 추가. (근본책: 흩어진 id-키 맵을 공용 상수 하나로 모으기 — 후속.)
+- **교훈**: **새 persona/열거값 = id-키 맵 전수조사.** personalities.md + Literal 한 곳만 "원천"처럼 보이지만, 실제론 프론트·Edge·워커에 흩어진 N개의 맵이 모두 갱신돼야 한다. 스키마/계약 변경 시 reader 전수조사(CS-2)의 persona 판이다. `dict[persona]` 직접 인덱싱은 조용히 `KeyError`나니 `.get` + 가드 테스트로.
+
+---
+
+### CS-22. 적용 안 된 마이그레이션 위에 올린 배포가 prod LLM을 통째로 내림 — 009 cost_namespace
+
+- **증상**: 6/25 워커 재배포 후 Michael 주간 배치가 "성공"인데 리포트 0건 + 그날 LLM 호출/비용이 **0**. (앞서 `gcloud run jobs execute`도 "successfully completed"인데 아무것도 안 씀.)
+- **추적**: `llm_call_log`에 `cost_namespace` 컬럼이 **없었다**. `009_llm_call_log_cost_namespace.sql`은 트리에 있는데 prod 미적용(CLAUDE.md의 "001–015 applied"는 사실과 달랐다). 새 이미지의 `log_llm_call`은 `INSERT ... cost_namespace`를, `check_daily_budget`은 `WHERE cost_namespace IS NULL`을 실행 → 컬럼이 없어 **모든 LLM 경로(주간 배치 + 공개 채팅)가 예외로 실패**. 배치의 max-cost abort가 exit 0이라 잡은 "성공"으로 떴다.
+- **수정**: 009를 prod에 적용(멱등 `ADD COLUMN IF NOT EXISTS`). 드리프트 점검 결과 009만 누락(013/015/017/#133/#134는 정상)이었다.
+- **교훈**: **코드가 의존하는 마이그레이션의 prod 적용 여부를 배포 전에 `information_schema`로 검증.** "적용했다"는 문서 기록은 증거가 아니다. 새 컬럼을 읽고 쓰는 코드를 배포하는 순간, 그 컬럼이 없으면 그 코드가 닿는 모든 경로가 죽는다 — 그것도 침묵으로(budget-abort exit 0 → "성공한 잡 ≠ 일한 잡", CS-10/CS-14 종료코드 정직성의 persona).
+
+---
+
 ## 메타 교훈 (발표 마무리 슬라이드용)
 
 | # | 패턴 | 해당 케이스 |
@@ -319,6 +337,8 @@
 | 11 | **드라이버 타입 매핑을 의심하라** — 같은 코드가 클라이언트(JSON 문자열)와 서버(드라이버 네이티브 `Date`)에서 다르게 동작. DB 값을 순수 함수에 직접 넘길 땐 경계에서 타입 고정(`::text`) | CS-18 |
 | 12 | **파생 뷰의 축을 가장 늦은 입력에 묶지 마라** — 날짜 축은 모든 소스의 합집합. 그리고 reseed(행 덮어쓰기) 모델의 "누적" 지표는 현재 행이 아니라 이벤트 로그에서 재구성 | CS-19 |
 | 13 | **"데이터 정지 ≠ 소스 고장"** — 키를 의심하기 전 캘린더(휴장)·피드 지연(T-1)·트리거 실행 여부부터. 단일 소스엔 폴백, 배치 트리거는 요청 수명과 무관한 잡으로 | CS-20 |
+| 14 | **새 persona/열거값은 흩어진 id-키 맵 전수조사** — 한 "원천"만 고치면 프론트·Edge·워커의 N개 맵이 조용히 깨진다. `dict[key]` 직접 인덱싱엔 가드 테스트 | CS-21 |
+| 15 | **코드가 의존하는 마이그레이션의 prod 적용을 배포 전 `information_schema`로 검증** — 미적용 컬럼 위 배포는 그 코드의 모든 경로를 침묵으로 죽인다 | CS-22 |
 
 > 부록: 모든 케이스의 1차 자료는 PR 본문과 커밋 메시지에 있다 —
 > #90, #93, #98, #99, #105–#108, #110, #111, #128, #139, #143, #144.

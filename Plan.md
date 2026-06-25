@@ -11,6 +11,14 @@
 
 **Phase A + B + C complete; Phase D shipped & deployed — only F&F onboarding left.** ✅ Updated 2026-06-18.
 
+> **2026-06-25:** 5th persona **Michael** (contrarian bear — inverse ETFs +
+> cash/gold on a bubble signal; oxblood accent) shipped end-to-end (universe /
+> constraints / shortlist / prompt / web / leaderboard; first book 6/25). Full
+> **mobile-responsive pass** (landing, cards, consensus ticker-only, by-analyst
+> accordion, how-it-works) + **ticker-detail modal** + account-chart Alpaca-0%
+> baseline. Incident: migration `009_cost_namespace` was unapplied — the 6/25
+> redeploy briefly took prod LLM down (see CLAUDE.md §1 / case-studies CS-22).
+
 **Phase C closed 2026-06-14, 4/4 acceptance green** (§5 Acceptance):
 Warren Sharpe 1.28 / Cathie 3.21 / Peter 2.81 / Ray 1.96 from the
 90-day backtest baseline. All three Phase C carry-overs landed before
