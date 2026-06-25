@@ -8,9 +8,9 @@ const fraunces = Fraunces({ subsets: ["latin"], variable: "--font-serif", displa
 const mono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-mono", display: "swap" });
 
 export const metadata: Metadata = {
-  title: "Convt — An agentic research desk",
+  title: "Convt — One-click AI fund manager",
   description:
-    "Four AI analysts, distinct philosophies, one manager who curates. Convt turns multi-persona market research into high-conviction portfolios you can follow.",
+    "Five AI fund managers — value, growth, macro, GARP, and a contrarian bear. Follow one and your paper portfolio mirrors their book in one click.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
