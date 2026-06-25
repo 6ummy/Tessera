@@ -203,7 +203,7 @@ export default function ProposalsPage() {
             <div>
               <div className="text-xs font-medium uppercase tracking-[0.18em] text-coral-600">This week's research</div>
               <h1 className="display-serif mt-3 text-5xl tracking-tightest text-ink-900 sm:text-6xl">
-                Four portfolios.
+                Five portfolios.
                 <br />
                 <span className="italic text-ink-700">Compared side-by-side.</span>
               </h1>
@@ -478,11 +478,6 @@ export default function ProposalsPage() {
                 )}
               </div>
 
-              <p className="mt-4 text-xs text-ink-500">
-                The <span className="text-coral-600">●N</span> badge marks names held by 2+ analysts —
-                rarer than it looks (the desk's mandates diverge by design), so overlap is real signal.
-                Click <span className="text-ink-700">Ticker</span> or <span className="text-ink-700">Avg conv.</span> to sort.
-              </p>
             </TabsContent>
           </Tabs>
         </div>

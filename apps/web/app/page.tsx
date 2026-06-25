@@ -49,7 +49,7 @@ export default function Page() {
         <div className="mx-auto max-w-7xl px-6">
           <div className="mx-auto max-w-3xl text-center">
             <h1 className="display-serif text-[56px] leading-[1.02] tracking-tightest text-ink-900 sm:text-[72px] animate-fade-up">
-              Four analysts.
+              Five analysts.
               <br />
               <span className="italic text-ink-700">One conviction</span>{" "}
               <span className="text-coral-600">at a time.</span>

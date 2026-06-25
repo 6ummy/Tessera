@@ -82,7 +82,7 @@ export const PERSONAS: Persona[] = [
     archetype: "Macro Hedger",
     style: "macro",
     accent: "plum",
-    tagline: "All-weather. Diversify by economic regime, not by ticker.",
+    tagline: "All-weather. Diversify by economic regime.",
     philosophy:
       "Top-down allocation across equities, treasuries, gold, and inflation-protected assets based on growth and inflation regime probabilities. Goal is smooth equity curve, not maximum return.",
     horizon: "Continuous",
@@ -107,7 +107,7 @@ export const PERSONAS: Persona[] = [
     archetype: "GARP",
     style: "garp",
     accent: "sage",
-    tagline: "Growth at a reasonable price. PEG ratio is the north star.",
+    tagline: "Growth at a reasonable price.",
     philosophy:
       "Companies growing earnings 15–25% per year, trading at PEG < 1.2. Looks for understandable businesses, expanding margins, and conservative balance sheets. Avoids hype.",
     horizon: "2–4 years",
@@ -132,7 +132,7 @@ export const PERSONAS: Persona[] = [
     archetype: "Contrarian Bear",
     style: "contrarian",
     accent: "oxblood",
-    tagline: "Gravity is undefeated. Hedge the mania; hold cash and gold.",
+    tagline: "The bubble is already here — only the burst remains.",
     philosophy:
       "Long-only expression of a bear: inverse ETFs sized to a deterministic bubble signal (fast run-up + collapsing free-cash-flow yield), plus a high cash balance, gold, Treasuries, and deep-value names. Tactical and short-horizon — never marries a hedge.",
     horizon: "Weeks",
