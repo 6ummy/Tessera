@@ -107,7 +107,7 @@ See `architecture.md` §6 "Daily data flow" for the full diagram.
 
 | Phase | Status | What it ships |
 |---|---|---|
-| **Frontend MVP** | ✅ shipped | 4 routes, 4 personas with photos + bios + chat UI, all on Vercel |
+| **Frontend MVP** | ✅ shipped | 5 personas with photos + bios + chat UI, all on Vercel |
 | **A — Data backbone** (wk 1) | ✅ shipped | Ingestors + features + Neon schema + Cloud Run worker + Sentry |
 | **B — Real LLM theses** (wks 2–3) | ✅ shipped | Weekly persona batch, live reports/proposals, SSE chat, pgvector recall |
 | **C — Paper execution** (wks 4–5) | 🚧 nearly done (2026-06-12) | Full risk gateway (universe/sum/caps + VaR99 + drawdown floor + Ray's regime gate), paper engine nightly (4 × $100K, fills at next open, EOD MTM), real performance/portfolio UI, ticker-level attribution endpoint, weight telemetry, Sentry paging. Remaining: 90d backtest baseline, attribution UI |
