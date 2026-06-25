@@ -85,7 +85,7 @@ export const PERSONAS: Persona[] = [
     tagline: "All-weather. Diversify by economic regime, not by ticker.",
     philosophy:
       "Top-down allocation across equities, treasuries, gold, and inflation-protected assets based on growth and inflation regime probabilities. Goal is smooth equity curve, not maximum return.",
-    horizon: "Continuous rebalance",
+    horizon: "Continuous",
     riskLabel: "Balanced",
     age: 58,
     photo: "/personas/ray.jpg",
@@ -135,7 +135,7 @@ export const PERSONAS: Persona[] = [
     tagline: "Gravity is undefeated. Hedge the mania; hold cash and gold.",
     philosophy:
       "Long-only expression of a bear: inverse ETFs sized to a deterministic bubble signal (fast run-up + collapsing free-cash-flow yield), plus a high cash balance, gold, Treasuries, and deep-value names. Tactical and short-horizon — never marries a hedge.",
-    horizon: "Weeks–1 year",
+    horizon: "Weeks",
     riskLabel: "Aggressive",
     age: 53,
     photo: "/personas/michael.jpg",

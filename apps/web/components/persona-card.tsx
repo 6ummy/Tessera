@@ -50,7 +50,7 @@ export function PersonaCard({
       <div className="mt-4 flex items-center gap-2">
         <div className={cn("h-1.5 w-1.5 rounded-full", a.dot)} />
         <span className="text-xs font-medium uppercase tracking-[0.14em] text-ink-500">
-          {persona.archetype} · Age {persona.age}
+          {persona.archetype}
         </span>
       </div>
       <h3 className="display-serif mt-1 text-2xl text-ink-900">{persona.name}</h3>
