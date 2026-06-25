@@ -1,7 +1,7 @@
 ﻿# Tessera
 
-> A multi-agent LLM research desk for long-term investing. Four AI analyst
-> personas — each with a distinct philosophy and voice — publish daily theses
+> A multi-agent LLM research desk for long-term investing. Five AI analyst
+> personas — each with a distinct philosophy and voice — publish weekly theses
 > and portfolios side-by-side. Paper-trading pilot today, live-execution ready
 > by design.
 
