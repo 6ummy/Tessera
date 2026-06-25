@@ -175,6 +175,11 @@ export default function ProposalsPage() {
     ? `minmax(0,1.4fr) repeat(${PERSONAS.length}, minmax(0,1fr))`
     : CONSENSUS_GRID;
 
+  // Mobile by-analyst: each portfolio collapses to an accordion (one body open
+  // at a time) and only the first 3 show until "Show all". Desktop = full grid.
+  const [openCard, setOpenCard] = useState<string | null>(null);
+  const [showAllPortfolios, setShowAllPortfolios] = useState(false);
+
   // Sortable: default Avg-conv descending (#4 feedback). Clicking a header
   // toggles direction; the overlap badges (#3) keep multi-analyst names
   // legible in any sort order.
@@ -216,7 +221,7 @@ export default function ProposalsPage() {
           <div className="flex flex-col items-start justify-between gap-6 lg:flex-row lg:items-end">
             <div>
               <div className="text-xs font-medium uppercase tracking-[0.18em] text-coral-600">This week's research</div>
-              <h1 className="display-serif mt-3 text-5xl tracking-tightest text-ink-900 sm:text-6xl">
+              <h1 className="display-serif mt-3 text-3xl tracking-tightest text-ink-900 sm:text-6xl">
                 Five portfolios.
                 <br />
                 <span className="italic text-ink-700">Compared side-by-side.</span>
@@ -250,13 +255,16 @@ export default function ProposalsPage() {
 
             <TabsContent value="by-persona">
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-                {PERSONAS.map((persona) => {
+                {PERSONAS.map((persona, idx) => {
                   const a = ACCENT_CLASS[persona.accent];
                   const prop = proposals[persona.id];
                   return (
                     <div
                       key={persona.id}
-                      className="flex flex-col overflow-hidden rounded-3xl border border-ink-900/[0.06] bg-cream-50"
+                      className={cn(
+                        "flex flex-col overflow-hidden rounded-3xl border border-ink-900/[0.06] bg-cream-50",
+                        idx >= 3 && !showAllPortfolios && "hidden sm:flex",
+                      )}
                     >
                       <div className="border-b border-ink-900/[0.06] p-5">
                         <div className="flex items-center gap-2">
@@ -286,9 +294,18 @@ export default function ProposalsPage() {
                         <div className="mt-4">
                           <FollowButton personaId={persona.id} personaName={persona.name} />
                         </div>
+                        <button
+                          type="button"
+                          onClick={() => setOpenCard((cur) => (cur === persona.id ? null : persona.id))}
+                          aria-expanded={openCard === persona.id}
+                          className="mt-3 flex w-full items-center justify-between rounded-xl bg-ink-900/[0.03] px-3 py-2 text-xs font-medium text-ink-700 sm:hidden"
+                        >
+                          {openCard === persona.id ? "Hide positions" : "Show positions"}
+                          <ChevronDown className={cn("h-4 w-4 transition-transform", openCard === persona.id && "rotate-180")} />
+                        </button>
                       </div>
 
-                      <div className="flex-1 divide-y divide-ink-900/[0.05]">
+                      <div className={cn("flex-1 divide-y divide-ink-900/[0.05]", openCard !== persona.id && "hidden sm:block")}>
                         {loading && !prop ? (
                           <div className="space-y-px">
                             {[0, 1, 2].map((i) => (
@@ -407,6 +424,15 @@ export default function ProposalsPage() {
                   );
                 })}
               </div>
+              {!showAllPortfolios && (
+                <button
+                  type="button"
+                  onClick={() => setShowAllPortfolios(true)}
+                  className="mt-4 w-full rounded-full border border-ink-900/10 py-2.5 text-sm font-medium text-ink-700 hover:bg-ink-900/[0.04] ring-focus sm:hidden"
+                >
+                  Show all {PERSONAS.length} analysts
+                </button>
+              )}
             </TabsContent>
 
             <TabsContent value="consensus">
