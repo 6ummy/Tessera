@@ -161,6 +161,20 @@ export default function ProposalsPage() {
     return rows;
   }, [proposals]);
 
+  // Mobile (<sm): consensus shows ticker + analyst columns only — no company
+  // name and no Avg-conv column — so it doesn't overflow a phone width.
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 639px)");
+    const sync = () => setIsMobile(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
+  const consensusGrid = isMobile
+    ? `minmax(0,1.4fr) repeat(${PERSONAS.length}, minmax(0,1fr))`
+    : CONSENSUS_GRID;
+
   // Sortable: default Avg-conv descending (#4 feedback). Clicking a header
   // toggles direction; the overlap badges (#3) keep multi-analyst names
   // legible in any sort order.
@@ -397,7 +411,7 @@ export default function ProposalsPage() {
 
             <TabsContent value="consensus">
               <div className="overflow-hidden rounded-3xl border border-ink-900/[0.06] bg-cream-50">
-                <div className="grid border-b border-ink-900/[0.06] bg-ink-900/[0.025] px-5 py-3 text-[10px] uppercase tracking-[0.14em] text-ink-500" style={{ gridTemplateColumns: CONSENSUS_GRID }}>
+                <div className="grid border-b border-ink-900/[0.06] bg-ink-900/[0.025] px-3 py-3 text-[10px] uppercase tracking-[0.14em] text-ink-500 sm:px-5" style={{ gridTemplateColumns: consensusGrid }}>
                   <button type="button" onClick={() => toggleSort("ticker")}
                     className="flex items-center gap-1 text-left uppercase tracking-[0.14em] ring-focus hover:text-ink-800">
                     Ticker <SortCaret active={sortKey === "ticker"} dir={sortDir} />
@@ -405,13 +419,15 @@ export default function ProposalsPage() {
                   {PERSONAS.map((p) => (
                     <div key={p.id} className="flex items-center gap-1.5">
                       <span className="h-1.5 w-1.5 rounded-full" style={{ background: ACCENT_HEX[p.accent] }} />
-                      {p.name}
+                      <span className="hidden sm:inline">{p.name}</span>
                     </div>
                   ))}
-                  <button type="button" onClick={() => toggleSort("conv")}
-                    className="flex items-center justify-end gap-1 uppercase tracking-[0.14em] ring-focus hover:text-ink-800">
-                    Avg conv. <SortCaret active={sortKey === "conv"} dir={sortDir} />
-                  </button>
+                  {!isMobile && (
+                    <button type="button" onClick={() => toggleSort("conv")}
+                      className="flex items-center justify-end gap-1 uppercase tracking-[0.14em] ring-focus hover:text-ink-800">
+                      Avg conv. <SortCaret active={sortKey === "conv"} dir={sortDir} />
+                    </button>
+                  )}
                 </div>
 
                 {loading ? (
@@ -433,15 +449,15 @@ export default function ProposalsPage() {
                     return (
                       <div
                         key={row.ticker}
-                        style={{ gridTemplateColumns: CONSENSUS_GRID }}
+                        style={{ gridTemplateColumns: consensusGrid }}
                         className={cn(
-                          "grid border-b border-ink-900/[0.05] px-5 py-3.5 last:border-b-0 transition-colors hover:bg-ink-900/[0.02]",
+                          "grid border-b border-ink-900/[0.05] px-3 py-3.5 last:border-b-0 transition-colors hover:bg-ink-900/[0.02] sm:px-5",
                           mentionCount >= 3 ? "bg-coral-50/50" : mentionCount === 2 && "bg-coral-50/25",
                         )}
                       >
                         <div className="flex items-center gap-3 min-w-0">
                           <div className="num text-sm font-medium text-ink-900">{row.ticker}</div>
-                          <div className="truncate text-xs text-ink-500">{row.name}</div>
+                          <div className="hidden truncate text-xs text-ink-500 sm:block">{row.name}</div>
                           {mentionCount >= 2 && (
                             <span title={`${mentionCount} analysts hold this name`} className="ml-auto sm:ml-0">
                               <Badge tone="coral" className="inline-flex items-center gap-1">
@@ -469,9 +485,11 @@ export default function ProposalsPage() {
                             </div>
                           );
                         })}
-                        <div className="num text-right text-xs font-medium text-ink-800">
-                          {row.avgConviction > 0 ? fmt.num(row.avgConviction, 2) : "—"}
-                        </div>
+                        {!isMobile && (
+                          <div className="num text-right text-xs font-medium text-ink-800">
+                            {row.avgConviction > 0 ? fmt.num(row.avgConviction, 2) : "—"}
+                          </div>
+                        )}
                       </div>
                     );
                   })
