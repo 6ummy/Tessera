@@ -330,7 +330,7 @@ function OrderStatusModal({ orders, busy, onCancelAll, onClose }: {
                         {fmtOrderTime(o.filledAt ?? o.createdAt)}
                       </td>
                       <td className={cn("px-3 py-1.5 text-right font-medium", statusColor(o.status))}>
-                        {o.status === "partially_filled" ? `part (${o.filledQty}/${o.qty})` : o.status}
+                        {o.status === "partially_filled" ? `part (${o.filledQty}/${o.qty})` : OPEN_STATUSES.has(o.status) ? "open" : o.status}
                       </td>
                     </tr>
                   );

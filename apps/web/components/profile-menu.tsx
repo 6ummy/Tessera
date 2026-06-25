@@ -39,7 +39,8 @@ export function ProfileMenu() {
   // a set nickname takes precedence over the real name everywhere.
   const firstName = fullName.includes("@") ? fullName.split("@")[0] : fullName.trim().split(/\s+/)[0];
   const chipName = nickname?.trim() || firstName;
-  const headerName = nickname?.trim() || fullName;
+  // Dropdown always shows the real full name (nickname only swaps the chip).
+  const headerName = fullName;
   const subtitle = user?.email || (configured ? "Signed in" : "Pilot account");
   const initial = (chipName.trim()[0] ?? "J").toUpperCase();
   const photoUrl = user?.photoURL ?? null;

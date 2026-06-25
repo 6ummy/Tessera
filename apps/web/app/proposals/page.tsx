@@ -266,7 +266,7 @@ export default function ProposalsPage() {
                           </Badge>
                         </div>
                         <div className="mt-4 grid grid-cols-2 gap-3 text-[11px]">
-                          <Stat label="Horizon" value={prop?.horizon ?? "—"} />
+                          <Stat label="Horizon" value={prop?.horizon || persona.horizon} />
                           <Stat label="Cash" value={prop ? fmt.pctAbs(prop.cashWeight ?? 0) : "—"} />
                         </div>
                         <div className="mt-4">
