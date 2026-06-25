@@ -5,7 +5,7 @@ export type Persona = {
   name: string;
   archetype: string;
   style: PersonaStyle;
-  accent: "coral" | "sage" | "plum" | "ink";
+  accent: "coral" | "sage" | "plum" | "ink" | "oxblood";
   tagline: string;
   philosophy: string;
   horizon: string;
@@ -126,6 +126,31 @@ export const PERSONAS: Persona[] = [
     },
     signature: ["EPS growth 15–25%", "PEG < 1.2", "Operating margin expanding"],
   },
+  {
+    id: "michael",
+    name: "Michael",
+    archetype: "Contrarian Bear",
+    style: "contrarian",
+    accent: "oxblood",
+    tagline: "Gravity is undefeated. Hedge the mania; hold cash and gold.",
+    philosophy:
+      "Long-only expression of a bear: inverse ETFs sized to a deterministic bubble signal (fast run-up + collapsing free-cash-flow yield), plus a high cash balance, gold, Treasuries, and deep-value names. Tactical and short-horizon — never marries a hedge.",
+    horizon: "Weeks–1 year",
+    riskLabel: "Aggressive",
+    age: 53,
+    photo: "/personas/michael.jpg",
+    metrics: {
+      return1y: -0.021,
+      return90d: 0.014,
+      return30d: 0.006,
+      sharpe: 0.42,
+      mdd: -0.061,
+      hitRate: 0.49,
+      turnover: "High",
+      avgHold: "Weeks",
+    },
+    signature: ["Run-up + fcf_yield collapse", "Inverse ETF, slippage-capped", "High cash / gold floor"],
+  },
 ];
 
 export const PERSONA_BY_ID = Object.fromEntries(PERSONAS.map((p) => [p.id, p]));
@@ -139,4 +164,5 @@ export const ACCENT_CLASS: Record<Persona["accent"], { bg: string; text: string;
   // visual weight of the vibrant 500-level dots on Coral / Sage / Plum.
   // Same hue family, just maxed out.
   ink: { bg: "bg-ink-900/[0.04]", text: "text-ink-800", ring: "ring-ink-800/20", dot: "bg-ink-900" },
+  oxblood: { bg: "bg-oxblood-500/10", text: "text-oxblood-600", ring: "ring-oxblood-500/30", dot: "bg-oxblood-500" },
 };

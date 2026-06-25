@@ -7,7 +7,7 @@ export function Badge({
 }: {
   className?: string;
   children: React.ReactNode;
-  tone?: "default" | "coral" | "sage" | "plum" | "ink";
+  tone?: "default" | "coral" | "sage" | "plum" | "ink" | "oxblood";
 }) {
   const tones = {
     default: "bg-ink-900/[0.05] text-ink-700",
@@ -15,6 +15,7 @@ export function Badge({
     sage: "bg-sage-400/15 text-sage-600",
     plum: "bg-plum-500/10 text-plum-600",
     ink: "bg-ink-900 text-cream-50",
+    oxblood: "bg-oxblood-500/10 text-oxblood-600",
   };
   return (
     <span

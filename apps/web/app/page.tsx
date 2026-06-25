@@ -15,7 +15,7 @@ const ACCENT_HEX: Record<Persona["accent"], string> = {
   coral: "#D97757",
   sage: "#6B8E6B",
   plum: "#8B6B8E",
-  ink: "#1F1E1B",
+  ink: "#1F1E1B", oxblood: "#9A3B2E",
 };
 
 const PERSONA_IDS = PERSONAS.map((p) => p.id);
