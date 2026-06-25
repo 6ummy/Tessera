@@ -260,6 +260,11 @@ function DashboardInner() {
       : key === ACCOUNT_MIXED_KEY ? "You · mixed"
       : `You · ${PERSONA_BY_ID[key].name}`;
 
+    // Once an Alpaca account is connected, IT is "You" — the followed-portfolio
+    // (paper-mirror) reconstruction is ignored on the chart. The live account is
+    // what the user actually trades from that point on.
+    const alpacaConnected = !!(alpacaHistory && alpacaHistory.length >= 2);
+
     const allNodes = buildAccountIndex(events, seriesAndAxis.seriesByPersona, seriesAndAxis.axis);
     if (allNodes.length === 0) return null;
     const lastDate = allNodes[allNodes.length - 1].date;
@@ -276,7 +281,9 @@ function DashboardInner() {
     if (nodes.length < 2) nodes = allNodes.slice(-2);
     const base = nodes[0]?.value || 1;
     const reb = nodes.map((n) => ({ ...n, value: Number((n.value / base).toFixed(6)) }));
-    const youSeries = segmentNodes(reb, colorFor).map((seg, i) => ({
+    // Drop the follow-based "You" segments when Alpaca is connected — the
+    // Alpaca series below becomes "You" instead.
+    const youSeries = alpacaConnected ? [] : segmentNodes(reb, colorFor).map((seg, i) => ({
       id: `you-${i}`, name: label(seg.key), color: seg.color, data: seg.data,
     }));
 
@@ -302,7 +309,9 @@ function DashboardInner() {
       if (last && endT > (last.t ?? 0)) {
         data.push({ day: data.length, date: endDate as string, t: endT, value: last.value });
       }
-      alpacaSeries = { id: "alpaca", name: "Alpaca · Live", color: "#2F6F8F", data };
+      // Connected → this line IS "You" (follow curve dropped above); the name
+      // reflects that it's the live Alpaca account.
+      alpacaSeries = { id: "alpaca", name: "You · Alpaca", color: "#2F6F8F", data };
     }
 
     return [
