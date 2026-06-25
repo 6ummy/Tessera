@@ -49,15 +49,15 @@ export default function Page() {
         <div className="mx-auto max-w-7xl px-6">
           <div className="mx-auto max-w-3xl text-center">
             <h1 className="display-serif text-[40px] leading-[1.05] tracking-tightest text-ink-900 sm:text-[72px] sm:leading-[1.02] animate-fade-up">
-              Five analysts.
+              Five AI fund managers.
               <br />
-              <span className="italic text-ink-700">One conviction</span>{" "}
-              <span className="text-coral-600">at a time.</span>
+              <span className="italic text-ink-700">One click</span>{" "}
+              <span className="text-coral-600">to follow.</span>
             </h1>
 
             <p className="mx-auto mt-6 max-w-xl text-[17px] leading-relaxed text-ink-600 animate-fade-up">
-              Four <span className="font-medium text-ink-800">AI analysts</span>, each with their
-              own philosophy and voice — follow the one that thinks like you.
+              Five <span className="font-medium text-ink-800">AI fund managers</span>, each with a
+              different mind — follow one and your portfolio mirrors their book.
             </p>
 
             <div className="mt-8 flex items-center justify-center gap-3 animate-fade-up">
@@ -200,15 +200,17 @@ export default function Page() {
 
 function MiniStep({ n, title, icon, desc }: { n: number; title: string; icon: React.ReactNode; desc: string }) {
   return (
-    <div className="group rounded-2xl border border-ink-900/[0.06] bg-cream-50 p-5 transition-colors hover:border-ink-900/[0.12]">
-      <div className="flex items-center justify-between">
-        <div className="num text-xs text-ink-400">0{n}</div>
-        <div className="grid h-8 w-8 place-items-center rounded-full bg-ink-900 text-cream-50">
+    <div className="group rounded-2xl border border-ink-900/[0.06] bg-cream-50 p-4 transition-colors hover:border-ink-900/[0.12]">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-baseline gap-2 min-w-0">
+          <span className="num shrink-0 text-xs text-ink-400">0{n}</span>
+          <h3 className="truncate text-sm font-medium text-ink-900">{title}</h3>
+        </div>
+        <div className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-ink-900 text-cream-50">
           {icon}
         </div>
       </div>
-      <h3 className="mt-4 text-sm font-medium text-ink-900">{title}</h3>
-      <p className="mt-1 text-[13px] text-ink-600">{desc}</p>
+      <p className="mt-1.5 text-[13px] leading-snug text-ink-600">{desc}</p>
     </div>
   );
 }
