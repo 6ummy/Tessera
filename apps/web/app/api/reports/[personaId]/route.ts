@@ -13,7 +13,7 @@ import { buildWorkerAuthHeader, workerBaseUrl } from "@/lib/gcp-auth";
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
 
-const VALID_PERSONAS = new Set(["warren", "cathie", "ray", "peter"]);
+const VALID_PERSONAS = new Set(["warren", "cathie", "ray", "peter", "michael"]);
 
 export async function GET(
   req: Request,

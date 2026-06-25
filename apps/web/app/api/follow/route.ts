@@ -20,7 +20,7 @@ export const runtime = "edge";
 
 // The four personas — server-side allowlist so a follow can't seed a
 // portfolio for a bogus persona id.
-const VALID_PERSONAS = new Set(["warren", "cathie", "ray", "peter"]);
+const VALID_PERSONAS = new Set(["warren", "cathie", "ray", "peter", "michael"]);
 const STARTING_CAPITAL = 100_000;
 
 async function verify(req: Request) {

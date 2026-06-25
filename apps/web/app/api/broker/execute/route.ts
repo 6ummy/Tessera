@@ -11,7 +11,7 @@ import { executeMirror, loadAlpacaKeys, type OrderType } from "@/lib/broker-mirr
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
 
-const PERSONAS = new Set(["warren", "cathie", "ray", "peter"]);
+const PERSONAS = new Set(["warren", "cathie", "ray", "peter", "michael"]);
 
 export async function POST(req: Request) {
   if (process.env.FEATURE_BROKER_CONNECT !== "true") {
