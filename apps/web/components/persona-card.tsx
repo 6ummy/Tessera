@@ -42,12 +42,20 @@ export function PersonaCard({
         style={{ background: ACCENT_HEX[persona.accent] }}
       />
 
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex items-center justify-between gap-2">
         <PersonaAvatar persona={persona} size="md" ring />
+        {/* Mobile: archetype sits inline next to the avatar (saves a row). */}
+        <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:hidden">
+          <div className={cn("h-1.5 w-1.5 shrink-0 rounded-full", a.dot)} />
+          <span className="truncate text-[10px] font-medium uppercase tracking-[0.12em] text-ink-500">
+            {persona.archetype}
+          </span>
+        </div>
         <Badge tone={persona.accent === "ink" ? "default" : persona.accent}>{persona.riskLabel}</Badge>
       </div>
 
-      <div className="mt-4 flex items-center gap-2">
+      {/* Desktop: archetype on its own row below. */}
+      <div className="mt-4 hidden items-center gap-2 sm:flex">
         <div className={cn("h-1.5 w-1.5 rounded-full", a.dot)} />
         <span className="text-xs font-medium uppercase tracking-[0.14em] text-ink-500">
           {persona.archetype}
