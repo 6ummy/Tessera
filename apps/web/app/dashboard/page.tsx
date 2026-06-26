@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { EmailNotifyToggle } from "@/components/email-notify-toggle";
 import { ProfileEditor } from "@/components/profile-editor";
-import { BrokerPanel } from "@/components/broker-panel";
+import { BrokerProvider, BrokerActions, BrokerConnection } from "@/components/broker-panel";
 import { LiveTradingPanel } from "@/components/live-trading-panel";
 import { InvestorsLeaderboard } from "@/components/investors-leaderboard";
 import { cn, fmt, signClass } from "@/lib/utils";
@@ -425,6 +425,7 @@ function DashboardInner() {
 
       <section className="py-10">
         <div className="mx-auto max-w-7xl px-6">
+          <BrokerProvider personaId={selected?.personaId ?? null}>
           <Tabs value={tab} onValueChange={handleTabChange}>
             <TabsList>
               <TabsTrigger value="portfolio">My portfolio</TabsTrigger>
@@ -477,6 +478,7 @@ function DashboardInner() {
                         );
                       })}
                     </div>
+                    <BrokerActions />
                   </div>
 
                   {showAlpacaCta && (
@@ -640,7 +642,7 @@ function DashboardInner() {
                     <div className="mb-2 text-[10px] uppercase tracking-[0.16em] text-ink-500">Email alerts</div>
                     <EmailNotifyToggle />
                   </div>
-                  <BrokerPanel personaId={selected?.personaId ?? null} />
+                  <BrokerConnection />
                   <LiveTradingPanel />
                 </div>
               )}
@@ -714,6 +716,7 @@ function DashboardInner() {
               <InvestorsLeaderboard myNickname={myNickname} refreshKey={profileNonce} />
             </TabsContent>
           </Tabs>
+          </BrokerProvider>
         </div>
       </section>
     </main>
