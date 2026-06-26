@@ -22,6 +22,12 @@ const ACCENT_HEX: Record<Persona["accent"], string> = {
   coral: "#D97757", sage: "#6B8E6B", plum: "#8B6B8E", ink: "#1F1E1B", oxblood: "#9A3B2E",
 };
 
+const BROKER_CONNECT = process.env.NEXT_PUBLIC_FEATURE_BROKER_CONNECT === "true";
+
+function todayUtc(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
 // Account-curve range selector.
 type RangeKey = "inception" | "1m" | "3m" | "1y";
 const RANGE_DAYS: Record<Exclude<RangeKey, "inception">, number> = { "1m": 30, "3m": 90, "1y": 365 };
@@ -241,6 +247,13 @@ function DashboardInner() {
 
   const selectedPersona = selected ? PERSONA_BY_ID[selected.personaId] : null;
 
+  const followStartedToday = useMemo(() => {
+    const started = portfolios?.[0]?.startedAt;
+    return !!started && started.slice(0, 10) === todayUtc();
+  }, [portfolios]);
+
+  const showAlpacaCta = BROKER_CONNECT && hasFollows && !alpacaAccount;
+
   // ── Account curve, windowed by the range selector ──────────────────────
   // Reconstruct the whole account index (cash flat, tracking each persona
   // while followed, recoloured at every follow/unfollow), then SLICE to the
@@ -388,15 +401,22 @@ function DashboardInner() {
             </div>
             {hasFollows && (
               <div className="text-right">
-                <div className="text-[10px] uppercase tracking-[0.16em] text-ink-500">Portfolio value</div>
+                <div className="text-[10px] uppercase tracking-[0.16em] text-ink-500">
+                  Portfolio value · {alpacaAccount ? "Alpaca paper" : "Convt paper"}
+                </div>
                 <div className="num mt-1 text-4xl font-medium text-ink-900">
                   ${(alpacaAccount ? alpacaAccount.equity : totalValue).toLocaleString("en-US", { maximumFractionDigits: 0 })}
                 </div>
                 <div className={cn("num mt-0.5 text-sm", signClass(alpacaAccount ? alpacaAccount.equity / 100_000 - 1 : aggReturn))}>
                   {alpacaAccount
-                    ? `${fmt.pct(alpacaAccount.equity / 100_000 - 1)} · Alpaca`
-                    : `${fmt.pct(aggReturn)} since first follow`}
+                    ? `${fmt.pct(alpacaAccount.equity / 100_000 - 1)} · Alpaca paper`
+                    : `${fmt.pct(aggReturn)} since first follow · Convt paper`}
                 </div>
+                {followStartedToday && !alpacaAccount && (
+                  <p className="mt-1 max-w-xs text-xs text-ink-500 sm:ml-auto">
+                    Day 1 — returns update as {selectedPersona?.name ?? "your analyst"}&apos;s book moves.
+                  </p>
+                )}
               </div>
             )}
           </div>
@@ -459,6 +479,20 @@ function DashboardInner() {
                     </div>
                   </div>
 
+                  {showAlpacaCta && (
+                    <div className="mb-4 flex flex-col gap-3 rounded-2xl border border-dashed border-ink-900/15 bg-cream-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <p className="text-sm font-medium text-ink-900">You&apos;re on Convt paper ($100K mirror)</p>
+                        <p className="mt-0.5 text-xs leading-relaxed text-ink-500">
+                          Connect Alpaca paper in Setting to place live fills that track your analyst.
+                        </p>
+                      </div>
+                      <Button size="sm" variant="outline" onClick={() => handleTabChange("setting")}>
+                        Connect Alpaca paper →
+                      </Button>
+                    </div>
+                  )}
+
                   {portfolios.length === 0 ? (
                     <div className="space-y-4">
                       <div className="rounded-3xl border border-ink-900/[0.06] bg-cream-50 p-6">
@@ -504,7 +538,7 @@ function DashboardInner() {
                     <div className="rounded-3xl border border-ink-900/[0.06] bg-cream-50 p-6">
                       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                         <div>
-                          <div className="text-xs uppercase tracking-[0.16em] text-ink-500">{RANGE_LABEL[range]} · {alpacaAccount ? "Alpaca paper" : "paper"}</div>
+                          <div className="text-xs uppercase tracking-[0.16em] text-ink-500">{RANGE_LABEL[range]} · {alpacaAccount ? "Alpaca paper" : "Convt paper"}</div>
                           <h2 className="display-serif mt-1 text-2xl text-ink-900">
                             Your account vs S&amp;P 500
                           </h2>
@@ -530,7 +564,9 @@ function DashboardInner() {
                         <div className="h-[280px] w-full animate-pulse rounded-2xl bg-ink-900/[0.04]" />
                       )}
                       <p className="mt-2 text-[11px] leading-relaxed text-ink-500">
-                        Tracks each analyst&apos;s book while you follow them. Once you connect Alpaca, it continues as your live account.
+                        {alpacaAccount
+                          ? "Convt paper tracks your follow history; the Alpaca line is your connected paper account."
+                          : "Convt paper mirrors your analyst while you follow them. Connect Alpaca in Setting to continue as live paper fills."}
                       </p>
                     </div>
 
@@ -538,25 +574,30 @@ function DashboardInner() {
                       <Tile label="Starting capital" value="$100,000" />
                       {alpacaAccount ? (
                         <>
-                          <Tile label="Total value" value={`$${Math.round(alpacaAccount.equity).toLocaleString("en-US")}`}
-                            sub={`${fmt.pct(alpacaAccount.equity / 100_000 - 1)} · Alpaca paper`} />
-                          <Tile label="Cash" value={`$${Math.round(alpacaAccount.cash).toLocaleString("en-US")}`}
-                            sub={`${fmt.pctAbs(alpacaAccount.equity > 0 ? alpacaAccount.cash / alpacaAccount.equity : 0)} allocation · Alpaca`} />
-                          <Tile label="Open positions" value={`${alpacaAccount.positionsCount}`} sub="Live on Alpaca paper" />
+                          <Tile label="Total value · Alpaca paper" value={`$${Math.round(alpacaAccount.equity).toLocaleString("en-US")}`}
+                            sub={`${fmt.pct(alpacaAccount.equity / 100_000 - 1)} since connect`} />
+                          <Tile label="Cash · Alpaca paper" value={`$${Math.round(alpacaAccount.cash).toLocaleString("en-US")}`}
+                            sub={`${fmt.pctAbs(alpacaAccount.equity > 0 ? alpacaAccount.cash / alpacaAccount.equity : 0)} allocation`} />
+                          <Tile label="Open positions · Alpaca paper" value={`${alpacaAccount.positionsCount}`} sub="Live fills on Alpaca" />
                         </>
                       ) : (
                         <>
-                          <Tile label="Total value" value={`$${Math.round(totalValue).toLocaleString("en-US")}`}
+                          <Tile label="Total value · Convt paper" value={`$${Math.round(totalValue).toLocaleString("en-US")}`}
                             sub={`${fmt.pct(aggReturn)} since first follow`} />
-                          <Tile label="Cash" value={`$${Math.round(selected!.currentCash * bookScale).toLocaleString("en-US")}`}
-                            sub={`${fmt.pctAbs(selected!.totalValue > 0 ? selected!.currentCash / selected!.totalValue : 0)} allocation`} />
-                          <Tile label="Open positions" value={`${selectedPositions.length}`} sub={`Following ${selectedPersona?.name}`} />
+                          <Tile label="Cash · Convt paper" value={`$${Math.round(selected!.currentCash * bookScale).toLocaleString("en-US")}`}
+                            sub={`${fmt.pctAbs(selected!.totalValue > 0 ? selected!.currentCash / selected!.totalValue : 0)} allocation · mirror`} />
+                          <Tile label="Open positions · Convt paper" value={`${selectedPositions.length}`} sub={`Mirroring ${selectedPersona?.name}`} />
                         </>
                       )}
                     </div>
                   </div>
 
                   <div className="mt-4 overflow-hidden rounded-3xl border border-ink-900/[0.06] bg-cream-50">
+                    <div className="border-b border-ink-900/[0.06] bg-ink-900/[0.025] px-5 py-2.5">
+                      <p className="text-[10px] uppercase tracking-[0.14em] text-ink-500">
+                        Convt paper mirror · {selectedPersona?.name ?? "Analyst"}
+                      </p>
+                    </div>
                     <div className="grid grid-cols-[1.5fr_1fr_1fr] border-b border-ink-900/[0.06] bg-ink-900/[0.025] px-5 py-3 text-[10px] uppercase tracking-[0.14em] text-ink-500">
                       <div>Ticker</div>
                       <div>Weight</div>
