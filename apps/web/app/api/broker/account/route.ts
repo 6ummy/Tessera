@@ -36,7 +36,11 @@ export async function GET(req: Request) {
     // Best-effort — never fail the read.
     try {
       const sql = getSql();
-      const brokerReturn = summary.equity / 100_000 - 1;
+      // Return is relative to the user's own starting capital (default $100K) —
+      // each Alpaca paper account can start at a different balance.
+      const capRows = await sql`SELECT preferences->>'starting_capital' AS cap FROM users WHERE firebase_uid = ${uid}`;
+      const startingCapital = Number(capRows[0]?.cap) || 100_000;
+      const brokerReturn = summary.equity / startingCapital - 1;
       await sql`
         UPDATE users
         SET preferences = jsonb_set(coalesce(preferences, '{}'::jsonb),
