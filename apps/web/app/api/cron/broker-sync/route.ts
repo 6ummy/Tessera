@@ -41,10 +41,12 @@ async function run(req: Request) {
 
   let synced = 0;
   let failed = 0;
-  for (const { userId, keys } of conns) {
+  for (const { userId, keys, startingCapital } of conns) {
     try {
       const summary = await accountSummary(keys);
-      const brokerReturn = summary.equity / 100_000 - 1; // Alpaca paper starts at $100K
+      // Return is relative to the user's own starting capital (default $100K) —
+      // each Alpaca paper account can start at a different balance.
+      const brokerReturn = summary.equity / startingCapital - 1;
       await sql`
         UPDATE users
         SET preferences = jsonb_set(coalesce(preferences, '{}'::jsonb),

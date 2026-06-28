@@ -39,18 +39,20 @@ export async function loadAlpacaKeys(uid: string): Promise<Connection | null> {
 /** Every connected Alpaca paper account, decrypted — for the nightly broker
  *  sync cron. Decryption stays HERE (the web), the one place that already holds
  *  the keys; nothing is logged. Returns the user id (uuid as text) per row. */
-export async function listAlpacaConnections(): Promise<{ userId: string; keys: Keys }[]> {
+export async function listAlpacaConnections(): Promise<{ userId: string; keys: Keys; startingCapital: number }[]> {
   const sql = getSql();
   const rows = await sql`
-    SELECT u.id::text AS user_id, bc.access_token_enc, bc.refresh_token_enc
+    SELECT u.id::text AS user_id, u.preferences->>'starting_capital' AS starting_capital,
+           bc.access_token_enc, bc.refresh_token_enc
     FROM broker_connections bc JOIN users u ON u.id = bc.user_id
     WHERE bc.provider = 'alpaca' AND bc.status = 'connected'
   `;
-  const out: { userId: string; keys: Keys }[] = [];
+  const out: { userId: string; keys: Keys; startingCapital: number }[] = [];
   for (const r of rows) {
     const key = await decryptSecret(r.access_token_enc as string);
     const secret = await decryptSecret(r.refresh_token_enc as string);
-    if (key && secret) out.push({ userId: r.user_id as string, keys: { key, secret } });
+    const cap = Number(r.starting_capital) || 100_000;
+    if (key && secret) out.push({ userId: r.user_id as string, keys: { key, secret }, startingCapital: cap });
   }
   return out;
 }

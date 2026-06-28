@@ -27,12 +27,14 @@ export async function GET(req: Request) {
   try {
     const sql = getSql();
     const rows = await sql`
-      SELECT nickname, is_public FROM users WHERE firebase_uid = ${user.uid}
+      SELECT nickname, is_public, preferences FROM users WHERE firebase_uid = ${user.uid}
     `;
     const r = rows[0] ?? {};
+    const prefs = (r.preferences ?? {}) as Record<string, unknown>;
     return NextResponse.json({
       nickname: (r.nickname as string | null) ?? null,
       isPublic: r.is_public !== false,
+      startingCapital: Number(prefs.starting_capital) || 100_000,
     });
   } catch (err) {
     console.error("profile.get_failed", err);

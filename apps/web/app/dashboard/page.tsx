@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { EmailNotifyToggle } from "@/components/email-notify-toggle";
 import { ProfileEditor } from "@/components/profile-editor";
+import { StartingCapitalEditor } from "@/components/starting-capital-editor";
 import { BrokerProvider, BrokerActions, BrokerConnection } from "@/components/broker-panel";
 import { LiveTradingPanel } from "@/components/live-trading-panel";
 import { InvestorsLeaderboard } from "@/components/investors-leaderboard";
@@ -118,16 +119,23 @@ function DashboardInner() {
   // board; profileNonce refetches it + the board after a profile save.
   const [profileNonce, setProfileNonce] = useState(0);
   const [myNickname, setMyNickname] = useState<string | null>(null);
+  // The user's own starting capital (return denominator). Default $100K;
+  // Alpaca-connected users can override it in Setting so the return reflects
+  // their real paper account's starting balance.
+  const [startingCapital, setStartingCapital] = useState(100_000);
   useEffect(() => {
-    if (!user) { setMyNickname(null); return; }
+    if (!user) { setMyNickname(null); setStartingCapital(100_000); return; }
     let cancelled = false;
     (async () => {
       try {
         const token = await user.getIdToken();
         const res = await fetch("/api/me/profile", { headers: { authorization: `Bearer ${token}` }, cache: "no-store" });
         if (!res.ok || cancelled) return;
-        const d = (await res.json()) as { nickname: string | null };
-        if (!cancelled) setMyNickname(d.nickname ?? null);
+        const d = (await res.json()) as { nickname: string | null; startingCapital?: number };
+        if (!cancelled) {
+          setMyNickname(d.nickname ?? null);
+          setStartingCapital(Number(d.startingCapital) || 100_000);
+        }
       } catch { /* ignore */ }
     })();
     return () => { cancelled = true; };
@@ -407,9 +415,9 @@ function DashboardInner() {
                 <div className="num mt-1 text-4xl font-medium text-ink-900">
                   ${(alpacaAccount ? alpacaAccount.equity : totalValue).toLocaleString("en-US", { maximumFractionDigits: 0 })}
                 </div>
-                <div className={cn("num mt-0.5 text-sm", signClass(alpacaAccount ? alpacaAccount.equity / 100_000 - 1 : aggReturn))}>
+                <div className={cn("num mt-0.5 text-sm", signClass(alpacaAccount ? alpacaAccount.equity / startingCapital - 1 : aggReturn))}>
                   {alpacaAccount
-                    ? `${fmt.pct(alpacaAccount.equity / 100_000 - 1)} · Alpaca paper`
+                    ? `${fmt.pct(alpacaAccount.equity / startingCapital - 1)} · Alpaca paper`
                     : `${fmt.pct(aggReturn)} since first follow · Convt paper`}
                 </div>
                 {followStartedToday && !alpacaAccount && (
@@ -573,11 +581,11 @@ function DashboardInner() {
                     </div>
 
                     <div className="space-y-4">
-                      <Tile label="Starting capital" value="$100,000" />
+                      <Tile label="Starting capital" value={`$${startingCapital.toLocaleString("en-US", { maximumFractionDigits: 0 })}`} />
                       {alpacaAccount ? (
                         <>
                           <Tile label="Total value · Alpaca paper" value={`$${Math.round(alpacaAccount.equity).toLocaleString("en-US")}`}
-                            sub={`${fmt.pct(alpacaAccount.equity / 100_000 - 1)} since connect`} />
+                            sub={`${fmt.pct(alpacaAccount.equity / startingCapital - 1)} since connect`} />
                           <Tile label="Cash · Alpaca paper" value={`$${Math.round(alpacaAccount.cash).toLocaleString("en-US")}`}
                             sub={`${fmt.pctAbs(alpacaAccount.equity > 0 ? alpacaAccount.cash / alpacaAccount.equity : 0)} allocation`} />
                           <Tile label="Open positions · Alpaca paper" value={`${alpacaAccount.positionsCount}`} sub="Live fills on Alpaca" />
@@ -643,6 +651,7 @@ function DashboardInner() {
                     <EmailNotifyToggle />
                   </div>
                   <BrokerConnection />
+                  {BROKER_CONNECT && <StartingCapitalEditor onSaved={() => setProfileNonce((n) => n + 1)} />}
                   <LiveTradingPanel />
                 </div>
               )}

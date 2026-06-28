@@ -32,7 +32,10 @@ export async function GET(req: Request) {
     `;
     const prefs = (rows[0]?.preferences ?? {}) as Record<string, unknown>;
     // Default ON (opt-out model): email unless explicitly disabled.
-    return NextResponse.json({ emailNotify: prefs.email_notify !== false });
+    return NextResponse.json({
+      emailNotify: prefs.email_notify !== false,
+      startingCapital: Number(prefs.starting_capital) || 100_000,
+    });
   } catch (err) {
     console.error("preferences.get_failed", err);
     return NextResponse.json({ error: "preferences lookup failed" }, { status: 500 });
@@ -42,9 +45,32 @@ export async function GET(req: Request) {
 export async function PUT(req: Request) {
   const user = await verify(req);
   if (!user) return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
-  const body = (await req.json().catch(() => ({}))) as { emailNotify?: boolean };
+  const body = (await req.json().catch(() => ({}))) as { emailNotify?: boolean; startingCapital?: number };
+
+  // Starting-capital update (Alpaca users set their real paper account's
+  // starting balance — the return denominator). Independent of emailNotify;
+  // handled first and returns on its own.
+  if (typeof body.startingCapital === "number") {
+    const cap = Math.round(body.startingCapital);
+    if (!Number.isFinite(cap) || cap < 1) {
+      return NextResponse.json({ error: "startingCapital must be a positive number" }, { status: 400 });
+    }
+    try {
+      const sql = getSql();
+      await sql`
+        UPDATE users
+        SET preferences = coalesce(preferences, '{}'::jsonb) || jsonb_build_object('starting_capital', ${cap}::int)
+        WHERE firebase_uid = ${user.uid}
+      `;
+      return NextResponse.json({ startingCapital: cap });
+    } catch (err) {
+      console.error("preferences.capital_put_failed", err);
+      return NextResponse.json({ error: "preferences update failed" }, { status: 500 });
+    }
+  }
+
   if (typeof body.emailNotify !== "boolean") {
-    return NextResponse.json({ error: "emailNotify (boolean) required" }, { status: 400 });
+    return NextResponse.json({ error: "emailNotify (boolean) or startingCapital (number) required" }, { status: 400 });
   }
   try {
     const sql = getSql();
