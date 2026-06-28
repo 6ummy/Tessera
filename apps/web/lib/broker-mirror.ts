@@ -189,19 +189,29 @@ export async function listRecentOrders(keys: Keys): Promise<BrokerOrder[]> {
   }));
 }
 
-export type AccountSummary = { equity: number; cash: number; positionsCount: number };
+export type AccountHolding = { ticker: string; value: number; weight: number };
+export type AccountSummary = { equity: number; cash: number; positionsCount: number; holdings: AccountHolding[] };
 
 /** Live snapshot of the connected paper account — drives the dashboard tiles
- *  once an account is linked. */
+ *  + the "you hold" column once an account is linked. */
 export async function accountSummary(keys: Keys): Promise<AccountSummary> {
   const [acct, positions] = await Promise.all([
     api("/v2/account", keys) as Promise<{ equity?: string; cash?: string }>,
-    api("/v2/positions", keys) as Promise<unknown[]>,
+    api("/v2/positions", keys) as Promise<Array<{ symbol: string; market_value?: string }>>,
   ]);
+  const equity = Number(acct.equity ?? 0);
+  const list = Array.isArray(positions) ? positions : [];
+  const holdings: AccountHolding[] = list
+    .map((p) => {
+      const value = Number(p.market_value ?? 0);
+      return { ticker: p.symbol, value, weight: equity > 0 ? value / equity : 0 };
+    })
+    .sort((a, b) => b.value - a.value);
   return {
-    equity: Number(acct.equity ?? 0),
+    equity,
     cash: Number(acct.cash ?? 0),
-    positionsCount: Array.isArray(positions) ? positions.length : 0,
+    positionsCount: list.length,
+    holdings,
   };
 }
 
