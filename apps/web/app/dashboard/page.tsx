@@ -137,7 +137,7 @@ function DashboardInner() {
   // Null unless broker-connect is on AND an account is connected (route 400s
   // otherwise). Fetched once; the chart slices/rebases it per range.
   const [alpacaHistory, setAlpacaHistory] = useState<{ date: string; t: number; equity: number }[] | null>(null);
-  const [alpacaAccount, setAlpacaAccount] = useState<{ equity: number; cash: number; positionsCount: number } | null>(null);
+  const [alpacaAccount, setAlpacaAccount] = useState<{ equity: number; cash: number; positionsCount: number; holdings: { ticker: string; value: number; weight: number }[] } | null>(null);
   useEffect(() => {
     if (process.env.NEXT_PUBLIC_FEATURE_BROKER_CONNECT !== "true" || !user) {
       setAlpacaHistory(null); setAlpacaAccount(null); return;
@@ -153,7 +153,7 @@ function DashboardInner() {
         ]);
         if (cancelled) return;
         if (hist.ok) setAlpacaHistory(((await hist.json()) as { points: { date: string; t: number; equity: number }[] }).points ?? null);
-        if (acct.ok) setAlpacaAccount((await acct.json()) as { equity: number; cash: number; positionsCount: number });
+        if (acct.ok) setAlpacaAccount((await acct.json()) as { equity: number; cash: number; positionsCount: number; holdings: { ticker: string; value: number; weight: number }[] });
       } catch { /* ignore */ }
     })();
     return () => { cancelled = true; };
@@ -364,6 +364,11 @@ function DashboardInner() {
       }))
       .sort((a, b) => b.value - a.value);
   }, [selected, bookScale]);
+
+  // "You hold" = real Alpaca positions when connected, else the paper mirror
+  // (which equals the analyst's target). selectedPositions = the analyst target.
+  const heldPositions = alpacaAccount ? alpacaAccount.holdings : selectedPositions;
+  const heldSource = alpacaAccount ? "Alpaca paper" : "Convt paper";
 
   return (
     <main className="min-h-screen">
@@ -594,32 +599,65 @@ function DashboardInner() {
                     </div>
                   </div>
 
-                  <div className="mt-4 overflow-hidden rounded-3xl border border-ink-900/[0.06] bg-cream-50">
-                    <div className="border-b border-ink-900/[0.06] bg-ink-900/[0.025] px-5 py-2.5">
-                      <p className="text-[10px] uppercase tracking-[0.14em] text-ink-500">
-                        Convt paper mirror · {selectedPersona?.name ?? "Analyst"}
-                      </p>
-                    </div>
-                    <div className="grid grid-cols-[1.5fr_1fr_1fr] border-b border-ink-900/[0.06] bg-ink-900/[0.025] px-5 py-3 text-[10px] uppercase tracking-[0.14em] text-ink-500">
-                      <div>Ticker</div>
-                      <div>Weight</div>
-                      <div className="text-right">Market value</div>
-                    </div>
-                    {selectedPositions.length === 0 ? (
-                      <div className="px-5 py-8 text-center text-sm text-ink-500">
-                        No positions yet — your analyst hasn&apos;t published a book to mirror.
+                  <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                    {/* LEFT — what the analyst wants (target weights). */}
+                    <div className="overflow-hidden rounded-3xl border border-ink-900/[0.06] bg-cream-50">
+                      <div className="border-b border-ink-900/[0.06] bg-ink-900/[0.025] px-5 py-2.5">
+                        <p className="text-[10px] uppercase tracking-[0.14em] text-ink-500">
+                          {selectedPersona?.name ?? "Analyst"} wants · target book
+                        </p>
                       </div>
-                    ) : (
-                      selectedPositions.map((p) => (
-                        <div key={p.ticker} className="grid grid-cols-[1.5fr_1fr_1fr] border-b border-ink-900/[0.05] px-5 py-3.5 last:border-b-0 hover:bg-ink-900/[0.02]">
-                          <div className="num text-sm font-medium text-ink-900">{p.ticker}</div>
-                          <div className="num text-sm text-ink-700">{fmt.pctAbs(p.weight)}</div>
-                          <div className="num text-right text-sm text-ink-800">
-                            ${p.value.toLocaleString("en-US", { maximumFractionDigits: 0 })}
+                      <div className="grid grid-cols-[1.5fr_1fr] border-b border-ink-900/[0.06] bg-ink-900/[0.025] px-5 py-3 text-[10px] uppercase tracking-[0.14em] text-ink-500">
+                        <div>Ticker</div>
+                        <div className="text-right">Weight</div>
+                      </div>
+                      {selectedPositions.length === 0 ? (
+                        <div className="px-5 py-8 text-center text-sm text-ink-500">No published book yet.</div>
+                      ) : (
+                        selectedPositions.map((p) => (
+                          <div key={p.ticker} className="grid grid-cols-[1.5fr_1fr] border-b border-ink-900/[0.05] px-5 py-3 last:border-b-0 hover:bg-ink-900/[0.02]">
+                            <div className="num text-sm font-medium text-ink-900">{p.ticker}</div>
+                            <div className="num text-right text-sm text-ink-700">{fmt.pctAbs(p.weight)}</div>
                           </div>
+                        ))
+                      )}
+                    </div>
+
+                    {/* RIGHT — what you actually hold (Alpaca if connected, else paper). */}
+                    <div className="overflow-hidden rounded-3xl border border-ink-900/[0.06] bg-cream-50">
+                      <div className="border-b border-ink-900/[0.06] bg-ink-900/[0.025] px-5 py-2.5">
+                        <p className="text-[10px] uppercase tracking-[0.14em] text-ink-500">
+                          You hold · {heldSource}
+                        </p>
+                      </div>
+                      <div className="grid grid-cols-[1.3fr_0.8fr_1fr] border-b border-ink-900/[0.06] bg-ink-900/[0.025] px-5 py-3 text-[10px] uppercase tracking-[0.14em] text-ink-500">
+                        <div>Ticker</div>
+                        <div>Weight</div>
+                        <div className="text-right">Value</div>
+                      </div>
+                      {heldPositions.length === 0 ? (
+                        <div className="px-5 py-8 text-center text-sm text-ink-500">
+                          {alpacaAccount
+                            ? "Nothing held yet — hit Mirror to copy the book."
+                            : "Nothing held yet."}
                         </div>
-                      ))
-                    )}
+                      ) : (
+                        heldPositions.map((p) => (
+                          <div key={p.ticker} className="grid grid-cols-[1.3fr_0.8fr_1fr] border-b border-ink-900/[0.05] px-5 py-3 last:border-b-0 hover:bg-ink-900/[0.02]">
+                            <div className="num text-sm font-medium text-ink-900">{p.ticker}</div>
+                            <div className="num text-sm text-ink-700">{fmt.pctAbs(p.weight)}</div>
+                            <div className="num text-right text-sm text-ink-800">
+                              ${p.value.toLocaleString("en-US", { maximumFractionDigits: 0 })}
+                            </div>
+                          </div>
+                        ))
+                      )}
+                      {!alpacaAccount && heldPositions.length > 0 && (
+                        <div className="px-5 py-2.5 text-[11px] leading-relaxed text-ink-500">
+                          Matches the target — Convt mirrors your analyst&apos;s book on paper.
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </>
                   )}
